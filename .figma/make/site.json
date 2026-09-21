@@ -1,0 +1,12 @@
+{
+  "title": "AWS Security Monitoring Center",
+  "language": "ko",
+  "description": "This enterprise web dashboard provides real-time security monitoring and action management for security personnel, enhancing threat detection and response efficiency.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
