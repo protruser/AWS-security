@@ -65,9 +65,10 @@ python app.py
 
 ### React
 
-다른 터미널에서 프로젝트 루트:
+다른 터미널에서 `frontend/` 폴더:
 
 ```powershell
+cd frontend
 npm install
 npm run dev
 ```

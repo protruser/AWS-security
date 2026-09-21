@@ -5,6 +5,7 @@ dist/
 build/
 .cache/
 .env*
+!.env.example
 .vite/
 vite.config.*.timestamp-*
 *.tsbuildinfo
@@ -13,14 +14,14 @@ logs/
 *.log
 .claude-replay.*
 .tmp-*
-/.figma/design-context/
+/frontend/.figma/design-context/
 
 # Platform-managed agentplat state, not project source. In the
 # client-initiated single-repo workspace layout (make's `Path: "."` spec) the
 # repo root IS the workspace root, so these land inside this repo rather than
 # beside it.
-/.plugins/
-/.opencode-skills/
+/frontend/.plugins/
+/frontend/.opencode-skills/
 
 # --- Terraform: state 에는 DB 비밀번호 등 시크릿이 평문으로 들어간다. 절대 커밋하지 않는다. ---
 *.tfstate
