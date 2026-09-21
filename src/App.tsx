@@ -18,9 +18,9 @@ import {
 import { ALERT_RULES, ASSETS, scenariosForAsset } from "./data/architecture"
 import { SCENARIO_DETAILS } from "./data/scenarios"
 
-import { ArchitectureMap } from "./components/ArchitectureMap"
-import { ScenarioPage } from "./components/ScenarioPage"
-import { AttackLabPage } from "./components/AttackLabPage"
+import { ArchitectureMap } from "./components/architecture/ArchitectureMap"
+import { ScenarioPage } from "./components/scenario/ScenarioPage"
+import { AttackLabPage } from "./components/attack-lab/AttackLabPage"
 import { ApprovalModal, DonutGauge, SeverityBadge } from "./components/common"
 
 // ─── Action card ──────────────────────────────────────────────────────────────

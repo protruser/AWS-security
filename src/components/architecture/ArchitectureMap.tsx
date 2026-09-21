@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
-import type { AssetStatus } from "../data/types"
-import { ASSETS } from "../data/architecture"
-import { CANVAS, ZONES, LEGEND, type Zone } from "../data/architectureLayout"
+import type { AssetStatus } from "../../data/types"
+import { ASSETS } from "../../data/architecture"
+import { CANVAS, ZONES, LEGEND, type Zone } from "../../data/architectureLayout"
 import { AssetCard } from "./AssetCard"
 import { Connections } from "./Connections"
 

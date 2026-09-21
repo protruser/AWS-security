@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
-import { SCENARIO_CARDS } from "../data/mock"
-import { LAB_SCENARIOS } from "../data/attackLab"
+import { SCENARIO_CARDS } from "../../data/mock"
+import { LAB_SCENARIOS } from "../../data/attackLab"
 
 type RunState = { step: number; done: boolean }
 

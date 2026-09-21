@@ -1,5 +1,5 @@
-import type { AssetStatus } from "../data/types"
-import { ICON, scenariosForAsset, type AssetDef } from "../data/architecture"
+import type { AssetStatus } from "../../data/types"
+import { ICON, scenariosForAsset, type AssetDef } from "../../data/architecture"
 import { AwsIcon } from "./AwsIcon"
 
 const STATUS_RING: Record<AssetStatus, string> = {

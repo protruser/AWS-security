@@ -1,5 +1,5 @@
 import { useId } from "react"
-import { CANVAS, CONNECTIONS } from "../data/architectureLayout"
+import { CANVAS, CONNECTIONS } from "../../data/architectureLayout"
 
 const MARKER_COLORS = ["#2F6FEB", "#98A2B3", "#101828", "#D92D20"]
 

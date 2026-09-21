@@ -27,9 +27,9 @@ npm run preview
 ## 코드 구조
 
 - `src/App.tsx`: 기존 대시보드·탭·시나리오 카드·승인·챗봇 UI 및 상태
-- `src/components/ArchitectureMap.tsx`: 서브넷 배치·레이어·반응형 캔버스
-- `src/components/AssetCard.tsx`: 리소스 박스와 상태 표시
-- `src/components/Connections.tsx`: 직각 SVG 연결선·화살표·흰색 라벨
+- `src/components/architecture/ArchitectureMap.tsx`: 서브넷 배치·레이어·반응형 캔버스
+- `src/components/architecture/AssetCard.tsx`: 리소스 박스와 상태 표시
+- `src/components/architecture/Connections.tsx`: 직각 SVG 연결선·화살표·흰색 라벨
 - `src/data/architecture.ts`: 리소스 정보·상태·Grid 좌표
 - `src/data/architectureLayout.ts`: 서브넷과 외부 Anchor·연결 경로
 - `src/data/mock.ts`: 원본 이벤트·탐지/조치 이력·시나리오·챗봇 예시 (현재 표시하지 않는 조치 이력도 보존)
