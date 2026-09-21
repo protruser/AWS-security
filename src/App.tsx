@@ -4,6 +4,9 @@ import type {
   RightTab,
   ActionEvent,
   ScenarioCard,
+  DetectHistoryItem,
+  RemediationHistoryItem,
+  DashboardApiResponse,
 } from "./data/types"
 
 import {
@@ -12,7 +15,6 @@ import {
   REMEDIATION_HISTORY,
   SCENARIO_CARDS,
   SUGGESTED_QUESTIONS,
-  getBotResponse,
 } from "./data/mock"
 
 import { ALERT_RULES, ASSETS, scenariosForAsset } from "./data/architecture"
@@ -22,6 +24,7 @@ import { ArchitectureMap } from "./components/architecture/ArchitectureMap"
 import { ScenarioPage } from "./components/scenario/ScenarioPage"
 import { AttackLabPage } from "./components/attack-lab/AttackLabPage"
 import { ApprovalModal, DonutGauge, SeverityBadge } from "./components/common"
+import { LoginPage } from "./components/auth/LoginPage"
 
 // ─── Action card ──────────────────────────────────────────────────────────────
 
@@ -101,6 +104,8 @@ function RightPanel({
   tab,
   setTab,
   events,
+  detectHistory,
+  remediationHistory,
   selectedEvent,
   onSelectEvent,
   onApprove,
@@ -109,6 +114,8 @@ function RightPanel({
   setTab: (t: RightTab) => void
 
   events: ActionEvent[]
+  detectHistory: DetectHistoryItem[]
+  remediationHistory: RemediationHistoryItem[]
 
   selectedEvent: ActionEvent | null
 
@@ -190,7 +197,7 @@ function RightPanel({
       {/* Remediation history tab */}
       {tab === "history" && (
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {REMEDIATION_HISTORY.map((r) => (
+          {remediationHistory.map((r) => (
             <div
               key={r.id}
               className="rounded-xl border border-[#EAECF0] bg-white p-3"
@@ -251,7 +258,7 @@ function RightPanel({
                 </tr>
               </thead>
               <tbody>
-                {DETECT_HISTORY.filter(
+                {detectHistory.filter(
                   (d) => detectFilter === "전체" || d.sev === detectFilter,
                 ).map((d) => (
                   <tr
@@ -304,6 +311,12 @@ interface ChatMessage {
   actions?: string[]
 }
 
+interface AuthUser {
+  username: string
+  role: string
+  team: string
+}
+
 function SecurityChatbot({
   selectedEvent,
   onHighlightPath,
@@ -318,28 +331,71 @@ function SecurityChatbot({
   const [messages, setMessages] = useState<ChatMessage[]>([])
 
   const [input, setInput] = useState("")
+  const [sending, setSending] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-  }, [messages])
+  }, [messages, sending])
 
-  const sendMessage = (text: string) => {
-    if (!text.trim()) return
+  const sendMessage = async (text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed || sending) return
 
-    const { text: botText, actions } = getBotResponse(text, selectedEvent)
+    const history = messages.map((message) => ({
+      role: message.role,
+      text: message.text,
+    }))
 
-    setMessages((prev) => [
-      ...prev,
-
-      { role: "user", text },
-
-      { role: "bot", text: botText, actions },
-    ])
-
+    setMessages((prev) => [...prev, { role: "user", text: trimmed }])
     setInput("")
+    setSending(true)
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          message: trimmed,
+          history,
+          event: selectedEvent,
+        }),
+      })
+
+      const data = (await response.json()) as {
+        text?: string
+        actions?: string[]
+        message?: string
+      }
+
+      if (!response.ok) {
+        throw new Error(data.message || `Chat API ${response.status}`)
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "bot",
+          text: data.text || "응답을 받지 못했습니다.",
+          actions: data.actions || [],
+        },
+      ])
+    } catch (error) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "bot",
+          text: `챗봇 연결 오류: ${
+            error instanceof Error ? error.message : "알 수 없는 오류"
+          }`,
+        },
+      ])
+    } finally {
+      setSending(false)
+    }
   }
 
   const handleActionBtn = (action: string) => {
@@ -412,12 +468,19 @@ function SecurityChatbot({
               {SUGGESTED_QUESTIONS.map((q) => (
                 <button
                   key={q}
-                  onClick={() => sendMessage(q)}
+                  onClick={() => void sendMessage(q)}
                   className="text-[10px] text-[#111111] bg-[#F5F5F5] hover:bg-[#E0E0E0] border border-[#D4D4D4] px-2 py-1.5 rounded-lg text-left transition-colors leading-tight"
                 >
                   {q}
                 </button>
               ))}
+            </div>
+          </div>
+        )}
+        {sending && (
+          <div className="flex justify-start">
+            <div className="bg-[#F5F5F5] text-[#667085] rounded-2xl rounded-tl-sm px-3 py-2">
+              <p className="text-[11px]">분석 중...</p>
             </div>
           </div>
         )}
@@ -461,15 +524,21 @@ function SecurityChatbot({
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && sendMessage(input)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                void sendMessage(input)
+              }
+            }}
+            disabled={sending}
             placeholder="보안 이벤트 또는 로그에 대해 질문하세요"
-            className="flex-1 text-[11px] border border-[#E0E0E0] rounded-lg px-2.5 py-1.5 outline-none focus:border-[#111111] bg-white"
+            className="flex-1 text-[11px] border border-[#E0E0E0] rounded-lg px-2.5 py-1.5 outline-none focus:border-[#111111] bg-white disabled:bg-[#F2F4F7]"
           />
           <button
-            onClick={() => sendMessage(input)}
-            className="text-[11px] font-bold text-white bg-[#111111] hover:bg-[#262626] px-3 py-1.5 rounded-lg transition-colors"
+            onClick={() => void sendMessage(input)}
+            disabled={sending}
+            className="text-[11px] font-bold text-white bg-[#111111] hover:bg-[#262626] px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            전송
+            {sending ? "분석 중" : "전송"}
           </button>
         </div>
       </div>
@@ -769,7 +838,11 @@ function parseRoute(): string | null {
 const isLabRoute = () => window.location.hash === "#/lab"
 
 export default function App() {
-  const [now, setNow] = useState(new Date(2026, 8, 18, 14, 32, 10))
+  const [now, setNow] = useState(new Date())
+  const [authState, setAuthState] = useState<
+    "loading" | "authenticated" | "unauthenticated"
+  >("loading")
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null)
 
   const [autoRefresh, setAutoRefresh] = useState(true)
 
@@ -799,6 +872,67 @@ export default function App() {
 
   const [toast, setToast] = useState<string | null>(null)
 
+  // 원본 UI는 그대로 유지하고, API 연결 성공 시 DB 데이터로 교체한다.
+  // API가 아직 준비되지 않았거나 DB 연결에 실패하면 기존 mock 데이터가 남는다.
+  const [actionEvents, setActionEvents] = useState<ActionEvent[]>(ACTION_EVENTS)
+  const [detectHistory, setDetectHistory] = useState<DetectHistoryItem[]>(DETECT_HISTORY)
+  const [remediationHistory, setRemediationHistory] =
+    useState<RemediationHistoryItem[]>(REMEDIATION_HISTORY)
+
+  const loadDashboardData = async () => {
+    try {
+      const response = await fetch("/api/dashboard", { credentials: "include" })
+      if (response.status === 401) {
+        setAuthUser(null)
+        setAuthState("unauthenticated")
+        return
+      }
+      if (!response.ok) {
+        throw new Error(`Dashboard API ${response.status}`)
+      }
+
+      const data = (await response.json()) as DashboardApiResponse
+      setActionEvents(data.events)
+      setDetectHistory(data.detectHistory)
+      setRemediationHistory(data.remediationHistory)
+    } catch (error) {
+      // 개발 중 Flask/DB가 꺼져 있어도 원본 화면은 mock 데이터로 계속 동작한다.
+      console.warn("DB 대시보드 데이터를 불러오지 못해 mock 데이터를 유지합니다.", error)
+    }
+  }
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const response = await fetch("/api/auth/status", {
+          credentials: "include",
+        })
+        if (!response.ok) throw new Error(`Auth API ${response.status}`)
+
+        const data = (await response.json()) as {
+          authenticated: boolean
+          user?: AuthUser
+        }
+
+        if (data.authenticated && data.user) {
+          setAuthUser(data.user)
+          setAuthState("authenticated")
+        } else {
+          setAuthState("unauthenticated")
+        }
+      } catch (error) {
+        console.warn("로그인 상태 확인 실패", error)
+        setAuthState("unauthenticated")
+      }
+    }
+
+    void checkAuth()
+  }, [])
+
+  useEffect(() => {
+    if (authState === "authenticated") void loadDashboardData()
+  }, [authState])
+
   useEffect(() => {
     const onHash = () => {
       setPageId(parseRoute())
@@ -822,18 +956,22 @@ export default function App() {
     window.location.hash = ""
   }
 
-  // Clock tick
-
+  // 실제 현재 시간: 브라우저 시스템 시간을 1초마다 다시 읽는다.
   useEffect(() => {
-    if (!autoRefresh) return
+    const id = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(id)
+  }, [])
 
-    const id = setInterval(
-      () => setNow((d) => new Date(d.getTime() + 60000)),
-      60000,
-    )
+  // 자동 갱신은 시간 표시와 분리하여 DB 데이터만 1분마다 다시 읽는다.
+  useEffect(() => {
+    if (!autoRefresh || authState !== "authenticated") return
+
+    const id = setInterval(() => {
+      void loadDashboardData()
+    }, 10000)
 
     return () => clearInterval(id)
-  }, [autoRefresh])
+  }, [autoRefresh, authState])
 
   const clearSelection = () => {
     setSelectedScenario(null)
@@ -887,7 +1025,7 @@ export default function App() {
     setSelectedScenario(card)
     setSelectedEvent(
       card.actionEventId
-        ? (ACTION_EVENTS.find((e) => e.id === card.actionEventId) ?? null)
+        ? (actionEvents.find((e) => e.id === card.actionEventId) ?? null)
         : null,
     )
   }
@@ -928,8 +1066,21 @@ export default function App() {
     clearSelection()
   }
 
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`
+  const fmt = (d: Date) => {
+    const parts = new Intl.DateTimeFormat("ko-KR", {
+      timeZone: "Asia/Seoul",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(d)
+    const part = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((item) => item.type === type)?.value ?? "00"
+    return `${part("year")}.${part("month")}.${part("day")} ${part("hour")}:${part("minute")}:${part("second")}`
+  }
 
   const executeScenarioAction = (actionId: string) => {
     const t = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
@@ -937,7 +1088,7 @@ export default function App() {
     setToast("조치가 실행되었습니다")
   }
 
-  const activeEvents = ACTION_EVENTS.filter((e) => !removedIds.has(e.id))
+  const activeEvents = actionEvents.filter((e) => !removedIds.has(e.id))
 
   const scenarioResolved = (id: string) => {
     const acts = SCENARIO_DETAILS[id]?.actions ?? []
@@ -982,6 +1133,48 @@ export default function App() {
   const attackPathAssets = selection ? selection.attackPath : []
 
   const chatContextEvent = selectedEvent
+
+  const handleLogin = async (username: string, password: string) => {
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ username, password }),
+    })
+    const data = (await response.json()) as { user?: AuthUser; message?: string }
+    if (!response.ok || !data.user) {
+      throw new Error(data.message || "아이디 또는 비밀번호를 확인해 주세요.")
+    }
+
+    setAuthUser(data.user)
+    setAuthState("authenticated")
+    return data.user
+  }
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      })
+    } finally {
+      setAuthUser(null)
+      setAuthState("unauthenticated")
+      clearSelection()
+    }
+  }
+
+  if (authState === "loading") {
+    return (
+      <div className="min-h-screen bg-[#F6F7F9] flex items-center justify-center text-[12px] text-[#667085]">
+        로그인 상태 확인 중...
+      </div>
+    )
+  }
+
+  if (authState === "unauthenticated") {
+    return <LoginPage onLogin={handleLogin} />
+  }
 
   return (
     <div
@@ -1088,16 +1281,26 @@ export default function App() {
           </button>
 
           {/* Profile */}
-          <div className="flex items-center gap-2 cursor-pointer hover:bg-[#F5F5F5] rounded-lg px-2 py-1 transition-colors">
-            <div className="w-7 h-7 rounded-full bg-[#111111] flex items-center justify-center text-white text-[11px] font-bold">
-              관
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 hover:bg-[#F5F5F5] rounded-lg px-2 py-1 transition-colors">
+              <div className="w-7 h-7 rounded-full bg-[#111111] flex items-center justify-center text-white text-[11px] font-bold">
+                관
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold text-[#0D0D0D] leading-tight">
+                  {authUser?.team || "보안관제팀"}
+                </p>
+                <p className="text-[9px] text-[#6B6B6B] leading-tight">
+                  {authUser?.username || "관리자"} · {authUser?.role || "관리자"}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-[11px] font-semibold text-[#0D0D0D] leading-tight">
-                보안관제팀
-              </p>
-              <p className="text-[9px] text-[#6B6B6B] leading-tight">관리자</p>
-            </div>
+            <button
+              onClick={() => void handleLogout()}
+              className="text-[10px] text-[#98A2B3] hover:text-[#344054] transition-colors"
+            >
+              로그아웃
+            </button>
           </div>
         </div>
       </header>
@@ -1234,6 +1437,8 @@ export default function App() {
               tab={rightTab}
               setTab={setRightTab}
               events={activeEvents}
+              detectHistory={detectHistory}
+              remediationHistory={remediationHistory}
               selectedEvent={selectedEvent}
               onSelectEvent={handleSelectEvent}
               onApprove={setApprovalTarget}

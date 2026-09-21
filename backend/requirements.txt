@@ -1,0 +1,6 @@
+Flask==3.1.2
+flask-cors==6.0.1
+PyMySQL==1.1.2
+python-dotenv==1.1.1
+boto3==1.40.40
+openai>=1.75.0,<3.0.0

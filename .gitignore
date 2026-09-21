@@ -48,3 +48,9 @@ docker-compose.override.yml
 # --- 기타 ---
 .DS_Store
 Asset-Package_*.zip
+
+# --- 백엔드 ---
+backend/.env
+backend/venv/
+__pycache__/
+*.pyc

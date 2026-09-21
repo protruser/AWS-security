@@ -57,3 +57,33 @@ export interface ScenarioCard {
 
   actionEventId?: string
 }
+
+
+export interface DetectHistoryItem {
+  id: string | number
+  time: string
+  sev: Severity
+  event: string
+  service: string
+  asset: string
+  ip: string
+  blocked: string
+  status: string
+}
+
+export interface RemediationHistoryItem {
+  id: string | number
+  time: string
+  event: string
+  asset: string
+  method: string
+  approver: string
+  result: string
+  completedAt: string
+}
+
+export interface DashboardApiResponse {
+  events: ActionEvent[]
+  detectHistory: DetectHistoryItem[]
+  remediationHistory: RemediationHistoryItem[]
+}
