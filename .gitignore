@@ -1,0 +1,52 @@
+node_modules/
+__pycache__/
+*.py[cod]
+.browser-check/
+artifacts/
+dist/
+build/
+.cache/
+.env*
+.vite/
+vite.config.*.timestamp-*
+*.tsbuildinfo
+*-debug.log*
+logs/
+*.log
+.claude-replay.*
+.tmp-*
+/.figma/design-context/
+
+# Platform-managed agentplat state, not project source. In the
+# client-initiated single-repo workspace layout (make's `Path: "."` spec) the
+# repo root IS the workspace root, so these land inside this repo rather than
+# beside it.
+/.plugins/
+/.opencode-skills/
+
+# --- Terraform: state 에는 DB 비밀번호 등 시크릿이 평문으로 들어간다. 절대 커밋하지 않는다. ---
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+backend.tf
+
+# --- AWS / 키 ---
+*.pem
+*.key
+.aws/
+credentials
+
+# --- Docker (나중에 추가할 때 대비) ---
+docker-compose.override.yml
+
+# --- 기타 ---
+.DS_Store
+Asset-Package_*.zip
