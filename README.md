@@ -12,9 +12,9 @@ npm ci
 npm run dev
 ```
 
-접속 주소: **http://localhost:8443/**. Windows PowerShell에서 실행 정책 오류가 발생하면 `npm` 대신 `npm.cmd`를 사용하세요. 기존 pnpm 환경에서는 `pnpm install --frozen-lockfile`, `pnpm dev`도 사용할 수 있습니다.
+접속 주소: **http://localhost:8443/**. Windows PowerShell에서 실행 정책 오류가 발생하면 `npm` 대신 `npm.cmd`를 사용하세요.
 
-포트는 기존 8443을 유지하며, 충돌 시 자동 변경하지 않고 오류를 표시합니다. 다른 포트는 `npm run dev -- --port 8444`로 지정하세요. `PORT`와 Figma의 `FIGMA_DEV_SERVER_HOST`, `FIGMA_PUBLIC_URL` 환경변수도 지원합니다. 기본 호스트는 localhost입니다.
+포트는 기존 8443을 유지하며, 충돌 시 자동 변경하지 않고 오류를 표시합니다. 다른 포트는 `npm run dev -- --port 8444`로 지정하세요. `PORT`, `HOST` 환경변수도 지원합니다. 기본 호스트는 localhost입니다.
 
 ```sh
 cd frontend
