@@ -93,11 +93,11 @@ export const ASSETS: AssetDef[] = [
   // 01-service / 03-shop-db
   node("k3s", 316, 258, "k3s", "K3s EC2", undefined, "01-k3s-nginx · nginx Reverse Proxy · NodePort 30443 수신"),
   node("flaskApp", 316, 392, "app", "Flask App", "EC2", "03-shop-app · nginx 에서 8443 수신"),
-  node("shopMySQL", 416, 392, "db", "MySQL", "EC2 · 쇼핑몰", "03-shop-mysql · 3306 (Flask 만 허용)"),
+  node("shopMySQL", 416, 392, "db", "MySQL", "EC2 · 쇼핑몰", "04-shop-mysql · 3306 (Flask 만 허용)"),
 
   // 02-dashboard / 04-security-db
   node("dashEC2", 690, 258, "ec2", "Dashboard EC2", undefined, "02-dashboard · admin ALB 에서 8443 수신"),
-  node("secMySQL", 690, 392, "db", "MySQL", "EC2 · 보안 결과", "04-security-mysql · 3306 (Dashboard · Lambda SG 허용)"),
+  node("secMySQL", 690, 392, "db", "MySQL", "EC2 · 보안 결과", "05-security-mysql · 3306 (Dashboard · Lambda SG 허용)"),
 
   // 이미지 · 암호화
   node("ecr", 250, 556, "ecr", "ECR", "repo 3개", "nginx · shop-app · dashboard (push 시 스캔)"),
