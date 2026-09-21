@@ -1,5 +1,5 @@
 import { useState } from "react"
-import type { Severity } from "../data/types"
+import type { Severity } from "../../data/types"
 
 export const SEV_COLOR: Record<Severity, string> = {
   Critical: "#D92D20",

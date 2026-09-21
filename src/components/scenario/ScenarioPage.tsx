@@ -6,7 +6,7 @@ import {
   type ScenarioDetail,
   type Tone,
 } from "../../data/scenarios"
-import { ApprovalModal, DonutGauge, SEV_COLOR, SeverityBadge } from "../common"
+import { ApprovalModal, DonutGauge, SEV_COLOR, SeverityBadge } from "../shared/common"
 
 const TONE: Record<Tone, { fg: string; bg: string; dot: string }> = {
   danger: { fg: "#B42318", bg: "#FEF3F2", dot: "#D92D20" },

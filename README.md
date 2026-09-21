@@ -26,13 +26,29 @@ npm run preview
 
 ## 코드 구조
 
-- `src/App.tsx`: 기존 대시보드·탭·시나리오 카드·승인·챗봇 UI 및 상태
-- `src/components/architecture/ArchitectureMap.tsx`: 서브넷 배치·레이어·반응형 캔버스
-- `src/components/architecture/AssetCard.tsx`: 리소스 박스와 상태 표시
-- `src/components/architecture/Connections.tsx`: 직각 SVG 연결선·화살표·흰색 라벨
+```text
+src/
+├─ App.tsx                     메인 화면(상태·라우팅·레이아웃)
+├─ main.tsx, index.css         진입점·전역 스타일
+├─ components/
+│   ├─ architecture/           아키텍처 맵 (ArchitectureMap, AssetCard, Connections, AwsIcon)
+│   ├─ events/                 조치 필요 목록 (ActionCard, RightPanel)
+│   ├─ chatbot/                보안 분석 챗봇 (SecurityChatbot)
+│   ├─ scenario-cards/         시나리오 카드 (ScenarioCardWrapper)
+│   ├─ scenario/               시나리오 상세 화면 (ScenarioPage)
+│   ├─ attack-lab/             공격 실습 화면 (AttackLabPage)
+│   ├─ auth/                   로그인 (LoginPage)
+│   └─ shared/                 공통 UI (common.tsx)
+├─ data/                       타입·자산 정의·시나리오·mock 데이터
+├─ services/                   백엔드 API 호출 (dashboardApi.ts)
+└─ assets/aws-icons/           AWS 아이콘
+backend/                       Flask + MySQL 조회·조치 API, schema.sql
+docs/                          구현 메모
+```
+
 - `src/data/architecture.ts`: 리소스 정보·상태·Grid 좌표
 - `src/data/architectureLayout.ts`: 서브넷과 외부 Anchor·연결 경로
-- `src/data/mock.ts`: 원본 이벤트·탐지/조치 이력·시나리오·챗봇 예시 (현재 표시하지 않는 조치 이력도 보존)
+- `src/data/mock.ts`: 원본 이벤트·탐지/조치 이력·시나리오·챗봇 예시 (DB 연결 실패 시 이 데이터를 그대로 사용)
 - `src/data/types.ts`, `src/index.css`: 공통 타입·스타일
 
 박스는 연결선 위의 독립 레이어에 표시됩니다. 선은 박스 경계에서 6 단위 떨어진 Anchor를 사용하며, 행·열 사이와 VPC 바깥 통로를 따라갑니다. 낮은 창에서는 글자 크기를 유지하고 아키텍처 내부를 스크롤합니다. 기존 데모의 예외 처리·일부 챗봇 액션 등 미구현 버튼은 실제 API 작업을 실행하지 않습니다.

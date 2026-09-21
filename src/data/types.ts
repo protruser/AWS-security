@@ -87,3 +87,9 @@ export interface DashboardApiResponse {
   detectHistory: DetectHistoryItem[]
   remediationHistory: RemediationHistoryItem[]
 }
+
+export interface AuthUser {
+  username: string
+  role: string
+  team: string
+}
