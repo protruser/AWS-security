@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 
+import boto3
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, session
 from flask_cors import CORS
@@ -292,6 +293,40 @@ def events():
     except Exception as exc:
         app.logger.exception("Failed to read events")
         return jsonify({"error": "DATABASE_READ_FAILED", "message": str(exc)}), 500
+
+
+REMEDIATION_ACTIONS = {"block_ip", "restart_service", "disable_access_key"}
+
+
+@app.post("/api/events/<event_id>/remediate")
+@login_required
+def remediate(event_id):
+    """승인된 조치를 Lambda Remediation 으로 실행한다. (동기 호출, 결과는 remediation_history 에도 기록됨)"""
+    data = request.get_json(silent=True) or {}
+    action = data.get("action")
+    if action not in REMEDIATION_ACTIONS:
+        return jsonify({"error": "INVALID_ACTION", "message": "지원하지 않는 조치입니다."}), 400
+
+    payload = {
+        "event_id": event_id,
+        "action": action,
+        "approver": _current_user()["username"],
+        "params": data.get("params") or {},
+    }
+    try:
+        client = boto3.client("lambda", region_name=os.getenv("AWS_REGION", "ap-northeast-2"))
+        resp = client.invoke(
+            FunctionName=os.getenv("REMEDIATION_FUNCTION_NAME", "wonny-sec-remediation"),
+            InvocationType="RequestResponse",
+            Payload=json.dumps(payload).encode(),
+        )
+        result = json.loads(resp["Payload"].read() or b"{}")
+        if resp.get("FunctionError"):
+            return jsonify({"error": "REMEDIATION_FAILED", "message": result.get("errorMessage", "")}), 502
+        return jsonify(result), (200 if result.get("ok") else 422)
+    except Exception as exc:
+        app.logger.exception("Failed to invoke remediation")
+        return jsonify({"error": "REMEDIATION_INVOKE_FAILED", "message": str(exc)}), 500
 
 
 @app.post("/api/chat")
