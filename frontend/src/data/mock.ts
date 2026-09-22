@@ -1,4 +1,4 @@
-import type { ActionEvent, Severity, ScenarioCard } from "./types"
+import type { ActionEvent, Severity, ScenarioCard, ServiceMetric } from "./types"
 
 export const ACTION_EVENTS: ActionEvent[] = [
   {
@@ -429,3 +429,71 @@ export function getBotResponse(
     actions: [],
   }
 }
+
+export const SERVICE_METRICS: ServiceMetric[] = [
+  {
+    server: "k3s",
+    displayName: "K3s / nginx",
+    status: "healthy",
+    cpuPercent: 18.4,
+    memoryPercent: 41.2,
+    requestCount: 842,
+    avgLatencyMs: 63,
+    errorRatePercent: 0.1,
+    healthyTargets: 1,
+    unhealthyTargets: 0,
+    updatedAt: "-",
+  },
+  {
+    server: "dashboard",
+    displayName: "Dashboard",
+    status: "healthy",
+    cpuPercent: 12.7,
+    memoryPercent: 38.6,
+    requestCount: 96,
+    avgLatencyMs: 41,
+    errorRatePercent: 0,
+    healthyTargets: 1,
+    unhealthyTargets: 0,
+    updatedAt: "-",
+  },
+  {
+    server: "shop_app",
+    displayName: "Shop App",
+    status: "healthy",
+    cpuPercent: 24.9,
+    memoryPercent: 52.0,
+    requestCount: null,
+    avgLatencyMs: null,
+    errorRatePercent: null,
+    healthyTargets: null,
+    unhealthyTargets: null,
+    updatedAt: "-",
+  },
+  {
+    server: "shop_db",
+    displayName: "Shop MySQL",
+    status: "healthy",
+    cpuPercent: 9.3,
+    memoryPercent: 61.5,
+    requestCount: null,
+    avgLatencyMs: null,
+    errorRatePercent: null,
+    healthyTargets: null,
+    unhealthyTargets: null,
+    updatedAt: "-",
+  },
+  {
+    server: "security_db",
+    displayName: "Security MySQL",
+    status: "healthy",
+    cpuPercent: 11.8,
+    memoryPercent: 58.3,
+    requestCount: null,
+    avgLatencyMs: null,
+    errorRatePercent: null,
+    healthyTargets: null,
+    unhealthyTargets: null,
+    updatedAt: "-",
+  },
+]

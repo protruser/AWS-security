@@ -167,6 +167,25 @@ def _remediation_to_history(row):
     }
 
 
+def _service_metric_to_response(row):
+    def num(key):
+        return float(row[key]) if row.get(key) is not None else None
+
+    return {
+        "server": row["server"],
+        "displayName": row.get("display_name") or row["server"],
+        "status": row.get("status") or "unknown",
+        "cpuPercent": num("cpu_percent"),
+        "memoryPercent": num("memory_percent"),
+        "requestCount": row.get("request_count"),
+        "avgLatencyMs": num("avg_latency_ms"),
+        "errorRatePercent": num("error_rate_percent"),
+        "healthyTargets": row.get("healthy_targets"),
+        "unhealthyTargets": row.get("unhealthy_targets"),
+        "updatedAt": _format_datetime(row.get("updated_at"), "%H:%M:%S"),
+    }
+
+
 def _read_dashboard_data():
     with get_connection() as connection:
         with connection.cursor() as cursor:
@@ -205,12 +224,22 @@ def _read_dashboard_data():
             )
             remediation_rows = cursor.fetchall()
 
+            # 이 표는 Lambda C가 첫 실행 때 만든다. 아직 한 번도 안 돌았으면 없을 수 있으므로,
+            # 없다고 해서 이벤트·조치 이력까지 함께 못 보여주는 일은 없게 따로 감싼다.
+            try:
+                cursor.execute("SELECT * FROM service_metrics ORDER BY server")
+                metric_rows = cursor.fetchall()
+            except Exception:
+                app.logger.warning("service_metrics 조회 실패 (아직 생성 전일 수 있음)", exc_info=True)
+                metric_rows = []
+
     return {
         "events": [_event_to_action_event(row) for row in action_rows],
         "detectHistory": [_event_to_detect_history(row) for row in detect_rows],
         "remediationHistory": [
             _remediation_to_history(row) for row in remediation_rows
         ],
+        "serviceMetrics": [_service_metric_to_response(row) for row in metric_rows],
     }
 
 

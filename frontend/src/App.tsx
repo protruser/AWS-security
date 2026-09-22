@@ -4,13 +4,14 @@ import { AttackLabPage } from "./components/attack-lab/AttackLabPage"
 import { LoginPage } from "./components/auth/LoginPage"
 import { SecurityChatbot } from "./components/chatbot/SecurityChatbot"
 import { RightPanel } from "./components/events/RightPanel"
+import { ServiceHealthStrip } from "./components/health/ServiceHealthStrip"
 import { ScenarioCardWrapper } from "./components/scenario-cards/ScenarioCardWrapper"
 import { ScenarioPage } from "./components/scenario/ScenarioPage"
 import { ApprovalModal } from "./components/shared/common"
 import { ALERT_RULES, ASSETS, scenariosForAsset } from "./data/architecture"
-import { ACTION_EVENTS, DETECT_HISTORY, REMEDIATION_HISTORY, SCENARIO_CARDS } from "./data/mock"
+import { ACTION_EVENTS, DETECT_HISTORY, REMEDIATION_HISTORY, SCENARIO_CARDS, SERVICE_METRICS } from "./data/mock"
 import { SCENARIO_DETAILS } from "./data/scenarios"
-import type { ActionEvent, AssetStatus, AuthUser, DashboardApiResponse, DetectHistoryItem, RemediationHistoryItem, RightTab, ScenarioCard } from "./data/types"
+import type { ActionEvent, AssetStatus, AuthUser, DashboardApiResponse, DetectHistoryItem, RemediationHistoryItem, RightTab, ScenarioCard, ServiceMetric } from "./data/types"
 
 function parseRoute(): string | null {
   const m = window.location.hash.match(/^#\/scenario\/(\w+)/)
@@ -60,6 +61,7 @@ export default function App() {
   const [detectHistory, setDetectHistory] = useState<DetectHistoryItem[]>(DETECT_HISTORY)
   const [remediationHistory, setRemediationHistory] =
     useState<RemediationHistoryItem[]>(REMEDIATION_HISTORY)
+  const [serviceMetrics, setServiceMetrics] = useState<ServiceMetric[]>(SERVICE_METRICS)
 
   const loadDashboardData = async () => {
     try {
@@ -77,6 +79,8 @@ export default function App() {
       setActionEvents(data.events)
       setDetectHistory(data.detectHistory)
       setRemediationHistory(data.remediationHistory)
+      // Lambda C가 아직 한 번도 안 돌았으면 빈 배열이 온다. 그때는 mock을 유지해 화면이 비지 않게 한다.
+      if (data.serviceMetrics?.length) setServiceMetrics(data.serviceMetrics)
     } catch (error) {
       // 개발 중 Flask/DB가 꺼져 있어도 원본 화면은 mock 데이터로 계속 동작한다.
       console.warn("DB 대시보드 데이터를 불러오지 못해 mock 데이터를 유지합니다.", error)
@@ -499,7 +503,8 @@ export default function App() {
           onBack={closeScenario}
         />
       ) : (
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* ── Left: Architecture map + scenario cards ──────────────────── */}
         <main
           className="flex-1 min-w-0 overflow-hidden flex flex-col gap-2 p-3"
@@ -608,7 +613,7 @@ export default function App() {
         {/* ── Right: split panel ──────────────────────────────────────── */}
         <aside
           className="flex-shrink-0 border-l border-[#E4E7EC] bg-[#F6F7F9] flex flex-col overflow-hidden"
-          style={{ width: 380, height: "calc(100vh - 56px)" }}
+          style={{ width: 380, height: "calc(100vh - 56px - 96px)" }}
         >
           {/* Top: action list + detect history */}
           <div
@@ -646,6 +651,12 @@ export default function App() {
             />
           </div>
         </aside>
+      </div>
+
+      {/* ── 하단: 인프라 상태(보안 시나리오 아님) ─────────────────────── */}
+      <div className="flex-shrink-0 px-3 pb-3 pt-2 border-t border-[#E4E7EC]">
+        <ServiceHealthStrip metrics={serviceMetrics} />
+      </div>
       </div>
       )}
 

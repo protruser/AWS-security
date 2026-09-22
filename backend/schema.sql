@@ -56,3 +56,21 @@ CREATE TABLE IF NOT EXISTS remediation_history (
       FOREIGN KEY (event_id) REFERENCES security_events(id)
       ON DELETE CASCADE
 );
+
+-- Lambda C가 5분마다 CloudWatch에서 모은 인프라 현재 상태 (보안 이벤트 아님, 서버당 1행만 유지)
+CREATE TABLE IF NOT EXISTS service_metrics (
+    server              VARCHAR(40) PRIMARY KEY,
+    display_name        VARCHAR(80) NOT NULL,
+    status              VARCHAR(20) NOT NULL DEFAULT 'unknown',
+    cpu_percent         DECIMAL(5,2) NULL,
+    memory_percent      DECIMAL(5,2) NULL,
+    request_count       INT NULL,
+    avg_latency_ms      DECIMAL(8,2) NULL,
+    error_rate_percent  DECIMAL(5,2) NULL,
+    healthy_targets     INT NULL,
+    unhealthy_targets   INT NULL,
+    window_start        DATETIME NULL,
+    window_end          DATETIME NULL,
+    updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                        ON UPDATE CURRENT_TIMESTAMP
+);
