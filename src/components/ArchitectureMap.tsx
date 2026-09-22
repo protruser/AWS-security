@@ -83,7 +83,7 @@ export function ArchitectureMap({
   return (
     <div
       ref={outerRef}
-      className="architecture-viewport w-full h-full rounded-2xl ring-1 ring-[#E4E7EC] bg-white flex items-center justify-center"
+      className="architecture-viewport absolute inset-0 rounded-2xl ring-1 ring-[#E4E7EC] bg-white flex items-center justify-center"
       aria-label="AWS 아키텍처"
       onClick={onBackgroundClick}
     >

@@ -2108,14 +2108,18 @@ export default function App() {
             />
           ) : (
             <main className="min-h-full flex flex-col gap-2 p-3">
-              {dashboardDataState !== "success" && (
-                <DashboardDataStatus
-                  status={dashboardDataState}
-                  onRetry={() => void loadDashboardData()}
-                />
-              )}
               {/* Architecture map now uses the full dashboard width */}
+              {/* absolute 배너로 떠 있게 해서, 로딩 배너가 뜨고 사라질 때
+                  지도 영역 크기 자체가 바뀌지 않게 한다(새로고침마다 "줌"되어 보이던 원인). */}
               <div className="flex-1 min-h-[360px] relative">
+                {dashboardDataState !== "success" && (
+                  <div className="absolute left-0 right-0 top-0 z-10">
+                    <DashboardDataStatus
+                      status={dashboardDataState}
+                      onRetry={() => void loadDashboardData()}
+                    />
+                  </div>
+                )}
                 <ArchitectureMap
                   assetStatuses={statuses}
                   highlightedAssets={highlightedAssets}
