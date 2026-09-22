@@ -11,6 +11,9 @@ export interface ActionEvent {
 
   title: string
 
+  // Lambda가 판단한 시나리오 키(sqli/xss/dir/brute/port/cred/vuln 등). mock 데이터에는 없어 옵셔널.
+  scenarioType?: string | null
+
   service: string
 
   asset: string

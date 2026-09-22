@@ -110,6 +110,7 @@ def _event_to_action_event(row):
         "severity": _severity(row.get("severity")),
         "title": row.get("title") or "보안 이벤트",
         "service": row.get("service") or "Unknown",
+        "scenarioType": row.get("scenario_type"),
         "asset": row.get("asset") or "-",
         "detectedAt": _format_datetime(row.get("detected_at")),
         "elapsed": _elapsed_text(row.get("detected_at")),

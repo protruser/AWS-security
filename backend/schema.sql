@@ -8,6 +8,8 @@ USE security;
 CREATE TABLE IF NOT EXISTS security_events (
     id                VARCHAR(255) PRIMARY KEY,
     service           VARCHAR(80) NOT NULL,
+    -- Lambda가 판단한 시나리오 키 (sqli/xss/dir/brute/brute_admin/port/cred/vuln/s3/generic 등)
+    scenario_type     VARCHAR(80) NULL,
     severity          VARCHAR(20) NOT NULL,
     title             VARCHAR(255) NOT NULL,
     asset             VARCHAR(255) NULL,
@@ -34,7 +36,8 @@ CREATE TABLE IF NOT EXISTS security_events (
     INDEX idx_security_events_detected_at (detected_at),
     INDEX idx_security_events_status (status),
     INDEX idx_security_events_severity (severity),
-    INDEX idx_security_events_service (service)
+    INDEX idx_security_events_service (service),
+    INDEX idx_security_events_scenario_type (scenario_type)
 );
 
 -- 조치 승인/자동조치 결과 이력
