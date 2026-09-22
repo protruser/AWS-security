@@ -44,17 +44,8 @@ LOG_RANGE_DELTAS = {
     "7d": timedelta(days=7),
 }
 LOG_SOURCES = {"waf", "guardduty", "inspector"}
-OVERVIEW_METRIC_NAMES = {
-    "CPUUtilization",
-    "mem_used_percent",
-    "TargetResponseTime",
-    "RequestCount",
-    "HTTPCode_Target_5XX_Count",
-    "HTTPCode_ELB_5XX_Count",
-    "StatusCheckFailed",
-    "HealthyHostCount",
-    "UnHealthyHostCount",
-}
+# 운영 지표는 infra의 Lambda C 가 5분마다 채우는 service_metrics 표에서 읽는다
+# (Terraform: modules/lambda_c, modules/lambda_common/common/db.py).
 OVERVIEW_SERIES_LIMIT = 20
 MONITORING_METRIC_ALIASES = {
     "all": "all",
@@ -66,18 +57,6 @@ MONITORING_METRIC_ALIASES = {
     "error-rate": "errorRate",
     "error_rate": "errorRate",
     "health": "health",
-}
-MONITORING_RAW_METRICS = {
-    "cpu": {"CPUUtilization"},
-    "memory": {"mem_used_percent"},
-    "latency": {"TargetResponseTime"},
-    "rps": {"RequestCount"},
-    "errorRate": {
-        "RequestCount",
-        "HTTPCode_Target_5XX_Count",
-        "HTTPCode_ELB_5XX_Count",
-    },
-    "health": {"StatusCheckFailed", "HealthyHostCount", "UnHealthyHostCount"},
 }
 
 
@@ -414,95 +393,122 @@ def _iso_datetime(value):
     return str(value) if value else None
 
 
-def _read_overview_metrics():
-    placeholders = ", ".join(["%s"] * len(OVERVIEW_METRIC_NAMES))
-    query = f"""
-        SELECT metric_name, metric_value, period_seconds, collected_at
-        FROM monitoring_metrics
-        WHERE metric_name IN ({placeholders})
-          AND collected_at >= UTC_TIMESTAMP() - INTERVAL 24 HOUR
-        ORDER BY collected_at ASC
+def _aggregate_service_metrics(rows):
+    """service_metrics 는 5분 구간마다 서버별로 한 행씩(최대 5행) 쌓인다.
+    같은 window_start 를 모아 시스템 전체 기준 한 점으로 합친다.
+    - cpu/memory: 값이 있는 서버들의 평균
+    - latency/rps/errorRate/healthy/unhealthy: ALB 뒤에 있는 서버(k3s, dashboard)만 더한다
+      (shop_app/shop_db/security_db 는 ALB에 안 물려 있어 요청 지표가 없다)
     """
+    by_window = {}
+    for row in rows:
+        by_window.setdefault(row["window_start"], []).append(row)
 
+    points = []
+    for window_start in sorted(by_window):
+        server_rows = by_window[window_start]
+        window_end = max(r["window_end"] for r in server_rows)
+
+        cpu_values = [float(r["cpu_percent"]) for r in server_rows if r.get("cpu_percent") is not None]
+        mem_values = [float(r["memory_percent"]) for r in server_rows if r.get("memory_percent") is not None]
+
+        alb_rows = [r for r in server_rows if r.get("request_count") is not None]
+        total_requests = sum(int(r["request_count"]) for r in alb_rows)
+
+        lat_pairs = [
+            (float(r["avg_latency_ms"]), int(r["request_count"]))
+            for r in alb_rows
+            if r.get("avg_latency_ms") is not None
+        ]
+        weight_sum = sum(w for _, w in lat_pairs)
+        if lat_pairs and weight_sum > 0:
+            latency = sum(v * w for v, w in lat_pairs) / weight_sum
+        elif lat_pairs:
+            latency = sum(v for v, _ in lat_pairs) / len(lat_pairs)
+        else:
+            latency = None
+
+        if alb_rows:
+            errors = sum(
+                float(r["error_rate_percent"] or 0) / 100 * int(r["request_count"])
+                for r in alb_rows
+            )
+            error_rate = (errors / total_requests * 100) if total_requests else 0.0
+            rps = total_requests / 300  # 5분(300초) 구간 합계를 초당 요청 수로 환산
+        else:
+            error_rate = None
+            rps = None
+
+        healthy_vals = [int(r["healthy_targets"]) for r in alb_rows if r.get("healthy_targets") is not None]
+        unhealthy_vals = [int(r["unhealthy_targets"]) for r in alb_rows if r.get("unhealthy_targets") is not None]
+        healthy = sum(healthy_vals) if healthy_vals else None
+        unhealthy = sum(unhealthy_vals) if unhealthy_vals else None
+
+        statuses = {r["status"] for r in server_rows}
+        if "unhealthy" in statuses:
+            health = "CRITICAL"
+        elif "degraded" in statuses:
+            health = "WARNING"
+        elif statuses and statuses <= {"healthy"}:
+            health = "NORMAL"
+        else:
+            health = None
+
+        points.append(
+            {
+                "window_start": window_start,
+                "window_end": window_end,
+                "cpu": sum(cpu_values) / len(cpu_values) if cpu_values else None,
+                "memory": sum(mem_values) / len(mem_values) if mem_values else None,
+                "latency": latency,
+                "rps": rps,
+                "error_rate": error_rate,
+                "health": health,
+                "healthy": healthy,
+                "unhealthy": unhealthy,
+            }
+        )
+    return points
+
+
+def _read_overview_metrics():
     with get_connection() as connection:
         with connection.cursor() as cursor:
-            cursor.execute(query, tuple(sorted(OVERVIEW_METRIC_NAMES)))
+            cursor.execute(
+                """
+                SELECT server, cpu_percent, memory_percent, request_count,
+                       avg_latency_ms, error_rate_percent, status,
+                       healthy_targets, unhealthy_targets, window_start, window_end
+                FROM service_metrics
+                WHERE window_end >= UTC_TIMESTAMP() - INTERVAL 24 HOUR
+                ORDER BY window_start ASC
+                """
+            )
             rows = cursor.fetchall()
 
-    by_name = {name: [] for name in OVERVIEW_METRIC_NAMES}
-    for row in rows:
-        by_name[row["metric_name"]].append(row)
+    points = _aggregate_service_metrics(rows)[-OVERVIEW_SERIES_LIMIT:]
 
-    def numeric_metric(name, transform=lambda value, row: value):
-        points = by_name[name][-OVERVIEW_SERIES_LIMIT:]
-        values = [transform(float(row["metric_value"]), row) for row in points]
+    def series(field):
+        values = [p[field] for p in points if p[field] is not None]
         return {
             "current": round(values[-1], 3) if values else None,
-            "series": [round(value, 3) for value in values],
-            "collectedAt": _iso_datetime(points[-1]["collected_at"]) if points else None,
+            "series": [round(v, 3) for v in values],
+            "collectedAt": _iso_datetime(points[-1]["window_end"]) if points else None,
         }
 
-    cpu = numeric_metric("CPUUtilization")
-    memory = numeric_metric("mem_used_percent")
-    latency = numeric_metric("TargetResponseTime", lambda value, _: value * 1000)
-    rps = numeric_metric(
-        "RequestCount",
-        lambda value, row: value / max(int(row.get("period_seconds") or 60), 1),
-    )
+    cpu = series("cpu")
+    memory = series("memory")
+    latency = series("latency")
+    rps = series("rps")
+    error_rate = series("error_rate")
 
-    target_5xx = {
-        row["collected_at"]: float(row["metric_value"])
-        for row in by_name["HTTPCode_Target_5XX_Count"]
-    }
-    elb_5xx = {
-        row["collected_at"]: float(row["metric_value"])
-        for row in by_name["HTTPCode_ELB_5XX_Count"]
-    }
-    request_rows = by_name["RequestCount"][-OVERVIEW_SERIES_LIMIT:]
-    error_values = []
-    for row in request_rows:
-        request_count = float(row["metric_value"])
-        if request_count <= 0:
-            error_values.append(0.0)
-            continue
-        failed = target_5xx.get(row["collected_at"], 0.0) + elb_5xx.get(
-            row["collected_at"], 0.0
-        )
-        error_values.append((failed / request_count) * 100)
-    error_rate = {
-        "current": round(error_values[-1], 3) if error_values else None,
-        "series": [round(value, 3) for value in error_values],
-        "collectedAt": (
-            _iso_datetime(request_rows[-1]["collected_at"]) if request_rows else None
-        ),
-    }
-
-    status_rows = by_name["StatusCheckFailed"]
-    healthy_rows = by_name["HealthyHostCount"]
-    unhealthy_rows = by_name["UnHealthyHostCount"]
-    status_check = float(status_rows[-1]["metric_value"]) if status_rows else None
-    healthy = float(healthy_rows[-1]["metric_value"]) if healthy_rows else None
-    unhealthy = float(unhealthy_rows[-1]["metric_value"]) if unhealthy_rows else None
-
-    health_status = None
-    if status_check is not None and healthy is not None and unhealthy is not None:
-        if status_check > 0 or healthy == 0:
-            health_status = "CRITICAL"
-        elif unhealthy > 0:
-            health_status = "WARNING"
-        else:
-            health_status = "NORMAL"
-
-    health_times = [
-        points[-1]["collected_at"]
-        for points in (status_rows, healthy_rows, unhealthy_rows)
-        if points
-    ]
+    health_points = [p for p in points if p["health"] is not None]
+    last_health = health_points[-1] if health_points else None
     health = {
-        "status": health_status,
-        "healthy": round(healthy) if healthy is not None else None,
-        "unhealthy": round(unhealthy) if unhealthy is not None else None,
-        "collectedAt": _iso_datetime(max(health_times)) if health_times else None,
+        "status": last_health["health"] if last_health else None,
+        "healthy": last_health["healthy"] if last_health else None,
+        "unhealthy": last_health["unhealthy"] if last_health else None,
+        "collectedAt": _iso_datetime(last_health["window_end"]) if last_health else None,
     }
 
     return {
@@ -526,14 +532,6 @@ def _monitoring_summary(records, field, unit):
     }
 
 
-def _service_health(status_check, healthy, unhealthy):
-    if status_check is None or healthy is None or unhealthy is None:
-        return None
-    if status_check > 0 or healthy == 0:
-        return "CRITICAL"
-    if unhealthy > 0:
-        return "WARNING"
-    return "NORMAL"
 
 
 def _read_monitoring_metrics(args):
@@ -543,76 +541,38 @@ def _read_monitoring_metrics(args):
         raise ValueError("지원하지 않는 운영 지표입니다.")
 
     start_at, end_at = _log_time_window(args)
-    raw_names = (
-        set().union(*MONITORING_RAW_METRICS.values())
-        if metric == "all"
-        else MONITORING_RAW_METRICS[metric]
-    )
-    placeholders = ", ".join(["%s"] * len(raw_names))
-    query = f"""
-        SELECT metric_name, metric_value, period_seconds, collected_at
-        FROM monitoring_metrics
-        WHERE metric_name IN ({placeholders})
-          AND collected_at >= %s
-          AND collected_at <= %s
-        ORDER BY collected_at ASC
-    """
-    params = [*sorted(raw_names), start_at, end_at]
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
-            cursor.execute(query, params)
+            cursor.execute(
+                """
+                SELECT server, cpu_percent, memory_percent, request_count,
+                       avg_latency_ms, error_rate_percent, status,
+                       healthy_targets, unhealthy_targets, window_start, window_end
+                FROM service_metrics
+                WHERE window_end >= %s AND window_end <= %s
+                ORDER BY window_start ASC
+                """,
+                (start_at, end_at),
+            )
             rows = cursor.fetchall()
 
-    raw_by_time = {}
-    periods_by_time = {}
-    for row in rows:
-        collected_at = row["collected_at"]
-        raw_by_time.setdefault(collected_at, {})[row["metric_name"]] = float(
-            row["metric_value"]
-        )
-        periods_by_time.setdefault(collected_at, {})[row["metric_name"]] = int(
-            row.get("period_seconds") or 60
-        )
-
-    records = []
-    for collected_at in sorted(raw_by_time):
-        raw = raw_by_time[collected_at]
-        request_count = raw.get("RequestCount")
-        period_seconds = max(
-            periods_by_time[collected_at].get("RequestCount", 60), 1
-        )
-        error_rate = None
-        if request_count is not None:
-            if request_count <= 0:
-                error_rate = 0.0
-            else:
-                failures = raw.get("HTTPCode_Target_5XX_Count", 0.0) + raw.get(
-                    "HTTPCode_ELB_5XX_Count", 0.0
-                )
-                error_rate = failures / request_count * 100
-
-        status_check = raw.get("StatusCheckFailed")
-        healthy = raw.get("HealthyHostCount")
-        unhealthy = raw.get("UnHealthyHostCount")
-        record = {
-            "timestamp": _iso_datetime(collected_at),
-            "cpu": raw.get("CPUUtilization"),
-            "memory": raw.get("mem_used_percent"),
-            "latency": (
-                raw["TargetResponseTime"] * 1000
-                if "TargetResponseTime" in raw
-                else None
-            ),
-            "rps": (
-                request_count / period_seconds if request_count is not None else None
-            ),
-            "errorRate": error_rate,
-            "health": _service_health(status_check, healthy, unhealthy),
-            "healthy": round(healthy) if healthy is not None else None,
-            "unhealthy": round(unhealthy) if unhealthy is not None else None,
+    # metric(all/cpu/memory/...) 선택은 아래에서 반환할 필드를 고르는 데만 쓰고,
+    # 조회 자체는 항상 같은 표에서 전체 지표를 한 번에 가져온다.
+    records = [
+        {
+            "timestamp": _iso_datetime(point["window_end"]),
+            "cpu": point["cpu"],
+            "memory": point["memory"],
+            "latency": point["latency"],
+            "rps": point["rps"],
+            "errorRate": point["error_rate"],
+            "health": point["health"],
+            "healthy": point["healthy"],
+            "unhealthy": point["unhealthy"],
         }
-        records.append(record)
+        for point in _aggregate_service_metrics(rows)
+    ]
 
     units = {
         "cpu": "%",
