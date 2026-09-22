@@ -59,26 +59,20 @@ CREATE TABLE IF NOT EXISTS remediation_history (
       ON DELETE CASCADE
 );
 
--- Lambda C(infra: modules/lambda_c)가 CloudWatch에서 5분마다 수집하는 운영 지표.
--- 보안 이벤트와 분리한다. 서버 1대의 같은 5분 구간은 한 행만 남고(재시도해도 중복 없음),
--- 그 뒤로는 이력으로 계속 쌓인다(스냅샷이 아님). Lambda C가 오래된 행을 주기적으로 정리한다.
-CREATE TABLE IF NOT EXISTS service_metrics (
-    id                 BIGINT AUTO_INCREMENT PRIMARY KEY,
-    server             VARCHAR(40) NOT NULL,
-    display_name       VARCHAR(80) NOT NULL,
-    status             VARCHAR(20) NOT NULL DEFAULT 'unknown',
-    cpu_percent        DECIMAL(5,2) NULL,
-    memory_percent     DECIMAL(5,2) NULL,
-    request_count      INT NULL,
-    avg_latency_ms     DECIMAL(8,2) NULL,
-    error_rate_percent DECIMAL(5,2) NULL,
-    healthy_targets    INT NULL,
-    unhealthy_targets  INT NULL,
-    window_start       DATETIME NOT NULL,
-    window_end         DATETIME NOT NULL,
-    created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+-- Monitoring Lambda가 CloudWatch에서 수집한 운영 지표. 보안 이벤트와 분리한다.
+CREATE TABLE IF NOT EXISTS monitoring_metrics (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    service         VARCHAR(40) NOT NULL,
+    resource_id     VARCHAR(255) NOT NULL,
+    metric_name     VARCHAR(100) NOT NULL,
+    metric_value    DECIMAL(20, 6) NOT NULL,
+    unit            VARCHAR(32) NOT NULL,
+    period_seconds  SMALLINT UNSIGNED NOT NULL,
+    collected_at    DATETIME NOT NULL,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    UNIQUE KEY uq_service_metrics_point (server, window_start),
-    INDEX idx_service_metrics_window_end (window_end),
-    INDEX idx_service_metrics_server_window (server, window_end)
+    UNIQUE KEY uq_monitoring_metric_point
+      (service, resource_id, metric_name, collected_at),
+    INDEX idx_monitoring_metric_lookup (metric_name, collected_at),
+    INDEX idx_monitoring_resource_lookup (resource_id, collected_at)
 );
