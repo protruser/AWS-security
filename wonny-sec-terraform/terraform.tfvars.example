@@ -20,6 +20,10 @@ enable_vpc_endpoints = false
 
 force_destroy_buckets = false
 
+# 운영 지표 수집 주기와 CloudWatch 집계 구간. 두 값을 함께 변경하세요.
+monitoring_schedule_expression = "rate(1 minute)"
+monitoring_period_seconds      = 60
+
 # GitHub Actions OIDC를 이미 AWS 계정에 만들어 둔 경우에만 채움
 github_repository        = ""
 github_oidc_provider_arn = ""

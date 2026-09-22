@@ -39,3 +39,11 @@ output "ecr_repositories" {
 output "github_deploy_role_arn" {
   value = try(aws_iam_role.github_deploy[0].arn, null)
 }
+
+output "monitoring_lambda_name" {
+  value = aws_lambda_function.monitoring.function_name
+}
+
+output "monitoring_schedule" {
+  value = aws_cloudwatch_event_rule.monitoring.schedule_expression
+}

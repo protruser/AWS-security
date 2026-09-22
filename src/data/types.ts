@@ -13,6 +13,8 @@ export interface ActionEvent {
 
   service: string
 
+  scenarioType?: string
+
   asset: string
 
   detectedAt: string
@@ -86,4 +88,26 @@ export interface DashboardApiResponse {
   events: ActionEvent[]
   detectHistory: DetectHistoryItem[]
   remediationHistory: RemediationHistoryItem[]
+}
+
+export interface NumericOverviewMetric {
+  current: number | null
+  series: number[]
+  collectedAt: string | null
+}
+
+export interface HealthOverviewMetric {
+  status: "NORMAL" | "WARNING" | "CRITICAL" | null
+  healthy: number | null
+  unhealthy: number | null
+  collectedAt: string | null
+}
+
+export interface OverviewMetricsResponse {
+  cpu: NumericOverviewMetric
+  memory: NumericOverviewMetric
+  latency: NumericOverviewMetric
+  rps: NumericOverviewMetric
+  errorRate: NumericOverviewMetric
+  health: HealthOverviewMetric
 }

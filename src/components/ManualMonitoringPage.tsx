@@ -1,6 +1,7 @@
 import { useState } from "react"
 import type { Severity } from "../data/types"
 import { SeverityBadge } from "./common"
+import { OperationalMetricsPanel } from "./OperationalMetricsPanel"
 
 type LogSource = "waf" | "guardduty" | "inspector"
 type RangePreset = "15m" | "1h" | "6h" | "24h" | "7d" | "custom"
@@ -523,7 +524,7 @@ function LogDetail({ log, source }: { log: SecurityLog, source: LogSource }) {
   )
 }
 
-export function ManualMonitoringPage({
+function SecurityDataMonitoringContent({
   onUnauthorized,
 }: {
   onUnauthorized: () => void
@@ -657,14 +658,7 @@ export function ManualMonitoringPage({
   }
 
   return (
-    <div className="min-h-full p-4 space-y-3">
-      <div>
-        <p className="text-[18px] font-bold text-[#101828]">수동 모니터링</p>
-        <p className="text-[11px] text-[#667085] mt-0.5">
-          조회 대상과 기간을 선택해 실제 DB의 보안 데이터를 조회합니다.
-        </p>
-      </div>
-
+    <div className="space-y-3">
       <section className="bg-white border border-[#EAECF0] rounded-2xl p-4">
         <div className="flex items-center gap-2 mb-3">
           <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[10px] font-bold flex items-center justify-center">
@@ -965,6 +959,53 @@ export function ManualMonitoringPage({
           )}
         </section>
       )}
+    </div>
+  )
+}
+
+export function ManualMonitoringPage({
+  onUnauthorized,
+}: {
+  onUnauthorized: () => void
+}) {
+  const [activeView, setActiveView] = useState<"security" | "operations">("security")
+
+  return (
+    <div className="min-h-full p-4 space-y-3">
+      <div>
+        <p className="text-[18px] font-bold text-[#101828]">수동 모니터링</p>
+        <p className="text-[11px] text-[#667085] mt-0.5">
+          {activeView === "security"
+            ? "WAF, GuardDuty, Inspector의 기간별 보안 데이터를 조회합니다."
+            : "메인 대시보드와 동일한 운영 지표의 기간별 추이를 조회합니다."}
+        </p>
+      </div>
+
+      <div className="inline-flex rounded-xl border border-[#D0D5DD] bg-white p-1">
+        {[
+          ["security", "보안 데이터 조회"],
+          ["operations", "운영 지표 조회"],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            onClick={() => setActiveView(value as "security" | "operations")}
+            className={`text-[11px] font-semibold px-4 py-2 rounded-lg transition-colors ${
+              activeView === value
+                ? "bg-[#101828] text-white shadow-sm"
+                : "text-[#475467] hover:bg-[#F2F4F7]"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className={activeView === "security" ? "" : "hidden"}>
+        <SecurityDataMonitoringContent onUnauthorized={onUnauthorized} />
+      </div>
+      <div className={activeView === "operations" ? "" : "hidden"}>
+        <OperationalMetricsPanel onUnauthorized={onUnauthorized} />
+      </div>
     </div>
   )
 }

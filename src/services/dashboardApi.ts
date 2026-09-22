@@ -1,4 +1,4 @@
-import type { ActionEvent } from "../data/types"
+import type { ActionEvent, OverviewMetricsResponse } from "../data/types"
 
 export type DataSourceMode = "api"
 
@@ -18,4 +18,14 @@ export async function fetchActionEvents(): Promise<EventFeed> {
 
   const events = (await response.json()) as ActionEvent[]
   return { events, source: "api", syncedAt: new Date() }
+}
+
+export async function fetchOverviewMetrics(): Promise<OverviewMetricsResponse> {
+  const response = await fetch(`${apiBase}/api/overview-metrics`, {
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  })
+  if (!response.ok) throw new Error(`Overview metrics API ${response.status}`)
+
+  return (await response.json()) as OverviewMetricsResponse
 }

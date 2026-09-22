@@ -58,9 +58,26 @@ Internet
 - IAM Access Analyzer
 - Security Hub
 - Security Hub EventBridge → SNS
+- CloudWatch 운영 지표 수집 Lambda + EventBridge Schedule
 - 선택형 Route53 + ACM + HTTPS
 - 선택형 VPC Endpoint
 - 선택형 GitHub Actions OIDC 배포 Role
+
+## 운영 지표 수집
+
+`monitoring.tf`는 쇼핑 서비스 EC2와 ALB 지표를 한 번에 조회하는 전용 Lambda를 생성합니다.
+기존 보안 이벤트 수집 Lambda A/B와 독립된 구성입니다. 적용 전에 Security MySQL에서
+`backend/migrations/002_add_monitoring_metrics.sql`을 실행해야 합니다.
+
+기본 주기는 1분이며 `terraform.tfvars`에서 5분으로 바꿀 수 있습니다.
+
+```hcl
+monitoring_schedule_expression = "rate(5 minutes)"
+monitoring_period_seconds      = 300
+```
+
+Terraform 실행 환경에는 Lambda 패키지를 만들 Python과 pip가 필요합니다. `terraform apply` 중
+`lambda/build_package.py`가 PyMySQL을 포함한 배포 ZIP을 생성합니다.
 
 ## 최신 7개 보안 시나리오 매핑
 

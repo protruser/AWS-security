@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+﻿import { useEffect, useRef, useState } from "react"
 import type { AssetStatus } from "../data/types"
 import { ASSETS } from "../data/architecture"
 import { CANVAS, ZONES, LEGEND, type Zone } from "../data/architectureLayout"
@@ -9,6 +9,7 @@ interface MapProps {
   assetStatuses: Record<string, AssetStatus>
   highlightedAssets: string[]
   attackPathAssets: string[]
+  connectionAssetGroups: string[][]
   alerts: Record<string, { level: "critical" | "warning"; reason: string }>
   onAssetClick: (assetId: string) => void
   onBackgroundClick: () => void
@@ -48,6 +49,7 @@ export function ArchitectureMap({
   assetStatuses,
   highlightedAssets,
   attackPathAssets,
+  connectionAssetGroups,
   alerts,
   onAssetClick,
   onBackgroundClick,
@@ -117,6 +119,7 @@ export function ArchitectureMap({
           </div>
           <Connections
             highlightedAssets={highlightedAssets}
+            highlightedAssetGroups={connectionAssetGroups}
             hasScenario={hasScenario}
           />
           {ZONES.map((z) => (
@@ -155,7 +158,7 @@ export function ArchitectureMap({
               </div>
             ))}
             <div className="mt-1 flex items-center gap-1 border-t border-[#F2F4F7] pt-1.5 text-[10px] font-semibold text-[#B42318]">
-              <span className="alert-dot-critical inline-block h-2 w-2 rounded-full bg-[#D92D20]" />
+              <span className="inline-block h-2 w-2 rounded-full bg-[#D92D20]" />
               비상
             </div>
           </div>

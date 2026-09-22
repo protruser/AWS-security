@@ -44,6 +44,41 @@ LOG_RANGE_DELTAS = {
     "7d": timedelta(days=7),
 }
 LOG_SOURCES = {"waf", "guardduty", "inspector"}
+OVERVIEW_METRIC_NAMES = {
+    "CPUUtilization",
+    "mem_used_percent",
+    "TargetResponseTime",
+    "RequestCount",
+    "HTTPCode_Target_5XX_Count",
+    "HTTPCode_ELB_5XX_Count",
+    "StatusCheckFailed",
+    "HealthyHostCount",
+    "UnHealthyHostCount",
+}
+OVERVIEW_SERIES_LIMIT = 20
+MONITORING_METRIC_ALIASES = {
+    "all": "all",
+    "cpu": "cpu",
+    "memory": "memory",
+    "latency": "latency",
+    "rps": "rps",
+    "errorrate": "errorRate",
+    "error-rate": "errorRate",
+    "error_rate": "errorRate",
+    "health": "health",
+}
+MONITORING_RAW_METRICS = {
+    "cpu": {"CPUUtilization"},
+    "memory": {"mem_used_percent"},
+    "latency": {"TargetResponseTime"},
+    "rps": {"RequestCount"},
+    "errorRate": {
+        "RequestCount",
+        "HTTPCode_Target_5XX_Count",
+        "HTTPCode_ELB_5XX_Count",
+    },
+    "health": {"StatusCheckFailed", "HealthyHostCount", "UnHealthyHostCount"},
+}
 
 
 def login_required(view):
@@ -117,6 +152,7 @@ def _event_to_action_event(row):
         "severity": _severity(row.get("severity")),
         "title": row.get("title") or "보안 이벤트",
         "service": row.get("service") or "Unknown",
+        "scenarioType": row.get("scenario_type") or "",
         "asset": row.get("asset") or "-",
         "detectedAt": _format_datetime(row.get("detected_at")),
         "elapsed": _elapsed_text(row.get("detected_at")),
@@ -335,7 +371,6 @@ def _read_dashboard_data():
                 FROM security_events
                 WHERE status NOT IN ('조치 완료', '자동 완료', '예외 처리', '완료')
                 ORDER BY detected_at DESC
-                LIMIT 100
                 """
             )
             action_rows = cursor.fetchall()
@@ -369,6 +404,266 @@ def _read_dashboard_data():
         "detectHistory": [_event_to_detect_history(row) for row in detect_rows],
         "remediationHistory": [
             _remediation_to_history(row) for row in remediation_rows
+        ],
+    }
+
+
+def _iso_datetime(value):
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+    return str(value) if value else None
+
+
+def _read_overview_metrics():
+    placeholders = ", ".join(["%s"] * len(OVERVIEW_METRIC_NAMES))
+    query = f"""
+        SELECT metric_name, metric_value, period_seconds, collected_at
+        FROM monitoring_metrics
+        WHERE metric_name IN ({placeholders})
+          AND collected_at >= UTC_TIMESTAMP() - INTERVAL 24 HOUR
+        ORDER BY collected_at ASC
+    """
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(query, tuple(sorted(OVERVIEW_METRIC_NAMES)))
+            rows = cursor.fetchall()
+
+    by_name = {name: [] for name in OVERVIEW_METRIC_NAMES}
+    for row in rows:
+        by_name[row["metric_name"]].append(row)
+
+    def numeric_metric(name, transform=lambda value, row: value):
+        points = by_name[name][-OVERVIEW_SERIES_LIMIT:]
+        values = [transform(float(row["metric_value"]), row) for row in points]
+        return {
+            "current": round(values[-1], 3) if values else None,
+            "series": [round(value, 3) for value in values],
+            "collectedAt": _iso_datetime(points[-1]["collected_at"]) if points else None,
+        }
+
+    cpu = numeric_metric("CPUUtilization")
+    memory = numeric_metric("mem_used_percent")
+    latency = numeric_metric("TargetResponseTime", lambda value, _: value * 1000)
+    rps = numeric_metric(
+        "RequestCount",
+        lambda value, row: value / max(int(row.get("period_seconds") or 60), 1),
+    )
+
+    target_5xx = {
+        row["collected_at"]: float(row["metric_value"])
+        for row in by_name["HTTPCode_Target_5XX_Count"]
+    }
+    elb_5xx = {
+        row["collected_at"]: float(row["metric_value"])
+        for row in by_name["HTTPCode_ELB_5XX_Count"]
+    }
+    request_rows = by_name["RequestCount"][-OVERVIEW_SERIES_LIMIT:]
+    error_values = []
+    for row in request_rows:
+        request_count = float(row["metric_value"])
+        if request_count <= 0:
+            error_values.append(0.0)
+            continue
+        failed = target_5xx.get(row["collected_at"], 0.0) + elb_5xx.get(
+            row["collected_at"], 0.0
+        )
+        error_values.append((failed / request_count) * 100)
+    error_rate = {
+        "current": round(error_values[-1], 3) if error_values else None,
+        "series": [round(value, 3) for value in error_values],
+        "collectedAt": (
+            _iso_datetime(request_rows[-1]["collected_at"]) if request_rows else None
+        ),
+    }
+
+    status_rows = by_name["StatusCheckFailed"]
+    healthy_rows = by_name["HealthyHostCount"]
+    unhealthy_rows = by_name["UnHealthyHostCount"]
+    status_check = float(status_rows[-1]["metric_value"]) if status_rows else None
+    healthy = float(healthy_rows[-1]["metric_value"]) if healthy_rows else None
+    unhealthy = float(unhealthy_rows[-1]["metric_value"]) if unhealthy_rows else None
+
+    health_status = None
+    if status_check is not None and healthy is not None and unhealthy is not None:
+        if status_check > 0 or healthy == 0:
+            health_status = "CRITICAL"
+        elif unhealthy > 0:
+            health_status = "WARNING"
+        else:
+            health_status = "NORMAL"
+
+    health_times = [
+        points[-1]["collected_at"]
+        for points in (status_rows, healthy_rows, unhealthy_rows)
+        if points
+    ]
+    health = {
+        "status": health_status,
+        "healthy": round(healthy) if healthy is not None else None,
+        "unhealthy": round(unhealthy) if unhealthy is not None else None,
+        "collectedAt": _iso_datetime(max(health_times)) if health_times else None,
+    }
+
+    return {
+        "cpu": cpu,
+        "memory": memory,
+        "latency": latency,
+        "rps": rps,
+        "errorRate": error_rate,
+        "health": health,
+    }
+
+
+def _monitoring_summary(records, field, unit):
+    values = [record[field] for record in records if record.get(field) is not None]
+    return {
+        "current": round(values[-1], 3) if values else None,
+        "average": round(sum(values) / len(values), 3) if values else None,
+        "max": round(max(values), 3) if values else None,
+        "min": round(min(values), 3) if values else None,
+        "unit": unit,
+    }
+
+
+def _service_health(status_check, healthy, unhealthy):
+    if status_check is None or healthy is None or unhealthy is None:
+        return None
+    if status_check > 0 or healthy == 0:
+        return "CRITICAL"
+    if unhealthy > 0:
+        return "WARNING"
+    return "NORMAL"
+
+
+def _read_monitoring_metrics(args):
+    requested = str(args.get("metric") or "all").strip().lower()
+    metric = MONITORING_METRIC_ALIASES.get(requested)
+    if metric is None:
+        raise ValueError("지원하지 않는 운영 지표입니다.")
+
+    start_at, end_at = _log_time_window(args)
+    raw_names = (
+        set().union(*MONITORING_RAW_METRICS.values())
+        if metric == "all"
+        else MONITORING_RAW_METRICS[metric]
+    )
+    placeholders = ", ".join(["%s"] * len(raw_names))
+    query = f"""
+        SELECT metric_name, metric_value, period_seconds, collected_at
+        FROM monitoring_metrics
+        WHERE metric_name IN ({placeholders})
+          AND collected_at >= %s
+          AND collected_at <= %s
+        ORDER BY collected_at ASC
+    """
+    params = [*sorted(raw_names), start_at, end_at]
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+    raw_by_time = {}
+    periods_by_time = {}
+    for row in rows:
+        collected_at = row["collected_at"]
+        raw_by_time.setdefault(collected_at, {})[row["metric_name"]] = float(
+            row["metric_value"]
+        )
+        periods_by_time.setdefault(collected_at, {})[row["metric_name"]] = int(
+            row.get("period_seconds") or 60
+        )
+
+    records = []
+    for collected_at in sorted(raw_by_time):
+        raw = raw_by_time[collected_at]
+        request_count = raw.get("RequestCount")
+        period_seconds = max(
+            periods_by_time[collected_at].get("RequestCount", 60), 1
+        )
+        error_rate = None
+        if request_count is not None:
+            if request_count <= 0:
+                error_rate = 0.0
+            else:
+                failures = raw.get("HTTPCode_Target_5XX_Count", 0.0) + raw.get(
+                    "HTTPCode_ELB_5XX_Count", 0.0
+                )
+                error_rate = failures / request_count * 100
+
+        status_check = raw.get("StatusCheckFailed")
+        healthy = raw.get("HealthyHostCount")
+        unhealthy = raw.get("UnHealthyHostCount")
+        record = {
+            "timestamp": _iso_datetime(collected_at),
+            "cpu": raw.get("CPUUtilization"),
+            "memory": raw.get("mem_used_percent"),
+            "latency": (
+                raw["TargetResponseTime"] * 1000
+                if "TargetResponseTime" in raw
+                else None
+            ),
+            "rps": (
+                request_count / period_seconds if request_count is not None else None
+            ),
+            "errorRate": error_rate,
+            "health": _service_health(status_check, healthy, unhealthy),
+            "healthy": round(healthy) if healthy is not None else None,
+            "unhealthy": round(unhealthy) if unhealthy is not None else None,
+        }
+        records.append(record)
+
+    units = {
+        "cpu": "%",
+        "memory": "%",
+        "latency": "ms",
+        "rps": "rps",
+        "errorRate": "%",
+    }
+    summaries = {
+        name: _monitoring_summary(records, name, unit)
+        for name, unit in units.items()
+    }
+    health_records = [record for record in records if record["health"] is not None]
+    health_summary = {
+        "current": health_records[-1]["health"] if health_records else None,
+        "healthy": health_records[-1]["healthy"] if health_records else None,
+        "unhealthy": health_records[-1]["unhealthy"] if health_records else None,
+    }
+
+    if metric == "all":
+        visible_records = [
+            record
+            for record in records
+            if any(
+                record[field] is not None
+                for field in ("cpu", "memory", "latency", "rps", "errorRate", "health")
+            )
+        ]
+        return {
+            "metric": "all",
+            "window": {"start": _iso_datetime(start_at), "end": _iso_datetime(end_at)},
+            "summaries": {**summaries, "health": health_summary},
+            "series": visible_records,
+        }
+
+    if metric == "health":
+        return {
+            "metric": "health",
+            "window": {"start": _iso_datetime(start_at), "end": _iso_datetime(end_at)},
+            "summary": health_summary,
+            "series": health_records,
+        }
+
+    metric_records = [record for record in records if record[metric] is not None]
+    return {
+        "metric": metric,
+        "window": {"start": _iso_datetime(start_at), "end": _iso_datetime(end_at)},
+        "summary": summaries[metric],
+        "series": [
+            {"timestamp": record["timestamp"], "value": round(record[metric], 3)}
+            for record in metric_records
         ],
     }
 
@@ -454,6 +749,16 @@ def events():
         return jsonify({"error": "DATABASE_READ_FAILED", "message": str(exc)}), 500
 
 
+@app.get("/api/overview-metrics")
+@login_required
+def overview_metrics():
+    try:
+        return jsonify(_read_overview_metrics())
+    except Exception as exc:
+        app.logger.exception("Failed to read overview metrics")
+        return jsonify({"error": "DATABASE_READ_FAILED", "message": str(exc)}), 500
+
+
 @app.get("/api/logs")
 @login_required
 def security_logs():
@@ -464,6 +769,18 @@ def security_logs():
         return jsonify({"error": "INVALID_QUERY", "message": str(exc)}), 400
     except Exception as exc:
         app.logger.exception("Failed to read security logs")
+        return jsonify({"error": "DATABASE_READ_FAILED", "message": str(exc)}), 500
+
+
+@app.get("/api/monitoring/metrics")
+@login_required
+def monitoring_metrics():
+    try:
+        return jsonify(_read_monitoring_metrics(request.args))
+    except ValueError as exc:
+        return jsonify({"error": "INVALID_QUERY", "message": str(exc)}), 400
+    except Exception as exc:
+        app.logger.exception("Failed to read monitoring metrics")
         return jsonify({"error": "DATABASE_READ_FAILED", "message": str(exc)}), 500
 
 

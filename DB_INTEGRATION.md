@@ -5,8 +5,7 @@
 ## 변경된 파일
 
 - `src/App.tsx`
-  - 원본 mock 데이터를 초기값으로 유지
-  - `/api/dashboard` 호출 성공 시 DB 데이터로 교체
+  - `/api/dashboard`와 `/api/overview-metrics`에서 DB 데이터 조회
   - 자동 갱신 ON이면 1분마다 DB 데이터 재조회
   - 기존 ActionCard / ArchitectureMap / 탐지 이력 / 조치 이력 UI 그대로 사용
 - `src/data/types.ts`
@@ -29,6 +28,22 @@ React
     ↓
 원본 대시보드 UI
 ```
+
+운영 카드 흐름은 별도입니다.
+
+```text
+CloudWatch → Monitoring Lambda → monitoring_metrics
+           → Flask /api/overview-metrics → React 6개 운영 카드
+```
+
+수동 모니터링에서는 같은 테이블을 기간 조건으로 조회합니다.
+
+```text
+monitoring_metrics → Flask /api/monitoring/metrics
+                   → 수동 모니터링 > 운영 지표 조회
+```
+
+기존 `security_events → /api/logs → 보안 데이터 조회` 흐름은 별도로 유지됩니다.
 
 ## 아키텍처 맵 공격 경로 표시
 

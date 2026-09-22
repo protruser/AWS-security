@@ -1,6 +1,6 @@
 # AWS Security Monitoring Dashboard
 
-React 19 + Vite 8 + TypeScript + Tailwind CSS 4 기반 보안관제 데모입니다. 실제 API 없이 기존 공격 탐지·조치 목록·탐지 이력·시나리오·챗봇·리소스 상태 더미데이터를 사용합니다. 기본 Critical 배너는 표시하지 않습니다.
+React 19 + Vite 8 + TypeScript + Tailwind CSS 4 프론트엔드와 Flask + MySQL 백엔드로 구성된 AWS 보안관제 대시보드입니다. 운영 요약 카드는 CloudWatch → Monitoring Lambda → MySQL → Flask API 흐름의 실제 지표만 표시합니다.
 
 ## 로컬 실행
 
@@ -32,7 +32,8 @@ npm run preview
 - `src/components/Connections.tsx`: 직각 SVG 연결선·화살표·흰색 라벨
 - `src/data/architecture.ts`: 리소스 정보·상태·Grid 좌표
 - `src/data/architectureLayout.ts`: 서브넷과 외부 Anchor·연결 경로
-- `src/data/mock.ts`: 원본 이벤트·탐지/조치 이력·시나리오·챗봇 예시 (현재 표시하지 않는 조치 이력도 보존)
+- `src/services/dashboardApi.ts`: Flask의 보안 이벤트 및 운영 지표 API 호출
+- `src/data/mock.ts`: 현재 운영 지표 카드에서 사용하지 않는 이전 UI 예시 데이터 보존
 - `src/data/types.ts`, `src/index.css`: 공통 타입·스타일
 
 박스는 연결선 위의 독립 레이어에 표시됩니다. 선은 박스 경계에서 6 단위 떨어진 Anchor를 사용하며, 행·열 사이와 VPC 바깥 통로를 따라갑니다. 낮은 창에서는 글자 크기를 유지하고 아키텍처 내부를 스크롤합니다. 기존 데모의 예외 처리·일부 챗봇 액션 등 미구현 버튼은 실제 API 작업을 실행하지 않습니다.

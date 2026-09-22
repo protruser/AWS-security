@@ -1,13 +1,15 @@
-import { useId } from "react"
+﻿import { useId } from "react"
 import { CANVAS, CONNECTIONS } from "../data/architectureLayout"
 
 const MARKER_COLORS = ["#2F6FEB", "#98A2B3", "#101828", "#D92D20"]
 
 export function Connections({
   highlightedAssets,
+  highlightedAssetGroups,
   hasScenario,
 }: {
   highlightedAssets: string[]
+  highlightedAssetGroups: string[][]
   hasScenario: boolean
 }) {
   const markerPrefix = useId().replace(/:/g, "")
@@ -16,7 +18,9 @@ export function Connections({
   const isLit = (assets: [string, string]) =>
     highlightedAssets.length === 1
       ? assets.some((id) => highlightedAssets.includes(id))
-      : assets.every((id) => highlightedAssets.includes(id))
+      : highlightedAssetGroups.some((group) =>
+          assets.every((id) => group.includes(id)),
+        )
 
   return (
     <svg

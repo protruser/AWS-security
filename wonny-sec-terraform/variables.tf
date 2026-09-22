@@ -136,3 +136,25 @@ variable "github_oidc_provider_arn" {
   description = "기존 GitHub Actions OIDC Provider ARN. 없으면 비워둠."
   default     = ""
 }
+
+variable "monitoring_schedule_expression" {
+  type        = string
+  description = "Monitoring Lambda EventBridge 주기. 예: rate(1 minute), rate(5 minutes)"
+  default     = "rate(1 minute)"
+
+  validation {
+    condition     = can(regex("^rate\\([1-9][0-9]* minutes?\\)$", var.monitoring_schedule_expression))
+    error_message = "monitoring_schedule_expression은 rate(1 minute) 또는 rate(5 minutes) 형식이어야 합니다."
+  }
+}
+
+variable "monitoring_period_seconds" {
+  type        = number
+  description = "CloudWatch 집계 구간(초). 1분 또는 5분"
+  default     = 60
+
+  validation {
+    condition     = contains([60, 300], var.monitoring_period_seconds)
+    error_message = "monitoring_period_seconds는 60 또는 300이어야 합니다."
+  }
+}

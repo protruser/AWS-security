@@ -1,4 +1,4 @@
-import type { AssetStatus } from "../data/types"
+﻿import type { AssetStatus } from "../data/types"
 import { ICON, scenariosForAsset, type AssetDef } from "../data/architecture"
 import { AwsIcon } from "./AwsIcon"
 
@@ -95,7 +95,7 @@ export function AssetCard({
         {alert && (
           <span
             title={alert.reason}
-            aria-label={`비상: ${alert.reason}`}
+            aria-label={`${alert.level === "critical" ? "비상" : "주의"}: ${alert.reason}`}
             className={`absolute -top-1.5 -right-1.5 z-30 w-4 h-4 rounded-full border-2 border-white ${
               alert.level === "critical"
                 ? "bg-[#D92D20] alert-dot-critical"

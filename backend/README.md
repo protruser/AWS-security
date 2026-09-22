@@ -5,11 +5,9 @@
 ## 데이터 흐름
 
 ```text
-Lambda(팀원 담당)
-  → Security MySQL
-  → Flask /api/dashboard
-  → React fetch()
-  → 기존 ActionCard / 탐지 이력 / 조치 이력 UI
+Security Lambda A/B → security_events → Flask /api/dashboard → React
+CloudWatch → Monitoring Lambda → monitoring_metrics
+                              → Flask /api/overview-metrics → React 6개 운영 카드
 ```
 
 ## 1. DB 스키마
@@ -30,6 +28,11 @@ Lambda 담당자는 `security_events`에 이벤트를 저장할 때 특히 아�
 ```
 
 `highlight_assets`, `attack_path`의 값은 `src/data/architecture.ts`의 자산 ID와 같아야 맵 강조가 동작합니다.
+
+운영 지표는 `security_events`와 분리된 `monitoring_metrics`에 저장합니다. 기존 DB에는
+`migrations/002_add_monitoring_metrics.sql`을 한 번 실행하세요. Monitoring Lambda는
+`service`, `resource_id`, `metric_name`, `metric_value`, `unit`, `period_seconds`,
+`collected_at`을 기록합니다.
 
 ## 2. 로컬 실행
 
@@ -59,6 +62,21 @@ http://127.0.0.1:5000/api/health
 http://127.0.0.1:5000/api/dashboard
 ```
 
+운영 카드 데이터 확인(로그인 세션 필요):
+
+```text
+http://127.0.0.1:5000/api/overview-metrics
+```
+
+수동 모니터링의 기간별 운영 지표 조회:
+
+```text
+GET /api/monitoring/metrics?metric=all&range=24h
+GET /api/monitoring/metrics?metric=cpu&start=2026-09-21T10:00:00&end=2026-09-21T11:00:00
+```
+
+이 API는 `monitoring_metrics`만 조회하며 기존 보안 데이터용 `/api/logs`와 쿼리를 공유하지 않습니다.
+
 ## 3. 운영 EC2
 
 Terraform의 Dashboard EC2 IAM Role은 Security DB Secret 읽기 권한을 갖도록 구성되어 있습니다.
@@ -73,9 +91,9 @@ Flask의 `db.py`가 Secrets Manager에서 `host/port/username/password/database`
 
 ## 4. React
 
-React는 `/api/dashboard`를 조회합니다. Vite 개발 서버에서는 `/api`를 `127.0.0.1:5000`으로 프록시합니다.
-
-DB/API 연결에 실패하면 원본 mock 데이터를 그대로 유지하므로 UI가 깨지지 않습니다.
+React는 보안 이벤트용 `/api/dashboard`와 운영 카드용 `/api/overview-metrics`를 조회합니다.
+Vite 개발 서버에서는 `/api`를 `127.0.0.1:5000`으로 프록시합니다. 운영 Metric이 없거나
+API 요청이 실패하면 운영 카드에는 mock이나 0 대신 `데이터 없음` 또는 `수집 대기 중`을 표시합니다.
 
 ## 5. 로그인
 

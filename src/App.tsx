@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import type {
   AssetStatus,
   RightTab,
@@ -7,12 +7,13 @@ import type {
   DetectHistoryItem,
   RemediationHistoryItem,
   DashboardApiResponse,
+  NumericOverviewMetric,
+  OverviewMetricsResponse,
 } from "./data/types"
 
 import { SCENARIO_CARDS, SUGGESTED_QUESTIONS } from "./data/staticContent"
 
-import { ALERT_RULES, ASSETS, scenariosForAsset } from "./data/architecture"
-import { SCENARIO_DETAILS } from "./data/scenarios"
+import { ASSETS } from "./data/architecture"
 
 import { ArchitectureMap } from "./components/ArchitectureMap"
 import { ScenarioPage } from "./components/ScenarioPage"
@@ -20,6 +21,7 @@ import { AttackLabPage } from "./components/AttackLabPage"
 import { ManualMonitoringPage } from "./components/ManualMonitoringPage"
 import { ApprovalModal, DonutGauge, SeverityBadge } from "./components/common"
 import { LoginPage } from "./components/LoginPage"
+import { fetchOverviewMetrics } from "./services/dashboardApi"
 
 // ─── Action card ──────────────────────────────────────────────────────────────
 
@@ -71,6 +73,39 @@ function ActionCard({
           {ev.detectedAt} ·{" "}
           <span className="text-[#F79009] font-semibold">{ev.status}</span>
         </p>
+        {selected && (
+          <div className="mt-2.5 space-y-1.5 rounded-lg border border-[#EAECF0] bg-[#F9FAFB] p-2.5 text-[10px]">
+            {ev.scenarioType && (
+              <p className="text-[#475467]">
+                <span className="font-semibold text-[#344054]">유형</span> ·{" "}
+                {ev.scenarioType}
+              </p>
+            )}
+            {ev.details.attackerIP && (
+              <p className="text-[#475467]">
+                <span className="font-semibold text-[#344054]">공격 IP</span> ·{" "}
+                {ev.details.attackerIP}
+              </p>
+            )}
+            {ev.details.requestURL && (
+              <p className="break-all text-[#475467]">
+                <span className="font-semibold text-[#344054]">요청</span> ·{" "}
+                {ev.details.requestURL}
+              </p>
+            )}
+            {ev.recommendation && (
+              <p className="text-[#475467]">
+                <span className="font-semibold text-[#344054]">권장 조치</span> ·{" "}
+                {ev.recommendation}
+              </p>
+            )}
+            {ev.details.logs && (
+              <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-all rounded bg-white p-2 font-mono text-[9px] text-[#667085]">
+                {ev.details.logs}
+              </pre>
+            )}
+          </div>
+        )}
         <div className="flex gap-1.5 mt-2.5">
           <button
             onClick={(e) => {
@@ -128,10 +163,7 @@ function RightPanel({
     <div className="flex flex-col min-h-full">
       {/* Tabs — segmented control */}
       <div className="flex-shrink-0 px-3 pt-3 pb-1">
-        <div
-          role="tablist"
-          className="flex gap-1 p-1 rounded-xl bg-[#EEF0F3]"
-        >
+        <div role="tablist" className="flex gap-1 p-1 rounded-xl bg-[#EEF0F3]">
           {[
             { key: "action", label: "조치 필요", count: activeEvents.length },
 
@@ -195,31 +227,31 @@ function RightPanel({
       {tab === "history" && (
         <div className="p-3">
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
-          {remediationHistory.map((r) => (
-            <div
-              key={r.id}
-              className="rounded-xl border border-[#EAECF0] bg-white p-3"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-bold text-[#0D0D0D]">{r.event}</p>
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#16A34A] text-white">
-                  {r.result}
-                </span>
+            {remediationHistory.map((r) => (
+              <div
+                key={r.id}
+                className="rounded-xl border border-[#EAECF0] bg-white p-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold text-[#0D0D0D]">{r.event}</p>
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#16A34A] text-white">
+                    {r.result}
+                  </span>
+                </div>
+                <p className="text-[10px] text-[#6B6B6B] mt-1">{r.asset}</p>
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  <span className="text-[10px] bg-[#F2F4F7] text-[#475467] rounded px-1.5 py-0.5">
+                    {r.method} 조치
+                  </span>
+                  <span className="text-[10px] bg-[#F2F4F7] text-[#475467] rounded px-1.5 py-0.5">
+                    승인 {r.approver}
+                  </span>
+                  <span className="text-[10px] bg-[#F2F4F7] text-[#475467] rounded px-1.5 py-0.5 font-mono">
+                    {r.completedAt}
+                  </span>
+                </div>
               </div>
-              <p className="text-[10px] text-[#6B6B6B] mt-1">{r.asset}</p>
-              <div className="flex flex-wrap gap-1 mt-1.5">
-                <span className="text-[10px] bg-[#F2F4F7] text-[#475467] rounded px-1.5 py-0.5">
-                  {r.method} 조치
-                </span>
-                <span className="text-[10px] bg-[#F2F4F7] text-[#475467] rounded px-1.5 py-0.5">
-                  승인 {r.approver}
-                </span>
-                <span className="text-[10px] bg-[#F2F4F7] text-[#475467] rounded px-1.5 py-0.5 font-mono">
-                  {r.completedAt}
-                </span>
-              </div>
-            </div>
-          ))}
+            ))}
           </div>
         </div>
       )}
@@ -257,40 +289,42 @@ function RightPanel({
                 </tr>
               </thead>
               <tbody>
-                {detectHistory.filter(
-                  (d) => detectFilter === "전체" || d.sev === detectFilter,
-                ).map((d) => (
-                  <tr
-                    key={d.id}
-                    className="border-b border-[#F5F5F5] hover:bg-[#FAFAFA] cursor-pointer"
-                  >
-                    <td className="py-1.5 px-2 text-[10px] font-mono text-[#6B6B6B]">
-                      {d.time}
-                    </td>
-                    <td className="py-1.5 px-2">
-                      <SeverityBadge sev={d.sev} small />
-                    </td>
-                    <td className="py-1.5 px-2 text-[10px] text-[#0D0D0D] max-w-[100px] truncate">
-                      {d.event}
-                    </td>
-                    <td className="py-1.5 px-2">
-                      <span
-                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white ${
-                          d.blocked === "차단"
-                            ? "bg-[#16A34A]"
-                            : d.blocked === "부분"
-                              ? "bg-[#F79009]"
-                              : "bg-[#98A2B3]"
-                        }`}
-                      >
-                        {d.blocked}
-                      </span>
-                    </td>
-                    <td className="py-1.5 px-2 text-[10px] text-[#6B6B6B]">
-                      {d.status}
-                    </td>
-                  </tr>
-                ))}
+                {detectHistory
+                  .filter(
+                    (d) => detectFilter === "전체" || d.sev === detectFilter,
+                  )
+                  .map((d) => (
+                    <tr
+                      key={d.id}
+                      className="border-b border-[#F5F5F5] hover:bg-[#FAFAFA] cursor-pointer"
+                    >
+                      <td className="py-1.5 px-2 text-[10px] font-mono text-[#6B6B6B]">
+                        {d.time}
+                      </td>
+                      <td className="py-1.5 px-2">
+                        <SeverityBadge sev={d.sev} small />
+                      </td>
+                      <td className="py-1.5 px-2 text-[10px] text-[#0D0D0D] max-w-[100px] truncate">
+                        {d.event}
+                      </td>
+                      <td className="py-1.5 px-2">
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white ${
+                            d.blocked === "차단"
+                              ? "bg-[#16A34A]"
+                              : d.blocked === "부분"
+                                ? "bg-[#F79009]"
+                                : "bg-[#98A2B3]"
+                          }`}
+                        >
+                          {d.blocked}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-2 text-[10px] text-[#6B6B6B]">
+                        {d.status}
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>
@@ -446,7 +480,14 @@ function SecurityChatbot({
             title="닫기"
             className="w-7 h-7 flex items-center justify-center rounded-lg text-[#667085] hover:text-[#101828] hover:bg-white transition-colors"
           >
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              viewBox="0 0 24 24"
+              width="15"
+              height="15"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
@@ -632,13 +673,7 @@ function CardShell({
   )
 }
 
-function CardHeader({
-  title,
-  onOpen,
-}: {
-  title: string
-  onOpen: () => void
-}) {
+function CardHeader({ title, onOpen }: { title: string; onOpen: () => void }) {
   return (
     <div className="flex items-start justify-between gap-1 px-3 pt-3.5">
       <p className="text-[12px] font-bold text-[#0D0D0D] leading-tight">
@@ -695,7 +730,13 @@ function EventCard({ card, isSelected, isMuted, onClick, onOpen }: CardProps) {
 }
 
 // 임계치형: 게이지 + 현재/한도
-function TrafficCard({ card, isSelected, isMuted, onClick, onOpen }: CardProps) {
+function TrafficCard({
+  card,
+  isSelected,
+  isMuted,
+  onClick,
+  onOpen,
+}: CardProps) {
   const isDir = card.id === "dir"
   const pct = isDir ? 80 : 100
   const accent = isDir ? "#F79009" : "#D92D20"
@@ -726,7 +767,13 @@ function TrafficCard({ card, isSelected, isMuted, onClick, onOpen }: CardProps) 
 }
 
 // 이상행위형: 상태 + 탐지 건수
-function AnomalyCard({ card, isSelected, isMuted, onClick, onOpen }: CardProps) {
+function AnomalyCard({
+  card,
+  isSelected,
+  isMuted,
+  onClick,
+  onOpen,
+}: CardProps) {
   const accent = "#D92D20"
 
   return (
@@ -739,7 +786,10 @@ function AnomalyCard({ card, isSelected, isMuted, onClick, onOpen }: CardProps) 
       <CardHeader title={card.title} onOpen={onOpen} />
       <div className="px-3 pb-3 flex-1 flex flex-col justify-center gap-1.5">
         <StatusBadge label="이상행위 탐지" color={accent} />
-        <p className="text-[26px] font-bold leading-none" style={{ color: accent }}>
+        <p
+          className="text-[26px] font-bold leading-none"
+          style={{ color: accent }}
+        >
           1
           <span className="text-[12px] font-medium text-[#667085] ml-1">
             건 탐지
@@ -804,7 +854,7 @@ function VulnCard({ card, isSelected, isMuted, onClick, onOpen }: CardProps) {
   )
 }
 
-function ScenarioCardWrapper({
+export function ScenarioCardWrapper({
   card,
   isSelected,
   anySelected,
@@ -846,6 +896,12 @@ function ScenarioCardWrapper({
 
 type MainSection = "dashboard" | "events" | "monitoring" | "ai-actions"
 type DashboardDataState = "loading" | "success" | "error"
+
+interface SecurityNotification {
+  id: string
+  event: ActionEvent
+  read: boolean
+}
 
 function ComingSoonSection({
   title,
@@ -914,41 +970,179 @@ function DashboardDataStatus({
 
   return (
     <div className="bg-white border border-[#EAECF0] rounded-xl px-4 py-3 flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg bg-[#F2F4F7] text-[#475467] flex items-center justify-center flex-shrink-0">
-          {isLoading ? (
-            <span className="w-4 h-4 rounded-full border-2 border-[#D0D5DD] border-t-[#101828] animate-spin" />
-          ) : (
-            <svg
-              viewBox="0 0 24 24"
-              width="19"
-              height="19"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-            >
-              <path d="M12 9v4M12 17h.01" />
-              <path d="M10.3 3.6L2.7 17a2 2 0 001.7 3h15.2a2 2 0 001.7-3L13.7 3.6a2 2 0 00-3.4 0z" />
-            </svg>
-          )}
-        </div>
-        <div className="min-w-0">
-          <p className="text-xs font-bold text-[#101828]">
-            {isLoading ? "데이터를 불러오는 중입니다." : "데이터를 불러오지 못했습니다."}
-          </p>
-          <p className="text-[10px] text-[#667085] mt-0.5">
-            {isLoading
-              ? "연결이 완료되면 실제 DB 데이터가 표시됩니다."
-              : "DB 또는 API 연결 상태를 확인해주세요. 화면은 빈 데이터 상태로 표시됩니다."}
-          </p>
-        </div>
-        {!isLoading && (
-          <button
-            onClick={onRetry}
-            className="ml-auto flex-shrink-0 text-[10px] font-semibold text-white bg-[#101828] hover:bg-[#1D2939] px-3 py-1.5 rounded-lg transition-colors"
+      <div className="w-8 h-8 rounded-lg bg-[#F2F4F7] text-[#475467] flex items-center justify-center flex-shrink-0">
+        {isLoading ? (
+          <span className="w-4 h-4 rounded-full border-2 border-[#D0D5DD] border-t-[#101828] animate-spin" />
+        ) : (
+          <svg
+            viewBox="0 0 24 24"
+            width="19"
+            height="19"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
           >
-            다시 시도
-          </button>
+            <path d="M12 9v4M12 17h.01" />
+            <path d="M10.3 3.6L2.7 17a2 2 0 001.7 3h15.2a2 2 0 001.7-3L13.7 3.6a2 2 0 00-3.4 0z" />
+          </svg>
         )}
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs font-bold text-[#101828]">
+          {isLoading
+            ? "데이터를 불러오는 중입니다."
+            : "데이터를 불러오지 못했습니다."}
+        </p>
+        <p className="text-[10px] text-[#667085] mt-0.5">
+          {isLoading
+            ? "연결이 완료되면 실제 DB 데이터가 표시됩니다."
+            : "DB 또는 API 연결 상태를 확인해주세요. 화면은 빈 데이터 상태로 표시됩니다."}
+        </p>
+      </div>
+      {!isLoading && (
+        <button
+          onClick={onRetry}
+          className="ml-auto flex-shrink-0 text-[10px] font-semibold text-white bg-[#101828] hover:bg-[#1D2939] px-3 py-1.5 rounded-lg transition-colors"
+        >
+          다시 시도
+        </button>
+      )}
+    </div>
+  )
+}
+
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  if (values.length < 2) {
+    return <span className="text-[9px] text-[#98A2B3]">최근 추이 없음</span>
+  }
+
+  const width = 160
+  const height = 48
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min || 1
+  const points = values
+    .map((value, index) => {
+      const x = (index / (values.length - 1)) * width
+      const y = height - 2 - ((value - min) / range) * (height - 4)
+      return `${x},${y}`
+    })
+    .join(" ")
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      className="w-full h-12"
+      role="img"
+      aria-label="최근 지표 추이"
+    >
+      <polyline
+        points={points}
+        fill="none"
+        stroke={color}
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function OverviewMetricCard({
+  title,
+  metric,
+  unit,
+  decimals = 1,
+  color = "#101828",
+  waiting,
+}: {
+  title: string
+  metric: NumericOverviewMetric | null
+  unit: string
+  decimals?: number
+  color?: string
+  waiting: boolean
+}) {
+  const hasValue = metric?.current !== null && metric?.current !== undefined
+
+  return (
+    <div className="h-full min-w-0 rounded-xl border border-[#EAECF0] bg-white p-3 flex flex-col overflow-hidden">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[11px] font-bold text-[#101828] truncate">{title}</p>
+        <span className="text-[8px] text-[#98A2B3] whitespace-nowrap">
+          최근 추이
+        </span>
+      </div>
+      <div className="mt-1 min-w-0">
+        {hasValue ? (
+          <p className="leading-tight whitespace-nowrap">
+            <span className="text-[23px] font-bold" style={{ color }}>
+              {metric.current!.toFixed(decimals)}
+            </span>
+            <span className="text-xs text-[#667085] ml-1">{unit}</span>
+          </p>
+        ) : (
+          <p className="text-[12px] font-bold text-[#98A2B3] leading-7 whitespace-nowrap">
+            {waiting ? "수집 대기 중" : "데이터 없음"}
+          </p>
+        )}
+      </div>
+      <div className="mt-auto h-12 flex items-center">
+        {hasValue ? <Sparkline values={metric.series} color={color} /> : null}
+      </div>
+    </div>
+  )
+}
+
+function HealthMetricCard({
+  metric,
+  waiting,
+}: {
+  metric: OverviewMetricsResponse["health"] | null
+  waiting: boolean
+}) {
+  const labels = { NORMAL: "정상", WARNING: "경고", CRITICAL: "장애" } as const
+  const colors = {
+    NORMAL: "#16A34A",
+    WARNING: "#F79009",
+    CRITICAL: "#D92D20",
+  } as const
+  const status = metric?.status ?? null
+
+  return (
+    <div className="h-full min-w-0 rounded-xl border border-[#EAECF0] bg-white p-3 flex flex-col overflow-hidden">
+      <div className="min-w-0">
+        <p className="text-[11px] font-bold text-[#101828]">서비스 상태</p>
+        {status ? (
+          <p
+            className="text-[23px] font-bold leading-tight mt-1"
+            style={{ color: colors[status] }}
+          >
+            {labels[status]}
+          </p>
+        ) : (
+          <p className="text-[12px] font-bold text-[#98A2B3] leading-6 whitespace-nowrap">
+            {waiting ? "수집 대기 중" : "데이터 없음"}
+          </p>
+        )}
+      </div>
+      {status && (
+        <div className="mt-auto grid grid-cols-2 gap-1.5 text-[9px] text-[#667085] whitespace-nowrap">
+          <div className="rounded-lg bg-[#F2F4F7] px-2 py-1.5">
+            <p className="text-[#98A2B3]">Healthy</p>
+            <p className="text-[13px] font-bold text-[#16A34A]">
+              {metric?.healthy ?? "-"}
+            </p>
+          </div>
+          <div className="rounded-lg bg-[#F2F4F7] px-2 py-1.5">
+            <p className="text-[#98A2B3]">Unhealthy</p>
+            <p className="text-[13px] font-bold text-[#D92D20]">
+              {metric?.unhealthy ?? "-"}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -962,9 +1156,8 @@ const isLabRoute = () => window.location.hash === "#/lab"
 
 export default function App() {
   const [now, setNow] = useState(new Date())
-  const [authState, setAuthState] = useState<
-    "loading" | "authenticated" | "unauthenticated"
-  >("loading")
+  const [authState, setAuthState] =
+    useState<"loading" | "authenticated" | "unauthenticated">("loading")
   const [authUser, setAuthUser] = useState<AuthUser | null>(null)
 
   const [autoRefresh, setAutoRefresh] = useState(true)
@@ -1004,6 +1197,29 @@ export default function App() {
   const [detectHistory, setDetectHistory] = useState<DetectHistoryItem[]>([])
   const [remediationHistory, setRemediationHistory] =
     useState<RemediationHistoryItem[]>([])
+  const [overviewMetrics, setOverviewMetrics] =
+    useState<OverviewMetricsResponse | null>(null)
+  const [overviewMetricsState, setOverviewMetricsState] =
+    useState<DashboardDataState>("loading")
+  const [notifications, setNotifications] = useState<SecurityNotification[]>([])
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const knownEventIdsRef = useRef<Set<string> | null>(null)
+  const notifiedEventIdsRef = useRef(new Set<string>())
+  const notificationPopoverRef = useRef<HTMLDivElement>(null)
+
+  const loadOverviewMetrics = async (showLoading = true) => {
+    if (showLoading) setOverviewMetricsState("loading")
+
+    try {
+      const data = await fetchOverviewMetrics()
+      setOverviewMetrics(data)
+      setOverviewMetricsState("success")
+    } catch (error) {
+      setOverviewMetrics(null)
+      setOverviewMetricsState("error")
+      console.error("운영 지표를 불러오지 못했습니다.", error)
+    }
+  }
 
   const loadDashboardData = async (showLoading = true) => {
     if (showLoading) setDashboardDataState("loading")
@@ -1013,6 +1229,10 @@ export default function App() {
       if (response.status === 401) {
         setAuthUser(null)
         setAuthState("unauthenticated")
+        knownEventIdsRef.current = null
+        notifiedEventIdsRef.current.clear()
+        setNotifications([])
+        setNotificationsOpen(false)
         return
       }
       if (!response.ok) {
@@ -1026,6 +1246,31 @@ export default function App() {
         !Array.isArray(data.remediationHistory)
       ) {
         throw new Error("Dashboard API response is invalid")
+      }
+
+      const incomingIds = new Set(data.events.map((event) => event.id))
+      if (knownEventIdsRef.current === null) {
+        knownEventIdsRef.current = incomingIds
+      } else {
+        const newEvents = data.events.filter(
+          (event) =>
+            !knownEventIdsRef.current!.has(event.id) &&
+            !notifiedEventIdsRef.current.has(event.id),
+        )
+
+        data.events.forEach((event) => knownEventIdsRef.current!.add(event.id))
+        newEvents.forEach((event) => notifiedEventIdsRef.current.add(event.id))
+
+        if (newEvents.length > 0) {
+          setNotifications((previous) => [
+            ...newEvents.map((event) => ({
+              id: event.id,
+              event,
+              read: false,
+            })),
+            ...previous,
+          ].slice(0, 30))
+        }
       }
 
       setActionEvents(data.events)
@@ -1072,7 +1317,10 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (authState === "authenticated") void loadDashboardData(true)
+    if (authState === "authenticated") {
+      void loadDashboardData(true)
+      void loadOverviewMetrics(true)
+    }
   }, [authState])
 
   useEffect(() => {
@@ -1089,6 +1337,22 @@ export default function App() {
     const id = setTimeout(() => setToast(null), 2600)
     return () => clearTimeout(id)
   }, [toast])
+
+  useEffect(() => {
+    if (!notificationsOpen) return
+
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (
+        notificationPopoverRef.current &&
+        !notificationPopoverRef.current.contains(event.target as Node)
+      ) {
+        setNotificationsOpen(false)
+      }
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideClick)
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick)
+  }, [notificationsOpen])
 
   const openScenario = (id: string) => {
     window.location.hash = `#/scenario/${id}`
@@ -1109,6 +1373,17 @@ export default function App() {
     setActiveSection(section)
   }
 
+  const toggleAutoRefresh = () => {
+    if (autoRefresh) {
+      setAutoRefresh(false)
+      return
+    }
+
+    setAutoRefresh(true)
+    void loadDashboardData(false)
+    void loadOverviewMetrics(false)
+  }
+
   const openLab = () => {
     window.location.hash = "#/lab"
   }
@@ -1125,6 +1400,7 @@ export default function App() {
 
     const id = setInterval(() => {
       void loadDashboardData(false)
+      void loadOverviewMetrics(false)
     }, 60000)
 
     return () => clearInterval(id)
@@ -1149,44 +1425,6 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey)
   }, [approvalTarget])
 
-  // Compute asset statuses based on selected event
-
-  const statuses = useMemo((): Record<string, AssetStatus> => {
-    const base: Record<string, AssetStatus> = {}
-
-    ASSETS.forEach((a) => {
-      base[a.id] = a.defaultStatus
-    })
-
-    const selection = selectedEvent ?? selectedScenario
-    if (selection) {
-      selection.attackPath.forEach((id) => {
-        base[id] = "critical"
-      })
-      selection.highlightAssets.forEach((id) => {
-        if (!selection.attackPath.includes(id)) base[id] = "warning"
-      })
-    }
-
-    return base
-  }, [selectedEvent, selectedScenario])
-
-  // 시나리오 선택 (같은 것을 다시 누르면 해제)
-  const toggleScenario = (card: ScenarioCard) => {
-    if (selectedScenario?.id === card.id) {
-      clearSelection()
-      return
-    }
-
-    setSelectedAsset(null)
-    setSelectedScenario(card)
-    setSelectedEvent(
-      card.actionEventId
-        ? (actionEvents.find((e) => e.id === card.actionEventId) ?? null)
-        : null,
-    )
-  }
-
   // 지도의 인프라 클릭 → 그 인프라와 연결된 선만 강조 (다시 누르면 해제)
   const handleAssetClick = (assetId: string) => {
     if (selectedAsset === assetId) {
@@ -1208,6 +1446,31 @@ export default function App() {
     setSelectedEvent(ev)
     setSelectedScenario(
       SCENARIO_CARDS.find((c) => c.actionEventId === ev.id) ?? null,
+    )
+  }
+
+  const handleNotificationClick = (notification: SecurityNotification) => {
+    setNotifications((previous) =>
+      previous.map((item) =>
+        item.id === notification.id ? { ...item, read: true } : item,
+      ),
+    )
+    setNotificationsOpen(false)
+    window.location.hash = ""
+    setActiveSection("events")
+    setRightTab("action")
+    setSelectedAsset(null)
+    setSelectedEvent(notification.event)
+    setSelectedScenario(
+      SCENARIO_CARDS.find(
+        (card) => card.actionEventId === notification.event.id,
+      ) ?? null,
+    )
+  }
+
+  const markAllNotificationsRead = () => {
+    setNotifications((previous) =>
+      previous.map((notification) => ({ ...notification, read: true })),
     )
   }
 
@@ -1246,48 +1509,88 @@ export default function App() {
   }
 
   const activeEvents = actionEvents.filter((e) => !removedIds.has(e.id))
-
-  const scenarioResolved = (id: string) => {
-    const acts = SCENARIO_DETAILS[id]?.actions ?? []
-    return acts.length > 0 && acts.every((a) => doneActions[a.id])
-  }
-
-  // 아직 해제되지 않은 비상 자산 (지도의 빨간/주황 점)
-  const alerts: Record<string, { level: "critical" | "warning"; reason: string }> = {}
-  ALERT_RULES.forEach((r) => {
-    const cleared =
-      (r.clearedByEvent && removedIds.has(r.clearedByEvent)) ||
-      (r.clearedByScenario && scenarioResolved(r.clearedByScenario))
-    if (!cleared) alerts[r.assetId] = { level: r.level, reason: r.reason }
-  })
-  const criticalCount = Object.values(alerts).filter((a) => a.level === "critical").length
-  const warningCount = Object.values(alerts).length - criticalCount
-
-  const abnormalScenarios = SCENARIO_CARDS.filter(
-    (c) => SCENARIO_DETAILS[c.id].tone !== "ok" && !scenarioResolved(c.id),
+  const unreadNotificationCount = notifications.filter(
+    (notification) => !notification.read,
   ).length
-
-  const avgWait = activeEvents.length
-    ? Math.round(
-        activeEvents.reduce((n, e) => n + parseInt(e.elapsed, 10), 0) /
-          activeEvents.length,
-      )
-    : 0
+  const displayedActionEvents = selectedEvent
+    ? [
+        selectedEvent,
+        ...activeEvents.filter((event) => event.id !== selectedEvent.id),
+      ]
+    : activeEvents
 
   const selection = selectedEvent ?? selectedScenario
-
-  const hasScenario = selection !== null || selectedAsset !== null
+  const hasExplicitSelection = selection !== null || selectedAsset !== null
+  const uniqueAssetIds = (assetIds: string[]) => [...new Set(assetIds)]
+  const activeHighlightedAssets = uniqueAssetIds(
+    activeEvents.flatMap((event) => [
+      ...event.highlightAssets,
+      ...event.attackPath,
+    ]),
+  )
+  const activeAttackPathAssets = uniqueAssetIds(
+    activeEvents.flatMap((event) => event.attackPath),
+  )
 
   const highlightedAssets = selection
-    ? selection.highlightAssets
+    ? uniqueAssetIds([...selection.highlightAssets, ...selection.attackPath])
     : selectedAsset
       ? [selectedAsset]
-      : []
+      : activeHighlightedAssets
+  const attackPathAssets = selection
+    ? uniqueAssetIds(selection.attackPath)
+    : selectedAsset
+      ? []
+      : activeAttackPathAssets
+  const connectionAssetGroups = selection
+    ? [highlightedAssets]
+    : selectedAsset
+      ? [[selectedAsset]]
+      : activeEvents.map((event) =>
+          uniqueAssetIds([...event.highlightAssets, ...event.attackPath]),
+        )
+  const hasScenario =
+    hasExplicitSelection ||
+    highlightedAssets.length > 0 ||
+    attackPathAssets.length > 0
 
-  // 누른 인프라와 관련된 시나리오 카드는 함께 강조한다.
-  const relatedScenarioIds = selectedAsset ? scenariosForAsset(selectedAsset) : []
+  const statuses: Record<string, AssetStatus> = {}
+  ASSETS.forEach((asset) => {
+    statuses[asset.id] = asset.defaultStatus
+  })
+  highlightedAssets.forEach((assetId) => {
+    statuses[assetId] = "warning"
+  })
+  attackPathAssets.forEach((assetId) => {
+    statuses[assetId] = "critical"
+  })
 
-  const attackPathAssets = selection ? selection.attackPath : []
+  const alerts: Record<string, {
+    level: "critical" | "warning"
+    reason: string
+  }> = {}
+  if (!hasExplicitSelection) {
+    activeEvents.forEach((event) => {
+      const level = event.severity === "Critical" ? "critical" : "warning"
+      const reason = `${event.title} · ${event.severity}`
+      uniqueAssetIds([...event.highlightAssets, ...event.attackPath]).forEach(
+        (assetId) => {
+          const existing = alerts[assetId]
+          if (
+            !existing ||
+            (level === "critical" && existing.level !== "critical")
+          ) {
+            alerts[assetId] = { level, reason }
+          }
+        },
+      )
+    })
+  }
+
+  const criticalCount = activeEvents.filter(
+    (event) => event.severity === "Critical",
+  ).length
+  const warningCount = activeEvents.length - criticalCount
 
   const chatContextEvent = selectedEvent
 
@@ -1321,6 +1624,10 @@ export default function App() {
       setActionEvents([])
       setDetectHistory([])
       setRemediationHistory([])
+      knownEventIdsRef.current = null
+      notifiedEventIdsRef.current.clear()
+      setNotifications([])
+      setNotificationsOpen(false)
       clearSelection()
     }
   }
@@ -1346,7 +1653,7 @@ export default function App() {
       }}
     >
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <header className="bg-white border-b border-[#E4E7EC] h-14 flex-shrink-0 flex items-center px-5 justify-between">
+      <header className="relative z-[80] bg-white border-b border-[#E4E7EC] h-14 flex-shrink-0 flex items-center px-5 justify-between">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 bg-[#111111] rounded-lg flex items-center justify-center flex-shrink-0">
@@ -1379,10 +1686,10 @@ export default function App() {
                   : dashboardDataState === "loading"
                     ? "bg-[#98A2B3]"
                     : criticalCount
-                  ? "bg-[#D92D20] alert-dot-critical"
-                  : warningCount
-                    ? "bg-[#F79009] alert-dot-warning"
-                    : "bg-[#16A34A]"
+                      ? "bg-[#D92D20] alert-dot-critical"
+                      : warningCount
+                        ? "bg-[#F79009] alert-dot-warning"
+                        : "bg-[#16A34A]"
               }`}
             />
             <span
@@ -1414,15 +1721,11 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-4 text-xs text-[#6B6B6B]">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-[#101828] pulse-dot flex-shrink-0" />
-            <span className="text-[#101828] font-bold text-[11px]">LIVE</span>
-          </div>
           <span className="font-mono text-[11px] text-[#0D0D0D]">
             {fmt(now)}
           </span>
           <button
-            onClick={() => setAutoRefresh((v) => !v)}
+            onClick={toggleAutoRefresh}
             className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${
               autoRefresh
                 ? "border-[#111111] text-[#111111] bg-[#F5F5F5]"
@@ -1432,25 +1735,125 @@ export default function App() {
             {autoRefresh ? "자동 갱신 ON" : "자동 갱신 OFF"}
           </button>
 
-
           {/* Alert bell */}
-          <button className="relative p-1.5 hover:bg-[#F5F5F5] rounded-lg">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#6B6B6B"
-              strokeWidth="2"
+          <div className="relative" ref={notificationPopoverRef}>
+            <button
+              onClick={() => setNotificationsOpen((open) => !open)}
+              aria-label={`보안 이벤트 알림 ${unreadNotificationCount}개`}
+              aria-expanded={notificationsOpen}
+              className={`relative p-1.5 rounded-lg transition-colors ${
+                notificationsOpen ? "bg-[#F2F4F7]" : "hover:bg-[#F5F5F5]"
+              }`}
             >
-              <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
-            </svg>
-            {criticalCount + warningCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-[#D92D20] text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-                {criticalCount + warningCount}
-              </span>
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#6B6B6B"
+                strokeWidth="2"
+              >
+                <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
+              </svg>
+              {unreadNotificationCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-[#D92D20] text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                  {unreadNotificationCount > 99
+                    ? "99+"
+                    : unreadNotificationCount}
+                </span>
+              )}
+            </button>
+
+            {notificationsOpen && (
+              <div className="absolute right-0 top-[calc(100%+10px)] z-[100] w-[360px] overflow-hidden rounded-xl border border-[#E4E7EC] bg-white shadow-[0_18px_48px_rgba(16,24,40,0.18)]">
+                <div className="flex items-center justify-between border-b border-[#EAECF0] px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[13px] font-bold text-[#101828]">알림</p>
+                    {unreadNotificationCount > 0 && (
+                      <span className="rounded-full bg-[#FEE4E2] px-1.5 py-0.5 text-[9px] font-bold text-[#B42318]">
+                        안 읽음 {unreadNotificationCount}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={markAllNotificationsRead}
+                    disabled={unreadNotificationCount === 0}
+                    className="text-[10px] font-semibold text-[#475467] hover:text-[#101828] disabled:cursor-default disabled:text-[#D0D5DD]"
+                  >
+                    모두 읽음
+                  </button>
+                </div>
+
+                <div className="max-h-[420px] overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <div className="px-4 py-10 text-center">
+                      <p className="text-[12px] font-semibold text-[#667085]">
+                        새로운 보안 이벤트 알림이 없습니다.
+                      </p>
+                      <p className="mt-1 text-[10px] text-[#98A2B3]">
+                        다음 조회에서 새 event.id가 확인되면 표시됩니다.
+                      </p>
+                    </div>
+                  ) : (
+                    notifications.map((notification) => {
+                      const event = notification.event
+                      const time =
+                        event.detectedAt.match(/\d{2}:\d{2}$/)?.[0] ??
+                        event.detectedAt
+                      const severityColor =
+                        event.severity === "Critical"
+                          ? "text-[#B42318]"
+                          : event.severity === "High"
+                            ? "text-[#B54708]"
+                            : event.severity === "Medium"
+                              ? "text-[#B54708]"
+                              : "text-[#475467]"
+
+                      return (
+                        <button
+                          key={notification.id}
+                          onClick={() => handleNotificationClick(notification)}
+                          className={`relative block w-full border-b border-[#F2F4F7] px-4 py-3 text-left transition-colors last:border-b-0 ${
+                            notification.read
+                              ? "bg-white hover:bg-[#F9FAFB]"
+                              : "bg-[#F8FAFF] hover:bg-[#F2F6FF]"
+                          }`}
+                        >
+                          {!notification.read && (
+                            <span className="absolute left-1.5 top-4 h-1.5 w-1.5 rounded-full bg-[#2563EB]" />
+                          )}
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-[11px] font-bold text-[#101828]">
+                                <span className={severityColor}>
+                                  [{event.severity.toUpperCase()}]
+                                </span>{" "}
+                                {event.title}
+                              </p>
+                              <p className="mt-1 text-[10px] font-semibold text-[#475467]">
+                                {event.service}
+                              </p>
+                              <p className="mt-0.5 truncate text-[10px] text-[#667085]">
+                                대상: {event.asset || "-"}
+                              </p>
+                              {event.scenarioType && (
+                                <p className="mt-0.5 truncate text-[9px] text-[#98A2B3]">
+                                  유형: {event.scenarioType}
+                                </p>
+                              )}
+                            </div>
+                            <span className="flex-shrink-0 font-mono text-[9px] text-[#98A2B3]">
+                              {time}
+                            </span>
+                          </div>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
             )}
-          </button>
+          </div>
 
           {/* Profile */}
           <div className="flex items-center gap-2">
@@ -1463,7 +1866,8 @@ export default function App() {
                   {authUser?.team || "보안관제팀"}
                 </p>
                 <p className="text-[9px] text-[#6B6B6B] leading-tight">
-                  {authUser?.username || "관리자"} · {authUser?.role || "관리자"}
+                  {authUser?.username || "관리자"} ·{" "}
+                  {authUser?.role || "관리자"}
                 </p>
               </div>
             </div>
@@ -1490,7 +1894,14 @@ export default function App() {
               key: "dashboard",
               label: "대시보드",
               icon: (
-                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="17"
+                  height="17"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
                   <rect x="3" y="3" width="7" height="7" rx="1" />
                   <rect x="14" y="3" width="7" height="7" rx="1" />
                   <rect x="3" y="14" width="7" height="7" rx="1" />
@@ -1503,7 +1914,14 @@ export default function App() {
               label: "보안 이벤트",
               badge: activeEvents.length,
               icon: (
-                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="17"
+                  height="17"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
                   <path d="M12 9v4M12 17h.01" />
                   <path d="M10.3 3.6L2.7 17a2 2 0 001.7 3h15.2a2 2 0 001.7-3L13.7 3.6a2 2 0 00-3.4 0z" />
                 </svg>
@@ -1513,7 +1931,14 @@ export default function App() {
               key: "monitoring",
               label: "수동 모니터링",
               icon: (
-                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="17"
+                  height="17"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
                   <path d="M3 12h4l2.5-6 5 12 2.5-6h4" />
                   <path d="M4 21h16a1 1 0 001-1V4a1 1 0 00-1-1H4a1 1 0 00-1 1v16a1 1 0 001 1z" />
                 </svg>
@@ -1523,17 +1948,24 @@ export default function App() {
               key: "ai-actions",
               label: "AI 조치",
               icon: (
-                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="17"
+                  height="17"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
                   <path d="M12 3l1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2L12 3z" />
                   <path d="M18.5 13l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2zM5 14l.7 2.3L8 17l-2.3.7L5 20l-.7-2.3L2 17l2.3-.7L5 14z" />
                 </svg>
               ),
             },
           ].map((item) => {
-            const selected = !labOpen && (
-              (item.key === "dashboard" && pageId !== null) ||
-              (pageId === null && activeSection === item.key)
-            )
+            const selected =
+              !labOpen &&
+              ((item.key === "dashboard" && pageId !== null) ||
+                (pageId === null && activeSection === item.key))
             return (
               <button
                 key={item.key}
@@ -1545,11 +1977,15 @@ export default function App() {
                 }`}
               >
                 <span className="flex-shrink-0">{item.icon}</span>
-                <span className="text-[11px] font-semibold flex-1">{item.label}</span>
+                <span className="text-[11px] font-semibold flex-1">
+                  {item.label}
+                </span>
                 {item.badge !== undefined && item.badge > 0 && (
                   <span
                     className={`min-w-[20px] h-5 px-1.5 rounded-full text-[9px] font-bold flex items-center justify-center ${
-                      selected ? "bg-white text-[#D92D20]" : "bg-[#FEE4E2] text-[#D92D20]"
+                      selected
+                        ? "bg-white text-[#D92D20]"
+                        : "bg-[#FEE4E2] text-[#D92D20]"
                     }`}
                   >
                     {item.badge}
@@ -1567,7 +2003,14 @@ export default function App() {
                 : "text-[#475467] hover:bg-[#F2F4F7] hover:text-[#101828]"
             }`}
           >
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <svg
+              viewBox="0 0 24 24"
+              width="17"
+              height="17"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+            >
               <path d="M9 3h6M10 3v5l-5.5 9.5A2.3 2.3 0 006.5 21h11a2.3 2.3 0 002-3.5L14 8V3" />
               <path d="M8 15h8" />
             </svg>
@@ -1576,12 +2019,18 @@ export default function App() {
 
           <div className="mt-auto px-2 py-2 rounded-xl bg-[#F8F9FB] border border-[#EAECF0]">
             <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${autoRefresh ? "bg-[#16A34A]" : "bg-[#98A2B3]"}`} />
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  autoRefresh ? "bg-[#16A34A]" : "bg-[#98A2B3]"
+                }`}
+              />
               <span className="text-[10px] font-semibold text-[#475467]">
                 {autoRefresh ? "실시간 조회 중" : "자동 조회 중지"}
               </span>
             </div>
-            <p className="text-[9px] text-[#98A2B3] mt-1 pl-4">DB 대시보드 데이터</p>
+            <p className="text-[9px] text-[#98A2B3] mt-1 pl-4">
+              DB 대시보드 데이터
+            </p>
           </div>
         </nav>
 
@@ -1601,7 +2050,9 @@ export default function App() {
             <div className="min-h-full p-4 flex flex-col">
               <div className="flex items-end justify-between mb-3 flex-shrink-0">
                 <div>
-                  <p className="text-[18px] font-bold text-[#101828]">보안 이벤트</p>
+                  <p className="text-[18px] font-bold text-[#101828]">
+                    보안 이벤트
+                  </p>
                   <p className="text-[11px] text-[#667085] mt-0.5">
                     조치 필요 이벤트와 탐지·조치 이력을 한곳에서 확인합니다.
                   </p>
@@ -1635,7 +2086,7 @@ export default function App() {
                 <RightPanel
                   tab={rightTab}
                   setTab={setRightTab}
-                  events={activeEvents}
+                  events={displayedActionEvents}
                   detectHistory={detectHistory}
                   remediationHistory={remediationHistory}
                   selectedEvent={selectedEvent}
@@ -1672,64 +2123,13 @@ export default function App() {
                   onRetry={() => void loadDashboardData()}
                 />
               )}
-              {/* Summary strip */}
-              <div className="grid grid-cols-4 gap-2 flex-shrink-0">
-                {[
-                  {
-                    label: "비상 자산",
-                    value: criticalCount,
-                    unit: "건",
-                    tone: criticalCount ? "#D92D20" : "#16A34A",
-                    hint: warningCount ? `주의 ${warningCount}건 별도` : "주의 없음",
-                  },
-                  {
-                    label: "조치 필요",
-                    value: activeEvents.length,
-                    unit: "건",
-                    tone: activeEvents.length ? "#F79009" : "#16A34A",
-                    hint: `Critical ${activeEvents.filter((e) => e.severity === "Critical").length}건 포함`,
-                  },
-                  {
-                    label: "이상 시나리오",
-                    value: abnormalScenarios,
-                    unit: `/ ${SCENARIO_CARDS.length}`,
-                    tone: abnormalScenarios ? "#D92D20" : "#16A34A",
-                    hint: `정상 ${SCENARIO_CARDS.length - abnormalScenarios}개`,
-                  },
-                  {
-                    label: "평균 조치 대기",
-                    value: avgWait,
-                    unit: "분",
-                    tone: "#101828",
-                    hint: "미조치 이벤트 기준",
-                  },
-                ].map((k) => (
-                  <div
-                    key={k.label}
-                    className="bg-white rounded-lg ring-1 ring-[#EAECF0] px-3 py-1.5 flex items-center gap-2"
-                  >
-                    <div>
-                      <p className="text-[11px] text-[#667085]">{k.label}</p>
-                      <p className="leading-tight">
-                        <span className="text-[17px] font-bold" style={{ color: k.tone }}>
-                          {k.value}
-                        </span>
-                        <span className="text-xs text-[#667085] ml-1">{k.unit}</span>
-                      </p>
-                    </div>
-                    <p className="ml-auto text-[9px] text-[#98A2B3] text-right hidden xl:block">
-                      {k.hint}
-                    </p>
-                  </div>
-                ))}
-              </div>
-
               {/* Architecture map now uses the full dashboard width */}
               <div className="flex-1 min-h-[360px] relative">
                 <ArchitectureMap
                   assetStatuses={statuses}
                   highlightedAssets={highlightedAssets}
                   attackPathAssets={attackPathAssets}
+                  connectionAssetGroups={connectionAssetGroups}
                   alerts={alerts}
                   onAssetClick={handleAssetClick}
                   onBackgroundClick={clearSelection}
@@ -1737,42 +2137,49 @@ export default function App() {
                 />
               </div>
 
-              {/* 공격 시나리오는 기존 위치 유지: 아키텍처 맵 하단 */}
-              <div className="flex-shrink-0 flex flex-col gap-2">
+              {/* 운영 지표는 기존 6개 카드 위치와 크기를 그대로 사용한다. */}
+              <div className="flex-shrink-0">
                 <div className="grid grid-cols-6 gap-2" style={{ height: 150 }}>
-                  {SCENARIO_CARDS.filter((c) => c.type !== "vuln").map((card) => (
-                    <ScenarioCardWrapper
-                      key={card.id}
-                      card={card}
-                      isSelected={
-                        selectedScenario?.id === card.id ||
-                        relatedScenarioIds.includes(card.id)
-                      }
-                      anySelected={hasScenario}
-                      onSelect={toggleScenario}
-                      onOpen={(c) => openScenario(c.id)}
-                    />
-                  ))}
-                </div>
-                <div>
-                  {SCENARIO_CARDS.filter((c) => c.type === "vuln").map((card) => (
-                    <div
-                      key={card.id}
-                      className="min-w-0"
-                      style={{ width: "calc(100% - 76px)" }}
-                    >
-                      <ScenarioCardWrapper
-                        card={card}
-                        isSelected={
-                          selectedScenario?.id === card.id ||
-                          relatedScenarioIds.includes(card.id)
-                        }
-                        anySelected={hasScenario}
-                        onSelect={toggleScenario}
-                        onOpen={(c) => openScenario(c.id)}
-                      />
-                    </div>
-                  ))}
+                  <OverviewMetricCard
+                    title="CPU 사용률"
+                    metric={overviewMetrics?.cpu ?? null}
+                    unit="%"
+                    color="#2563EB"
+                    waiting={overviewMetricsState === "loading"}
+                  />
+                  <OverviewMetricCard
+                    title="메모리 사용률"
+                    metric={overviewMetrics?.memory ?? null}
+                    unit="%"
+                    color="#7C3AED"
+                    waiting={overviewMetricsState === "loading"}
+                  />
+                  <OverviewMetricCard
+                    title="요청 지연 시간"
+                    metric={overviewMetrics?.latency ?? null}
+                    unit="ms"
+                    decimals={0}
+                    color="#0891B2"
+                    waiting={overviewMetricsState === "loading"}
+                  />
+                  <OverviewMetricCard
+                    title="요청 처리량"
+                    metric={overviewMetrics?.rps ?? null}
+                    unit="rps"
+                    color="#16A34A"
+                    waiting={overviewMetricsState === "loading"}
+                  />
+                  <OverviewMetricCard
+                    title="에러율"
+                    metric={overviewMetrics?.errorRate ?? null}
+                    unit="%"
+                    color="#D92D20"
+                    waiting={overviewMetricsState === "loading"}
+                  />
+                  <HealthMetricCard
+                    metric={overviewMetrics?.health ?? null}
+                    waiting={overviewMetricsState === "loading"}
+                  />
                 </div>
               </div>
             </main>
@@ -1807,7 +2214,14 @@ export default function App() {
           aria-label="보안 AI 챗봇 열기"
           title="보안 AI 챗봇"
         >
-          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            viewBox="0 0 24 24"
+            width="19"
+            height="19"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
             <path d="M8 10h.01M12 10h.01M16 10h.01" />
           </svg>
