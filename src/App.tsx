@@ -2116,7 +2116,7 @@ export default function App() {
               ]}
             />
           ) : (
-            <main className="h-full flex flex-col gap-2 p-3">
+            <main className="min-h-full flex flex-col gap-2 p-3">
               {dashboardDataState !== "success" && (
                 <DashboardDataStatus
                   status={dashboardDataState}
