@@ -13,7 +13,9 @@ from db import get_connection
 
 load_dotenv()
 
-app = Flask(__name__)
+# 배포용 컨테이너에서는 프론트엔드 빌드 결과(frontend/dist)를 이 Flask가 함께 서빙한다.
+# 로컬 개발(vite dev)에서는 이 폴더가 없어도 API 서버로는 정상 동작한다.
+app = Flask(__name__, static_folder="static", static_url_path="")
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-only-change-this-secret")
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -844,6 +846,16 @@ def chat():
             ),
             502,
         )
+
+
+# 화면(SPA). 해시 라우팅(#/scenario/...)을 쓰므로 서버는 항상 index.html만 주면 된다.
+# 위의 /api/* 라우트들이 먼저 매칭되고, 그 외 모든 경로가 마지막으로 이리로 온다.
+@app.get("/", defaults={"path": ""})
+@app.get("/<path:path>")
+def spa(path):
+    if app.static_folder and path and os.path.isfile(os.path.join(app.static_folder, path)):
+        return app.send_static_file(path)
+    return app.send_static_file("index.html")
 
 
 if __name__ == "__main__":
