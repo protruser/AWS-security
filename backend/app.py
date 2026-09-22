@@ -4,6 +4,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 
+import boto3
+from botocore.config import Config
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, session
 from flask_cors import CORS
@@ -13,9 +15,7 @@ from db import get_connection
 
 load_dotenv()
 
-# 배포용 컨테이너에서는 프론트엔드 빌드 결과(frontend/dist)를 이 Flask가 함께 서빙한다.
-# 로컬 개발(vite dev)에서는 이 폴더가 없어도 API 서버로는 정상 동작한다.
-app = Flask(__name__, static_folder="static", static_url_path="")
+app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-only-change-this-secret")
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -38,6 +38,11 @@ CORS(
 )
 
 VALID_SEVERITIES = {"Critical", "High", "Medium", "Low", "Info"}
+REMEDIATION_ACTIONS = {
+    "sqli": "block_ip", "dir": "block_ip", "brute": "block_ip",
+    "xss": "block_ip", "cred": "disable_access_key",
+}
+REMEDIATION_CLOSED_STATUSES = {"조치 완료", "자동 완료", "완료", "예외 처리"}
 LOG_RANGE_DELTAS = {
     "15m": timedelta(minutes=15),
     "1h": timedelta(hours=1),
@@ -351,6 +356,7 @@ def _read_dashboard_data():
                 SELECT *
                 FROM security_events
                 WHERE status NOT IN ('조치 완료', '자동 완료', '예외 처리', '완료')
+                  AND scenario_type IN ('sqli', 'dir', 'brute', 'cred', 'vuln', 'xss', 'port')
                 ORDER BY detected_at DESC
                 """
             )
@@ -360,6 +366,7 @@ def _read_dashboard_data():
                 """
                 SELECT *
                 FROM security_events
+                WHERE scenario_type IN ('sqli', 'dir', 'brute', 'cred', 'vuln', 'xss', 'port')
                 ORDER BY detected_at DESC
                 LIMIT 200
                 """
@@ -374,6 +381,7 @@ def _read_dashboard_data():
                     se.asset AS asset
                 FROM remediation_history rh
                 LEFT JOIN security_events se ON se.id = rh.event_id
+                WHERE se.scenario_type IN ('sqli', 'dir', 'brute', 'cred', 'vuln', 'xss', 'port')
                 ORDER BY COALESCE(rh.completed_at, rh.requested_at) DESC
                 LIMIT 200
                 """
@@ -691,6 +699,72 @@ def auth_logout():
     return jsonify({"ok": True})
 
 
+@app.post("/api/remediation")
+@login_required
+def remediate_event():
+    data = request.get_json(silent=True)
+    if (not isinstance(data, dict) or set(data) != {"event_id"}
+            or not isinstance(data["event_id"], str) or not data["event_id"].strip()):
+        return jsonify(error="INVALID_REQUEST", message="event_id만 전달해야 합니다."), 400
+    event_id = data["event_id"]
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM security_events WHERE id = %s", (event_id,))
+                event = cursor.fetchone()
+    except Exception:
+        app.logger.exception("Failed to read remediation event")
+        return jsonify(error="DATABASE_ERROR", message="보안 이벤트를 조회하지 못했습니다."), 500
+    if not event:
+        return jsonify(error="EVENT_NOT_FOUND", message="보안 이벤트를 찾을 수 없습니다."), 404
+    action = REMEDIATION_ACTIONS.get(event.get("scenario_type"))
+    if not action:
+        return jsonify(error="REMEDIATION_NOT_SUPPORTED",
+                       message="현재 자동 조치를 지원하지 않는 보안 시나리오입니다."), 400
+    if event.get("status") in REMEDIATION_CLOSED_STATUSES:
+        return jsonify(error="EVENT_ALREADY_CLOSED", message="이미 완료되거나 예외 처리된 이벤트입니다."), 409
+    if action == "block_ip" and not str(event.get("attacker_ip") or "").strip():
+        return jsonify(error="REMEDIATION_DATA_MISSING", message="차단할 공격 IP 정보가 없습니다."), 400
+    function_name = os.getenv("REMEDIATION_LAMBDA_NAME", "").strip()
+    if not function_name:
+        return jsonify(error="REMEDIATION_NOT_CONFIGURED", message="REMEDIATION_LAMBDA_NAME 설정이 필요합니다."), 503
+    payload = {
+        "event_id": event_id, "action": action,
+        "approver": session.get("username") or "admin", "method": "수동", "params": {},
+    }
+    try:
+        # Mutating invocation must not be retried automatically after an ambiguous timeout.
+        client = boto3.client(
+            "lambda", region_name=os.getenv("AWS_REGION", "ap-northeast-2"),
+            config=Config(read_timeout=900, connect_timeout=10, retries={"total_max_attempts": 1}),
+        )
+        response = client.invoke(FunctionName=function_name, InvocationType="RequestResponse",
+                                 Payload=json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+        result = json.loads(response["Payload"].read())
+        if not isinstance(result, dict):
+            raise ValueError("Lambda 응답이 JSON 객체가 아닙니다.")
+        body = result.get("body", result)
+        if isinstance(body, str):
+            body = json.loads(body)
+        if not isinstance(body, dict):
+            raise ValueError("Lambda 응답 body가 JSON 객체가 아닙니다.")
+        status = result.get("statusCode")
+        success = ((type(status) is int and 200 <= status < 300)
+                   or (status is None and body.get("success") is True))
+        if (response.get("FunctionError") or response.get("StatusCode") != 200
+                or not success or result.get("success") is False or result.get("error")
+                or body.get("success") is False or body.get("error")
+                or str(body.get("status", "")).lower() in ("failed", "failure", "error", "실패")
+                or str(body.get("result", "")).lower() in ("failed", "failure", "error", "실패")):
+            message = body.get("message") or body.get("errorMessage") or body.get("error") or "Lambda 조치 실행에 실패했습니다."
+            return jsonify(error="REMEDIATION_FAILED", message=str(message)), 502
+    except Exception as exc:
+        app.logger.exception("Remediation invocation failed")
+        return jsonify(error="REMEDIATION_FAILED", message=str(exc)), 502
+    # Lambda alone owns event status and remediation_history writes.
+    return jsonify(success=True, event_id=event_id)
+
+
 @app.get("/api/dashboard")
 @login_required
 def dashboard():
@@ -846,16 +920,6 @@ def chat():
             ),
             502,
         )
-
-
-# 화면(SPA). 해시 라우팅(#/scenario/...)을 쓰므로 서버는 항상 index.html만 주면 된다.
-# 위의 /api/* 라우트들이 먼저 매칭되고, 그 외 모든 경로가 마지막으로 이리로 온다.
-@app.get("/", defaults={"path": ""})
-@app.get("/<path:path>")
-def spa(path):
-    if app.static_folder and path and os.path.isfile(os.path.join(app.static_folder, path)):
-        return app.send_static_file(path)
-    return app.send_static_file("index.html")
 
 
 if __name__ == "__main__":

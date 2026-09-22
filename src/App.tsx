@@ -24,6 +24,10 @@ import { LoginPage } from "./components/LoginPage"
 import { fetchOverviewMetrics } from "./services/dashboardApi"
 
 // ─── Action card ──────────────────────────────────────────────────────────────
+function canRemediate(event: ActionEvent) {
+  return ["sqli", "dir", "brute", "xss", "cred"].includes(event.scenarioType ?? "")
+    && !["조치 완료", "자동 완료", "완료", "예외 처리"].includes(event.status)
+}
 
 function ActionCard({
   ev,
@@ -110,11 +114,12 @@ function ActionCard({
           <button
             onClick={(e) => {
               e.stopPropagation()
-              onApprove()
+              if (canRemediate(ev)) onApprove()
             }}
+            disabled={!canRemediate(ev)}
             className="flex-1 text-[11px] font-bold text-white bg-[#111111] hover:bg-[#262626] px-2.5 py-1.5 rounded-lg transition-colors"
           >
-            조치 승인
+            {canRemediate(ev) ? "조치 승인" : "수동 조치 필요"}
           </button>
           <button
             onClick={(e) => e.stopPropagation()}
@@ -1178,7 +1183,10 @@ export default function App() {
 
   const [approvalTarget, setApprovalTarget] = useState<ActionEvent | null>(null)
 
-  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set())
+  const [isRemediating, setIsRemediating] = useState(false)
+  const remediationPendingRef = useRef(false)
+  const [remediationError, setRemediationError] = useState<string | null>(null)
+  const [remediationSucceeded, setRemediationSucceeded] = useState(false)
 
   // Scenario detail page (hash route: #/scenario/<id>)
   const [pageId, setPageId] = useState<string | null>(parseRoute)
@@ -1221,7 +1229,7 @@ export default function App() {
     }
   }
 
-  const loadDashboardData = async (showLoading = true) => {
+  const loadDashboardData = async (showLoading = true, preserveOnError = false) => {
     if (showLoading) setDashboardDataState("loading")
 
     try {
@@ -1277,14 +1285,18 @@ export default function App() {
       setDetectHistory(data.detectHistory)
       setRemediationHistory(data.remediationHistory)
       setDashboardDataState("success")
+      return true
     } catch (error) {
-      setActionEvents([])
-      setDetectHistory([])
-      setRemediationHistory([])
-      setSelectedEvent(null)
-      setSelectedAsset(null)
+      if (!preserveOnError) {
+        setActionEvents([])
+        setDetectHistory([])
+        setRemediationHistory([])
+        setSelectedEvent(null)
+        setSelectedAsset(null)
+      }
       setDashboardDataState("error")
       console.error("DB 대시보드 데이터를 불러오지 못했습니다.", error)
+      return false
     }
   }
 
@@ -1474,16 +1486,37 @@ export default function App() {
     )
   }
 
-  const handleApproveConfirm = () => {
-    if (!approvalTarget) return
-
-    setRemovedIds((prev) => new Set([...prev, approvalTarget.id]))
-
-    setToast(`조치가 실행되었습니다 — ${approvalTarget.title}`)
-
-    setApprovalTarget(null)
-
-    clearSelection()
+  const handleApproveConfirm = async () => {
+    if (!approvalTarget || remediationPendingRef.current || !canRemediate(approvalTarget)) return
+    remediationPendingRef.current = true
+    setIsRemediating(true)
+    setRemediationError(null)
+    try {
+      if (!remediationSucceeded) {
+        const response = await fetch("/api/remediation", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ event_id: approvalTarget.id }),
+        })
+        const result = await response.json()
+        if (!response.ok || result.success !== true) {
+          throw new Error(result.message || "조치 실행에 실패했습니다.")
+        }
+        setRemediationSucceeded(true)
+      }
+      if (!(await loadDashboardData(false, true))) {
+        throw new Error("조치는 성공했지만 최신 데이터를 조회하지 못했습니다. 다시 확인하면 데이터만 재조회합니다.")
+      }
+      setApprovalTarget(null)
+      clearSelection()
+      setToast(`조치가 실행되었습니다 — ${approvalTarget.title}`)
+    } catch (error) {
+      setRemediationError(error instanceof Error ? error.message : "조치 실행에 실패했습니다.")
+    } finally {
+      remediationPendingRef.current = false
+      setIsRemediating(false)
+    }
   }
 
   const fmt = (d: Date) => {
@@ -1508,7 +1541,7 @@ export default function App() {
     setToast("조치가 실행되었습니다")
   }
 
-  const activeEvents = actionEvents.filter((e) => !removedIds.has(e.id))
+  const activeEvents = actionEvents
   const unreadNotificationCount = notifications.filter(
     (notification) => !notification.read,
   ).length
@@ -2082,7 +2115,12 @@ export default function App() {
                   remediationHistory={remediationHistory}
                   selectedEvent={selectedEvent}
                   onSelectEvent={handleSelectEvent}
-                  onApprove={setApprovalTarget}
+                  onApprove={(event) => {
+                    if (remediationPendingRef.current || !canRemediate(event)) return
+                    setRemediationError(null)
+                    setRemediationSucceeded(false)
+                    setApprovalTarget(event)
+                  }}
                 />
               </div>
             </div>
@@ -2235,8 +2273,11 @@ export default function App() {
       {/* ── Approval Modal ─────────────────────────────────────────────── */}
       {approvalTarget && (
         <ApprovalModal
-          ev={approvalTarget}
-          onClose={() => setApprovalTarget(null)}
+          ev={{ ...approvalTarget, executor: "Remediation Lambda", rollback: "조치별 별도 확인 필요" }}
+          isExecuting={isRemediating}
+          error={remediationError}
+          confirmLabel={remediationSucceeded ? "최신 상태 다시 조회" : undefined}
+          onClose={() => { if (!remediationPendingRef.current) setApprovalTarget(null) }}
           onConfirm={handleApproveConfirm}
         />
       )}

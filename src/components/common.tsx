@@ -102,10 +102,16 @@ export function ApprovalModal({
   ev,
   onClose,
   onConfirm,
+  isExecuting = false,
+  error,
+  confirmLabel,
 }: {
   ev: ApprovalRequest
   onClose: () => void
   onConfirm: () => void
+  isExecuting?: boolean
+  error?: string | null
+  confirmLabel?: string
 }) {
   const [checked, setChecked] = useState(false)
   const isHighRisk = ev.severity === "Critical"
@@ -114,7 +120,7 @@ export function ApprovalModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
-        onClick={onClose}
+        onClick={() => { if (!isExecuting) onClose() }}
       />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 fade-in">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#EEF0F3]">
@@ -128,6 +134,7 @@ export function ApprovalModal({
             onClick={onClose}
             className="text-[#6B6B6B] hover:text-[#0D0D0D] text-xl font-light"
             aria-label="닫기"
+            disabled={isExecuting}
           >
             ✕
           </button>
@@ -182,22 +189,24 @@ export function ApprovalModal({
             </label>
           )}
         </div>
+        {error && <p role="alert" className="px-6 pb-3 text-xs text-[#D92D20]">{error}</p>}
         <div className="flex gap-3 px-6 py-4 border-t border-[#EEF0F3]">
           <button
             onClick={onClose}
+            disabled={isExecuting}
             className="flex-1 text-sm font-medium text-[#6B6B6B] border border-[#E0E0E0] hover:bg-[#FAFAFA] px-4 py-2 rounded-lg transition-colors"
           >
             취소
           </button>
           <button
             onClick={onConfirm}
-            disabled={isHighRisk && !checked}
+            disabled={isExecuting || (isHighRisk && !checked)}
             className="flex-1 text-sm font-semibold text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
               backgroundColor: isHighRisk && !checked ? "#A3A3A3" : "#111111",
             }}
           >
-            조치 실행
+            {isExecuting ? "조치 실행 중..." : confirmLabel ?? "조치 실행"}
           </button>
         </div>
       </div>
