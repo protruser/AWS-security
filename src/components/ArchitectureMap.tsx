@@ -56,7 +56,9 @@ export function ArchitectureMap({
   hasScenario,
 }: MapProps) {
   const outerRef = useRef<HTMLDivElement>(null)
-  const [scale, setScale] = useState(1)
+  // 처음엔 알 수 없음(null)으로 두고, 실제 크기를 잰 뒤에만 그린다.
+  // 1로 시작했다가 실측값으로 바뀌면 새로고침할 때마다 "줌"되는 것처럼 보였다.
+  const [scale, setScale] = useState<number | null>(null)
   useEffect(() => {
     const el = outerRef.current
     if (!el) return
@@ -81,15 +83,16 @@ export function ArchitectureMap({
   return (
     <div
       ref={outerRef}
-      className="architecture-viewport w-full h-full rounded-2xl ring-1 ring-[#E4E7EC] bg-white"
+      className="architecture-viewport w-full h-full rounded-2xl ring-1 ring-[#E4E7EC] bg-white flex items-center justify-center"
       aria-label="AWS 아키텍처"
       onClick={onBackgroundClick}
     >
+      {scale === null ? null : (
       <div
         style={{
           width: CANVAS.width * scale,
           height: CANVAS.height * scale,
-          margin: "0 auto",
+          flexShrink: 0,
         }}
       >
         <div
@@ -177,6 +180,7 @@ export function ArchitectureMap({
           ))}
         </div>
       </div>
+      )}
     </div>
   )
 }

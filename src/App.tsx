@@ -1522,33 +1522,24 @@ export default function App() {
   const selection = selectedEvent ?? selectedScenario
   const hasExplicitSelection = selection !== null || selectedAsset !== null
   const uniqueAssetIds = (assetIds: string[]) => [...new Set(assetIds)]
-  const activeHighlightedAssets = uniqueAssetIds(
-    activeEvents.flatMap((event) => [
-      ...event.highlightAssets,
-      ...event.attackPath,
-    ]),
-  )
-  const activeAttackPathAssets = uniqueAssetIds(
-    activeEvents.flatMap((event) => event.attackPath),
-  )
-
+  // 아무것도 클릭하지 않았을 때는 지도를 완전히 평범한 상태로 둔다.
+  // (예전에는 미해결 이벤트를 전부 자동으로 강조해서, 아무것도 안 눌러도
+  //  뭔가 선택된 것처럼 보였다. 작은 경보 점(alerts)은 아래에서 별도로 계속 표시한다.)
   const highlightedAssets = selection
     ? uniqueAssetIds([...selection.highlightAssets, ...selection.attackPath])
     : selectedAsset
       ? [selectedAsset]
-      : activeHighlightedAssets
+      : []
   const attackPathAssets = selection
     ? uniqueAssetIds(selection.attackPath)
     : selectedAsset
       ? []
-      : activeAttackPathAssets
+      : []
   const connectionAssetGroups = selection
     ? [highlightedAssets]
     : selectedAsset
       ? [[selectedAsset]]
-      : activeEvents.map((event) =>
-          uniqueAssetIds([...event.highlightAssets, ...event.attackPath]),
-        )
+      : []
   const hasScenario =
     hasExplicitSelection ||
     highlightedAssets.length > 0 ||
