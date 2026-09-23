@@ -160,7 +160,7 @@ def review_terraform_fix(
     try:
         response = client.messages.create(
             model=resolved_model,
-            max_tokens=1024,
+            max_tokens=4096,
             system=(
                 "당신은 Terraform 변경 사항을 검토하는 보안 리뷰어입니다. "
                 "다른 AI가 제안한 변경을 무비판적으로 승인하지 말고, 실제로 "
