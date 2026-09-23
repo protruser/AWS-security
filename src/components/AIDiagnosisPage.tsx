@@ -32,6 +32,7 @@ interface DiagnosisReport {
   standard: string
   model: string
   summary: { total: number; pass: number; fail: number; review: number; na: number }
+  consultant_comment?: string
   results: DiagnosisResult[]
   collection_errors: CollectionError[]
   collected_at: string | null
@@ -293,13 +294,33 @@ export function AIDiagnosisPage({
             않습니다.
           </p>
         </div>
-        <button
-          onClick={runDiagnosis}
-          disabled={running}
-          className="text-xs font-bold text-white bg-[#101828] hover:bg-[#1D2939] disabled:opacity-40 rounded-lg px-4 py-2.5 transition-colors flex-shrink-0"
-        >
-          {running ? "진단 실행 중…" : "진단 실행"}
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {status?.status === "done" && (
+            <a
+              href="/api/ai-diagnosis/report.xlsx"
+              className="text-xs font-bold text-[#344054] bg-white hover:bg-[#F9FAFB] ring-1 ring-[#D0D5DD] rounded-lg px-4 py-2.5 transition-colors inline-flex items-center gap-1.5"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="14"
+                height="14"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+              >
+                <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
+              </svg>
+              보고서 다운로드
+            </a>
+          )}
+          <button
+            onClick={runDiagnosis}
+            disabled={running}
+            className="text-xs font-bold text-white bg-[#101828] hover:bg-[#1D2939] disabled:opacity-40 rounded-lg px-4 py-2.5 transition-colors"
+          >
+            {running ? "진단 실행 중…" : "진단 실행"}
+          </button>
+        </div>
       </div>
 
       {loadError && (
@@ -360,6 +381,17 @@ export function AIDiagnosisPage({
             {report.standard} · {status?.finishedAt ?? ""} 완료
             {report.region ? ` · ${report.region}` : ""}
           </p>
+
+          {report.consultant_comment && (
+            <div className="rounded-xl border border-[#EAECF0] bg-white p-3.5">
+              <p className="text-[11px] font-bold text-[#101828] mb-1.5">
+                AI 종합 소견
+              </p>
+              <p className="text-[12px] text-[#344054] leading-relaxed whitespace-pre-line">
+                {report.consultant_comment}
+              </p>
+            </div>
+          )}
 
           {report.collection_errors.length > 0 && (
             <details className="rounded-xl border border-[#FEDF89] bg-[#FFFAEB] px-3 py-2">

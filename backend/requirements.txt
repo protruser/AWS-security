@@ -6,3 +6,4 @@ boto3==1.40.40
 openai>=1.75.0,<3.0.0
 cryptography>=42,<46
 gunicorn==23.0.0
+openpyxl==3.1.5

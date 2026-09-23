@@ -378,6 +378,48 @@ class AIDiagnosisService:
                 summary["na"] += 1
         return summary
 
+    def generate_consultant_comment(
+        self, summary: Mapping[str, int], results: Sequence[Mapping[str, Any]]
+    ) -> str:
+        """33개 판정 결과를 근거로 3~5문장짜리 총평을 한 번 더 생성한다.
+
+        이건 보고서를 읽는 사람이 33개 항목을 다 훑기 전에 전체 그림을 먼저
+        파악하게 도와주는 보조 텍스트일 뿐이라, 실패해도(네트워크 오류 등)
+        전체 진단 결과 자체를 버릴 이유는 없다 - 예외를 던지지 않고 빈
+        문자열을 반환한다.
+        """
+        lines = [
+            f"전체 {summary.get('total', 0)}개 항목 중 "
+            f"PASS {summary.get('pass', 0)} / FAIL {summary.get('fail', 0)} / "
+            f"REVIEW {summary.get('review', 0)} / N/A {summary.get('na', 0)}",
+            "",
+            "FAIL/REVIEW 판정 항목:",
+        ]
+        for row in results:
+            if row.get("status") in ("FAIL", "REVIEW"):
+                lines.append(
+                    f"- [{row.get('severity')}/{row.get('status')}] "
+                    f"{row.get('rule_id')}: {row.get('reason')}"
+                )
+        summary_text = "\n".join(lines)[:6000]
+
+        try:
+            response = self.client.responses.create(
+                model=self.model,
+                instructions=(
+                    "당신은 AWS 클라우드 보안 진단 보고서를 작성하는 보안 컨설턴트다. "
+                    "아래 진단 요약만 보고, 이번 진단의 전반적인 보안 수준과 우선 조치가 "
+                    "필요한 부분을 한국어 3~5문장으로 간결하게 작성한다. 요약에 없는 내용은 "
+                    "추측해서 쓰지 않고, 수치를 인용할 땐 요약에 있는 값만 그대로 쓴다."
+                ),
+                input=[{"role": "user", "content": summary_text}],
+                store=False,
+                max_output_tokens=500,
+            )
+            return (getattr(response, "output_text", None) or "").strip()
+        except Exception:
+            return ""
+
     def diagnose_all(self, aws_state: Mapping[str, Any]) -> Dict[str, Any]:
         """Run all 33 diagnoses in four category-scoped model calls."""
         category_results: List[Dict[str, Any]] = []
@@ -396,10 +438,13 @@ class AIDiagnosisService:
         rule_order = {str(rule.get("id")): idx for idx, rule in enumerate(self.rules)}
         merged_results.sort(key=lambda row: rule_order.get(str(row.get("rule_id")), 999))
 
+        summary = self._summary(merged_results)
+
         return {
             "standard": "SK쉴더스 CSPM(DataDog) AWS 보안 가이드 기반",
             "model": self.model,
-            "summary": self._summary(merged_results),
+            "summary": summary,
+            "consultant_comment": self.generate_consultant_comment(summary, merged_results),
             "results": merged_results,
             "categories": category_results,
             "collection_errors": list(aws_state.get("collection_errors") or []),
@@ -417,3 +462,20 @@ def diagnose_aws_state(
     """Convenience function for Flask route code."""
     service = AIDiagnosisService(api_key=api_key, model=model)
     return service.diagnose_all(aws_state)
+
+
+def load_rule_meta(rule_file: Path = DEFAULT_RULE_FILE) -> Dict[str, Dict[str, str]]:
+    """rule_id -> {name, category} 매핑만 필요한 곳(예: 엑셀 보고서 생성)에서 쓴다.
+
+    AIDiagnosisService()는 생성자에서 OPENAI_API_KEY를 요구하는데, 이미 끝난
+    진단 결과를 엑셀로 내보내는 데는 OpenAI 호출이 전혀 필요 없다. 그런데도
+    이름/카테고리 표시를 위해 API 키를 강제하지 않도록 별도 함수로 분리했다.
+    """
+    bundle = AIDiagnosisService._load_json(rule_file)
+    return {
+        str(rule.get("id")): {
+            "name": rule.get("name") or "",
+            "category": rule.get("category") or "",
+        }
+        for rule in bundle.get("rules") or []
+    }

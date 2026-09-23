@@ -1,4 +1,5 @@
 import hmac
+import io
 import json
 import os
 import threading
@@ -8,12 +9,15 @@ from functools import wraps
 import boto3
 from botocore.config import Config
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, session
+from flask import Flask, jsonify, request, send_file, session
 from flask_cors import CORS
 from openai import OpenAI
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 from db import get_connection
-from services.ai_diagnosis_service import DiagnosisError, diagnose_aws_state
+from services.ai_diagnosis_service import DiagnosisError, diagnose_aws_state, load_rule_meta
 from services.aws_collector import collect_aws_state
 
 load_dotenv()
@@ -711,6 +715,113 @@ def _ai_diagnosis_row_to_json(row):
     }
 
 
+_AI_DIAGNOSIS_STATUS_FILL = {
+    "PASS": PatternFill("solid", fgColor="C6E0B4"),
+    "FAIL": PatternFill("solid", fgColor="F8CBAD"),
+    "REVIEW": PatternFill("solid", fgColor="FFE699"),
+    "N/A": PatternFill("solid", fgColor="D9D9D9"),
+}
+_AI_DIAGNOSIS_HEADER_FILL = PatternFill("solid", fgColor="305496")
+_AI_DIAGNOSIS_HEADER_FONT = Font(color="FFFFFF", bold=True)
+_AI_DIAGNOSIS_DETAIL_HEADERS = [
+    "항목", "분류", "이름", "위험도", "판정",
+    "현재 상태", "기대 상태", "판단 근거", "권장 조치",
+]
+_AI_DIAGNOSIS_DETAIL_WIDTHS = [8, 16, 30, 8, 10, 34, 28, 44, 34]
+
+
+def _ai_diagnosis_style_header(ws, headers):
+    for col, name in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col, value=name)
+        cell.fill = _AI_DIAGNOSIS_HEADER_FILL
+        cell.font = _AI_DIAGNOSIS_HEADER_FONT
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    ws.freeze_panes = "A2"
+
+
+def _ai_diagnosis_write_detail_rows(ws, results, rule_meta):
+    for row in results:
+        meta = rule_meta.get(str(row.get("rule_id")), {})
+        ws.append([
+            row.get("rule_id"),
+            meta.get("category", ""),
+            meta.get("name", ""),
+            row.get("severity"),
+            row.get("status"),
+            row.get("current_value"),
+            row.get("expected_value"),
+            row.get("reason"),
+            row.get("recommendation"),
+        ])
+        fill = _AI_DIAGNOSIS_STATUS_FILL.get(row.get("status"))
+        if fill:
+            ws.cell(row=ws.max_row, column=5).fill = fill
+        ws.cell(row=ws.max_row, column=8).alignment = Alignment(wrap_text=True, vertical="top")
+        ws.cell(row=ws.max_row, column=9).alignment = Alignment(wrap_text=True, vertical="top")
+
+
+def _build_ai_diagnosis_workbook(report):
+    rule_meta = load_rule_meta()
+    results = report.get("results") or []
+    summary = report.get("summary") or {}
+
+    wb = Workbook()
+
+    ws = wb.active
+    ws.title = "요약"
+    ws.append(["AWS 보안 구성 AI 진단 결과"])
+    ws["A1"].font = Font(size=14, bold=True)
+    ws.append([f"기준: {report.get('standard') or '-'}"])
+    ws.append([f"진단 모델: {report.get('model') or '-'}"])
+    ws.append([f"수집 시각(UTC): {report.get('collected_at') or '-'}"])
+    ws.append([f"리전: {report.get('region') or '-'}"])
+    ws.append([])
+
+    ws.append(["구분", "건수"])
+    _ai_diagnosis_style_header(ws, ["구분", "건수"])
+    for label, key in [
+        ("PASS", "pass"), ("FAIL", "fail"), ("REVIEW", "review"),
+        ("N/A", "na"), ("전체", "total"),
+    ]:
+        ws.append([label, summary.get(key, 0)])
+        fill = _AI_DIAGNOSIS_STATUS_FILL.get(label)
+        if fill:
+            ws.cell(row=ws.max_row, column=1).fill = fill
+
+    ws.append([])
+    ws.append(["AI 종합 소견"])
+    ws.cell(row=ws.max_row, column=1).font = Font(bold=True)
+    ws.append([report.get("consultant_comment") or "(생성되지 않음)"])
+    ws.cell(row=ws.max_row, column=1).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.merge_cells(start_row=ws.max_row, start_column=1, end_row=ws.max_row, end_column=6)
+    ws.row_dimensions[ws.max_row].height = 90
+
+    for col, width in enumerate([20, 60, 16, 16, 16, 16], start=1):
+        ws.column_dimensions[get_column_letter(col)].width = width
+
+    ws_detail = wb.create_sheet("상세 결과")
+    ws_detail.append(_AI_DIAGNOSIS_DETAIL_HEADERS)
+    _ai_diagnosis_style_header(ws_detail, _AI_DIAGNOSIS_DETAIL_HEADERS)
+    _ai_diagnosis_write_detail_rows(ws_detail, results, rule_meta)
+    for col, width in enumerate(_AI_DIAGNOSIS_DETAIL_WIDTHS, start=1):
+        ws_detail.column_dimensions[get_column_letter(col)].width = width
+
+    ws_action = wb.create_sheet("조치 필요")
+    ws_action.append(_AI_DIAGNOSIS_DETAIL_HEADERS)
+    _ai_diagnosis_style_header(ws_action, _AI_DIAGNOSIS_DETAIL_HEADERS)
+    _ai_diagnosis_write_detail_rows(
+        ws_action,
+        [r for r in results if r.get("status") in ("FAIL", "REVIEW")],
+        rule_meta,
+    )
+    for col, width in enumerate(_AI_DIAGNOSIS_DETAIL_WIDTHS, start=1):
+        ws_action.column_dimensions[get_column_letter(col)].width = width
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
 def _run_ai_diagnosis_job(run_id):
     """collect_aws_state()/diagnose_aws_state()는 IAM 전체 조회 + OpenAI 호출
     4번을 순서대로 돌기 때문에 수십 초~수 분이 걸릴 수 있다. 요청 스레드를
@@ -1170,6 +1281,43 @@ def ai_diagnosis_status():
         return jsonify({"status": "idle"})
 
     return jsonify(_ai_diagnosis_row_to_json(row))
+
+
+@app.get("/api/ai-diagnosis/report.xlsx")
+@login_required
+def ai_diagnosis_report():
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM ai_diagnosis_runs WHERE status = 'done' "
+                "ORDER BY started_at DESC LIMIT 1"
+            )
+            row = cursor.fetchone()
+
+    if not row or not row.get("result"):
+        return (
+            jsonify(
+                {
+                    "error": "NO_COMPLETED_RUN",
+                    "message": "완료된 진단 결과가 없습니다. 먼저 진단을 실행해 주세요.",
+                }
+            ),
+            404,
+        )
+
+    report = json.loads(row["result"])
+    workbook_bytes = _build_ai_diagnosis_workbook(report)
+    filename = (
+        "ai-diagnosis-"
+        f"{_format_datetime(row.get('started_at'), '%Y%m%d-%H%M')}.xlsx"
+    )
+
+    return send_file(
+        io.BytesIO(workbook_bytes),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+    )
 
 
 # 화면(SPA). 해시 라우팅(#/scenario/...)을 쓰므로 서버는 항상 index.html만 주면 된다.
