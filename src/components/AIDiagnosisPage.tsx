@@ -296,22 +296,40 @@ export function AIDiagnosisPage({
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {status?.status === "done" && (
-            <a
-              href="/api/ai-diagnosis/report.xlsx"
-              className="text-xs font-bold text-[#344054] bg-white hover:bg-[#F9FAFB] ring-1 ring-[#D0D5DD] rounded-lg px-4 py-2.5 transition-colors inline-flex items-center gap-1.5"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                width="14"
-                height="14"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
+            <>
+              <a
+                href="/api/ai-diagnosis/report.xlsx"
+                className="text-xs font-bold text-[#344054] bg-white hover:bg-[#F9FAFB] ring-1 ring-[#D0D5DD] rounded-lg px-4 py-2.5 transition-colors inline-flex items-center gap-1.5"
               >
-                <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
-              </svg>
-              보고서 다운로드
-            </a>
+                <svg
+                  viewBox="0 0 24 24"
+                  width="14"
+                  height="14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
+                </svg>
+                엑셀 다운로드
+              </a>
+              <a
+                href="/api/ai-diagnosis/report.pdf"
+                className="text-xs font-bold text-[#344054] bg-white hover:bg-[#F9FAFB] ring-1 ring-[#D0D5DD] rounded-lg px-4 py-2.5 transition-colors inline-flex items-center gap-1.5"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="14"
+                  height="14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
+                </svg>
+                PDF 다운로드
+              </a>
+            </>
           )}
           <button
             onClick={runDiagnosis}

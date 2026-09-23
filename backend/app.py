@@ -5,6 +5,7 @@ import os
 import threading
 from datetime import datetime, timedelta, timezone
 from functools import wraps
+from xml.sax.saxutils import escape as _xml_escape
 
 import boto3
 from botocore.config import Config
@@ -15,9 +16,21 @@ from openai import OpenAI
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from db import get_connection
-from services.ai_diagnosis_service import DiagnosisError, diagnose_aws_state, load_rule_meta
+from services.ai_diagnosis_service import (
+    CATEGORY_ORDER,
+    DiagnosisError,
+    diagnose_aws_state,
+    load_rule_meta,
+)
 from services.aws_collector import collect_aws_state
 
 load_dotenv()
@@ -822,6 +835,179 @@ def _build_ai_diagnosis_workbook(report):
     return buffer.getvalue()
 
 
+# ---------------------------------------------------------------------------
+# AI 진단 PDF 보고서. reportlab 기본 내장 폰트엔 한글 글리프가 없어서, 실제
+# 폰트 파일(나눔고딕, Dockerfile에서 apt로 설치)을 등록해서 써야 한다.
+# 폰트 파일이 없는 환경(예: 로컬 개발)에서는 기본 폰트로 대체하되, 한글은
+# 깨질 수 있다 - PDF 생성 자체가 실패하지는 않게만 해둔다.
+# ---------------------------------------------------------------------------
+_KOREAN_FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+    "/usr/share/fonts/opentype/nanum/NanumGothic.ttf",
+]
+_KOREAN_FONT_BOLD_CANDIDATES = [
+    "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+    "/usr/share/fonts/opentype/nanum/NanumGothicBold.ttf",
+]
+
+
+def _register_korean_pdf_font():
+    regular_path = next((p for p in _KOREAN_FONT_CANDIDATES if os.path.exists(p)), None)
+    if not regular_path:
+        app.logger.warning("한글 PDF 폰트를 찾지 못했습니다 - 기본 폰트로 대체됩니다.")
+        return "Helvetica", "Helvetica-Bold"
+
+    pdfmetrics.registerFont(TTFont("NanumGothic", regular_path))
+    bold_path = next((p for p in _KOREAN_FONT_BOLD_CANDIDATES if os.path.exists(p)), None)
+    if bold_path:
+        pdfmetrics.registerFont(TTFont("NanumGothic-Bold", bold_path))
+        return "NanumGothic", "NanumGothic-Bold"
+    return "NanumGothic", "NanumGothic"
+
+
+_PDF_FONT, _PDF_FONT_BOLD = _register_korean_pdf_font()
+
+_PDF_STATUS_HEX = {
+    "PASS": "#067647", "FAIL": "#B42318", "REVIEW": "#B54708", "N/A": "#667085",
+}
+_PDF_STATUS_BG = {
+    "PASS": colors.HexColor("#ECFDF3"),
+    "FAIL": colors.HexColor("#FEF3F2"),
+    "REVIEW": colors.HexColor("#FFFAEB"),
+    "N/A": colors.HexColor("#F2F4F7"),
+}
+
+_pdf_style_title = ParagraphStyle(
+    "AIDiagTitle", fontName=_PDF_FONT_BOLD, fontSize=18, leading=22,
+)
+_pdf_style_meta = ParagraphStyle(
+    "AIDiagMeta", fontName=_PDF_FONT, fontSize=9, leading=13,
+    textColor=colors.HexColor("#667085"),
+)
+_pdf_style_h2 = ParagraphStyle(
+    "AIDiagH2", fontName=_PDF_FONT_BOLD, fontSize=13, leading=17,
+    spaceBefore=14, spaceAfter=6, textColor=colors.HexColor("#101828"),
+)
+_pdf_style_body = ParagraphStyle(
+    "AIDiagBody", fontName=_PDF_FONT, fontSize=9.5, leading=14,
+    textColor=colors.HexColor("#344054"),
+)
+_pdf_style_item_header = ParagraphStyle(
+    "AIDiagItemHeader", fontName=_PDF_FONT_BOLD, fontSize=10.5, leading=15,
+    textColor=colors.HexColor("#101828"), spaceBefore=8,
+)
+
+
+def _pdf_esc(value):
+    return _xml_escape(str(value or ""))
+
+
+def _build_ai_diagnosis_pdf(report):
+    rule_meta = load_rule_meta()
+    results = report.get("results") or []
+    summary = report.get("summary") or {}
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=18 * mm,
+        rightMargin=18 * mm,
+        topMargin=16 * mm,
+        bottomMargin=16 * mm,
+    )
+    story = [
+        Paragraph("AWS 보안 구성 AI 진단 결과", _pdf_style_title),
+        Spacer(1, 4),
+    ]
+    for line in [
+        f"기준: {_pdf_esc(report.get('standard') or '-')}",
+        f"진단 모델: {_pdf_esc(report.get('model') or '-')}",
+        f"수집 시각(UTC): {_pdf_esc(report.get('collected_at') or '-')}",
+        f"리전: {_pdf_esc(report.get('region') or '-')}",
+    ]:
+        story.append(Paragraph(line, _pdf_style_meta))
+    story.append(Spacer(1, 10))
+
+    summary_table = Table(
+        [
+            ["PASS", "FAIL", "REVIEW", "N/A", "전체"],
+            [
+                str(summary.get("pass", 0)),
+                str(summary.get("fail", 0)),
+                str(summary.get("review", 0)),
+                str(summary.get("na", 0)),
+                str(summary.get("total", 0)),
+            ],
+        ],
+        colWidths=[30 * mm] * 5,
+    )
+    summary_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#305496")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, -1), _PDF_FONT),
+                ("FONTNAME", (0, 0), (-1, 0), _PDF_FONT_BOLD),
+                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D0D5DD")),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("BACKGROUND", (0, 1), (0, 1), _PDF_STATUS_BG["PASS"]),
+                ("BACKGROUND", (1, 1), (1, 1), _PDF_STATUS_BG["FAIL"]),
+                ("BACKGROUND", (2, 1), (2, 1), _PDF_STATUS_BG["REVIEW"]),
+                ("BACKGROUND", (3, 1), (3, 1), _PDF_STATUS_BG["N/A"]),
+            ]
+        )
+    )
+    story.append(summary_table)
+    story.append(Spacer(1, 12))
+
+    if report.get("consultant_comment"):
+        story.append(Paragraph("AI 종합 소견", _pdf_style_h2))
+        story.append(Paragraph(_pdf_esc(report["consultant_comment"]), _pdf_style_body))
+
+    by_category = {}
+    for row in results:
+        meta = rule_meta.get(str(row.get("rule_id")), {})
+        by_category.setdefault(meta.get("category") or "기타", []).append((row, meta))
+
+    for category in CATEGORY_ORDER:
+        rows = by_category.get(category)
+        if not rows:
+            continue
+        story.append(Paragraph(_pdf_esc(category), _pdf_style_h2))
+        for row, meta in rows:
+            status = row.get("status")
+            status_hex = _PDF_STATUS_HEX.get(status, "#101828")
+            header = (
+                f"{_pdf_esc(row.get('rule_id'))} {_pdf_esc(meta.get('name'))}"
+                f"&nbsp;&nbsp;<font color='{status_hex}'>"
+                f"[{_pdf_esc(row.get('severity'))}·{_pdf_esc(status)}]</font>"
+            )
+            story.append(Paragraph(header, _pdf_style_item_header))
+
+            detail_parts = []
+            for label, key in [
+                ("현재 상태", "current_value"),
+                ("기대 상태", "expected_value"),
+                ("판단 근거", "reason"),
+                ("권장 조치", "recommendation"),
+            ]:
+                value = row.get(key)
+                if value:
+                    detail_parts.append(
+                        f"<font color='#667085'>{label}</font> {_pdf_esc(value)}"
+                    )
+            if detail_parts:
+                story.append(Paragraph("<br/>".join(detail_parts), _pdf_style_body))
+
+    doc.build(story)
+    return buffer.getvalue()
+
+
 def _run_ai_diagnosis_job(run_id):
     """collect_aws_state()/diagnose_aws_state()는 IAM 전체 조회 + OpenAI 호출
     4번을 순서대로 돌기 때문에 수십 초~수 분이 걸릴 수 있다. 요청 스레드를
@@ -1283,17 +1469,20 @@ def ai_diagnosis_status():
     return jsonify(_ai_diagnosis_row_to_json(row))
 
 
-@app.get("/api/ai-diagnosis/report.xlsx")
-@login_required
-def ai_diagnosis_report():
+def _latest_done_ai_diagnosis_run():
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM ai_diagnosis_runs WHERE status = 'done' "
                 "ORDER BY started_at DESC LIMIT 1"
             )
-            row = cursor.fetchone()
+            return cursor.fetchone()
 
+
+@app.get("/api/ai-diagnosis/report.xlsx")
+@login_required
+def ai_diagnosis_report_xlsx():
+    row = _latest_done_ai_diagnosis_run()
     if not row or not row.get("result"):
         return (
             jsonify(
@@ -1315,6 +1504,36 @@ def ai_diagnosis_report():
     return send_file(
         io.BytesIO(workbook_bytes),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@app.get("/api/ai-diagnosis/report.pdf")
+@login_required
+def ai_diagnosis_report_pdf():
+    row = _latest_done_ai_diagnosis_run()
+    if not row or not row.get("result"):
+        return (
+            jsonify(
+                {
+                    "error": "NO_COMPLETED_RUN",
+                    "message": "완료된 진단 결과가 없습니다. 먼저 진단을 실행해 주세요.",
+                }
+            ),
+            404,
+        )
+
+    report = json.loads(row["result"])
+    pdf_bytes = _build_ai_diagnosis_pdf(report)
+    filename = (
+        "ai-diagnosis-"
+        f"{_format_datetime(row.get('started_at'), '%Y%m%d-%H%M')}.pdf"
+    )
+
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype="application/pdf",
         as_attachment=True,
         download_name=filename,
     )
