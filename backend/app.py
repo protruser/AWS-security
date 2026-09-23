@@ -101,11 +101,16 @@ def _json_list(value):
     return []
 
 
+KST = timezone(timedelta(hours=9))
+
+
 def _format_datetime(value, fmt="%Y.%m.%d %H:%M"):
+    """DB의 시각은 항상 UTC(UTC_TIMESTAMP())로 저장돼 있다. 그대로 strftime하면
+    한국 시간보다 9시간 느리게 표시되므로, 화면에 보여줄 때는 KST로 바꿔서 찍는다."""
     if value is None:
         return "-"
     if isinstance(value, datetime):
-        return value.strftime(fmt)
+        return value.replace(tzinfo=timezone.utc).astimezone(KST).strftime(fmt)
     return str(value)
 
 
@@ -765,6 +770,47 @@ def remediate_event():
         return jsonify(error="REMEDIATION_FAILED", message=str(exc)), 502
     # Lambda alone owns event status and remediation_history writes.
     return jsonify(success=True, event_id=event_id)
+
+
+@app.post("/api/exception")
+@login_required
+def except_events():
+    """선택한 이벤트(1개 이상)를 '예외 처리' 상태로 바꾼다. 실제 조치(WAF 차단 등)는
+    실행하지 않고, "이건 검토했고 조치 안 해도 된다"고 기록만 남기는 것."""
+    data = request.get_json(silent=True)
+    event_ids = (data or {}).get("event_ids")
+    if (not isinstance(event_ids, list) or not event_ids
+            or not all(isinstance(e, str) and e.strip() for e in event_ids)):
+        return jsonify(error="INVALID_REQUEST", message="event_ids는 비어있지 않은 문자열 배열이어야 합니다."), 400
+    if len(event_ids) > 200:
+        return jsonify(error="INVALID_REQUEST", message="한 번에 최대 200건까지 처리할 수 있습니다."), 400
+
+    approver = session.get("username") or "admin"
+    updated, skipped = [], []
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                for event_id in event_ids:
+                    cursor.execute("SELECT id, status FROM security_events WHERE id = %s", (event_id,))
+                    event = cursor.fetchone()
+                    if not event or event["status"] in REMEDIATION_CLOSED_STATUSES:
+                        skipped.append(event_id)
+                        continue
+                    cursor.execute(
+                        "UPDATE security_events SET status = '예외 처리' WHERE id = %s", (event_id,)
+                    )
+                    cursor.execute(
+                        "INSERT INTO remediation_history "
+                        "(event_id, action_type, method, approver, status, result, completed_at) "
+                        "VALUES (%s, 'exception', '수동', %s, '완료', '예외 처리', UTC_TIMESTAMP())",
+                        (event_id, approver),
+                    )
+                    updated.append(event_id)
+    except Exception:
+        app.logger.exception("Failed to mark events as exception")
+        return jsonify(error="DATABASE_ERROR", message="예외 처리 중 오류가 발생했습니다."), 500
+
+    return jsonify(success=True, updated=updated, skipped=skipped)
 
 
 @app.get("/api/dashboard")

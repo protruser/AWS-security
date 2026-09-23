@@ -34,11 +34,17 @@ function ActionCard({
   selected,
   onSelect,
   onApprove,
+  checked,
+  onToggleCheck,
+  onExcept,
 }: {
   ev: ActionEvent
   selected: boolean
   onSelect: () => void
   onApprove: () => void
+  checked: boolean
+  onToggleCheck: () => void
+  onExcept: () => void
 }) {
   return (
     <div
@@ -55,6 +61,14 @@ function ActionCard({
       <div className={`p-3 ${ev.severity === "Critical" ? "pl-4" : ""}`}>
         <div className="flex items-start justify-between gap-2 mb-1.5">
           <div className="flex items-center gap-1.5 flex-wrap">
+            <input
+              type="checkbox"
+              checked={checked}
+              onClick={(e) => e.stopPropagation()}
+              onChange={onToggleCheck}
+              aria-label="일괄 예외 처리를 위해 선택"
+              className="h-3.5 w-3.5 rounded border-[#D0D5DD] accent-[#111111] cursor-pointer"
+            />
             <SeverityBadge sev={ev.severity} small />
             {ev.autoRemediation && (
               <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#F5F5F5] text-[#111111]">
@@ -122,7 +136,10 @@ function ActionCard({
             {canRemediate(ev) ? "조치 승인" : "수동 조치 필요"}
           </button>
           <button
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation()
+              onExcept()
+            }}
             className="text-[11px] text-[#6B6B6B] border border-[#E0E0E0] hover:bg-[#FAFAFA] px-2.5 py-1.5 rounded-lg transition-colors"
           >
             예외 처리
@@ -144,6 +161,7 @@ function RightPanel({
   selectedEvent,
   onSelectEvent,
   onApprove,
+  onExcept,
 }: {
   tab: RightTab
   setTab: (t: RightTab) => void
@@ -157,12 +175,29 @@ function RightPanel({
   onSelectEvent: (ev: ActionEvent | null) => void
 
   onApprove: (ev: ActionEvent) => void
+  onExcept: (eventIds: string[]) => void
 }) {
   const [detectFilter, setDetectFilter] = useState("전체")
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
 
   const detectFilters = ["전체", "Critical", "High", "Medium", "Low"]
 
   const activeEvents = events
+
+  const toggleChecked = (id: string) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleBulkExcept = () => {
+    if (checkedIds.size === 0) return
+    onExcept([...checkedIds])
+    setCheckedIds(new Set())
+  }
 
   return (
     <div className="flex flex-col min-h-full">
@@ -207,6 +242,27 @@ function RightPanel({
       {/* Action tab */}
       {tab === "action" && (
         <div className="p-3">
+          {checkedIds.size > 0 && (
+            <div className="flex items-center justify-between gap-2 mb-2.5 rounded-lg bg-[#F2F4F7] px-2.5 py-1.5">
+              <span className="text-[11px] font-medium text-[#344054]">
+                {checkedIds.size}개 선택됨
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setCheckedIds(new Set())}
+                  className="text-[10px] text-[#6B6B6B] hover:text-[#111111] px-2 py-1"
+                >
+                  선택 해제
+                </button>
+                <button
+                  onClick={handleBulkExcept}
+                  className="text-[11px] font-semibold text-white bg-[#111111] hover:bg-[#262626] px-2.5 py-1.5 rounded-lg transition-colors"
+                >
+                  선택 항목 일괄 예외 처리
+                </button>
+              </div>
+            </div>
+          )}
           {activeEvents.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-32 text-[#6B6B6B]">
               <span className="text-2xl mb-2">✅</span>
@@ -221,6 +277,9 @@ function RightPanel({
                   selected={selectedEvent?.id === ev.id}
                   onSelect={() => onSelectEvent(ev)}
                   onApprove={() => onApprove(ev)}
+                  checked={checkedIds.has(ev.id)}
+                  onToggleCheck={() => toggleChecked(ev.id)}
+                  onExcept={() => onExcept([ev.id])}
                 />
               ))}
             </div>
@@ -1188,6 +1247,8 @@ export default function App() {
   const [remediationError, setRemediationError] = useState<string | null>(null)
   const [remediationSucceeded, setRemediationSucceeded] = useState(false)
 
+  const exceptPendingRef = useRef(false)
+
   // Scenario detail page (hash route: #/scenario/<id>)
   const [pageId, setPageId] = useState<string | null>(parseRoute)
 
@@ -1516,6 +1577,34 @@ export default function App() {
     } finally {
       remediationPendingRef.current = false
       setIsRemediating(false)
+    }
+  }
+
+  const handleExceptEvents = async (eventIds: string[]) => {
+    if (eventIds.length === 0 || exceptPendingRef.current) return
+    exceptPendingRef.current = true
+    try {
+      const response = await fetch("/api/exception", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_ids: eventIds }),
+      })
+      const result = await response.json()
+      if (!response.ok || result.success !== true) {
+        throw new Error(result.message || "예외 처리에 실패했습니다.")
+      }
+      if (selectedEvent && eventIds.includes(selectedEvent.id)) clearSelection()
+      await loadDashboardData(false, true)
+      setToast(
+        eventIds.length === 1
+          ? "예외 처리되었습니다."
+          : `${eventIds.length}건이 예외 처리되었습니다.`,
+      )
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "예외 처리에 실패했습니다.")
+    } finally {
+      exceptPendingRef.current = false
     }
   }
 
@@ -2121,6 +2210,7 @@ export default function App() {
                     setRemediationSucceeded(false)
                     setApprovalTarget(event)
                   }}
+                  onExcept={handleExceptEvents}
                 />
               </div>
             </div>
