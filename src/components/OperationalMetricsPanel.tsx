@@ -238,10 +238,14 @@ function CombinedPercentChart({ records }: { records: MetricRecord[] }) {
     { field: "memory" as const, label: "Memory", color: "#7C3AED" },
     { field: "errorRate" as const, label: "Error", color: "#D92D20" },
   ]
-  const maxValue = Math.max(
-    100,
+  // CPU/Memory/Error를 항상 0~100% 축에 놓으면, 지금처럼 실사용량이 낮을 때
+  // 선이 다 바닥에 붙어서 변화가 안 보이고 "그래프가 이상하다"는 오해를 산다.
+  // 실제 최댓값 기준으로 여유(25%)만 두고 축을 좁혀서 변화가 보이게 한다.
+  const dataMax = Math.max(
+    0,
     ...data.flatMap((row) => series.map((item) => row[item.field] ?? 0)),
   )
+  const maxValue = dataMax <= 0 ? 100 : Math.min(100, dataMax * 1.25)
 
   return (
     <div className="rounded-xl border border-[#EAECF0] p-4">
