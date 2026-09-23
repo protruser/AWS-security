@@ -104,6 +104,29 @@ def _json_list(value):
 KST = timezone(timedelta(hours=9))
 
 
+def _open_group_ids(cursor, scenario_type, attacker_ip, title):
+    """대시보드 목록 조회(_read_dashboard_data)가 하나로 합쳐서 보여주는 것과 정확히
+    같은 기준(scenario_type + 공격자 IP가 있으면 IP, 없으면 title)으로, 아직 안 닫힌
+    이벤트 id를 전부 찾는다. 예외 처리/조치 승인이 "화면에 보이는 대표 1건"만 닫으면
+    나머지가 다음 새로고침 때 새 대표로 다시 튀어나오므로, 항상 그룹 전체를 같이
+    처리해야 한다."""
+    if attacker_ip:
+        cursor.execute(
+            "SELECT id FROM security_events WHERE status NOT IN "
+            "('조치 완료', '자동 완료', '예외 처리', '완료') "
+            "AND scenario_type = %s AND attacker_ip = %s",
+            (scenario_type, attacker_ip),
+        )
+    else:
+        cursor.execute(
+            "SELECT id FROM security_events WHERE status NOT IN "
+            "('조치 완료', '자동 완료', '예외 처리', '완료') "
+            "AND scenario_type = %s AND title = %s",
+            (scenario_type, title),
+        )
+    return [row["id"] for row in cursor.fetchall()]
+
+
 def _format_datetime(value, fmt="%Y.%m.%d %H:%M"):
     """DB의 시각은 항상 UTC(UTC_TIMESTAMP())로 저장돼 있다. 그대로 strftime하면
     한국 시간보다 9시간 느리게 표시되므로, 화면에 보여줄 때는 KST로 바꿔서 찍는다."""
@@ -149,6 +172,10 @@ def _event_to_action_event(row):
         "asset": row.get("asset") or "-",
         "detectedAt": _format_datetime(row.get("detected_at")),
         "elapsed": _elapsed_text(row.get("detected_at")),
+        # 같은 종류(scenario_type)로 같은 공격자 IP(없으면 같은 제목)의 반복 탐지는
+        # 목록 조회 시 최신 것 하나로 합쳐서 보여준다. 이 값이 2 이상이면 "N번 반복
+        # 감지됨"이라는 뜻 - 실제로 그만큼의 별도 행이 DB에 있다.
+        "occurrenceCount": int(row.get("occurrence_count") or 1),
         "status": row.get("status") or "검토 필요",
         "recommendation": row.get("recommendation") or "",
         "autoRemediation": bool(row.get("auto_remediation")),
@@ -360,10 +387,20 @@ def _read_dashboard_data():
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT *
-                FROM security_events
-                WHERE status NOT IN ('조치 완료', '자동 완료', '예외 처리', '완료')
-                  AND scenario_type IN ('sqli', 'dir', 'brute', 'cred', 'vuln', 'xss', 'port')
+                SELECT * FROM (
+                    SELECT *,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY scenario_type, COALESCE(attacker_ip, title)
+                            ORDER BY detected_at DESC
+                        ) AS rn,
+                        COUNT(*) OVER (
+                            PARTITION BY scenario_type, COALESCE(attacker_ip, title)
+                        ) AS occurrence_count
+                    FROM security_events
+                    WHERE status NOT IN ('조치 완료', '자동 완료', '예외 처리', '완료')
+                      AND scenario_type IN ('sqli', 'dir', 'brute', 'cred', 'vuln', 'xss', 'port')
+                ) grouped
+                WHERE rn = 1
                 ORDER BY detected_at DESC
                 """
             )
@@ -768,7 +805,33 @@ def remediate_event():
     except Exception as exc:
         app.logger.exception("Remediation invocation failed")
         return jsonify(error="REMEDIATION_FAILED", message=str(exc)), 502
-    # Lambda alone owns event status and remediation_history writes.
+    # Lambda alone owns event_id 자신의 status/remediation_history 기록.
+    # 화면에 이 이벤트 하나로 합쳐서 보이던 나머지(같은 IP/같은 취약점의 반복 탐지)도
+    # 같은 조치가 이미 적용된 셈이니 같이 닫는다 - 실패해도 대표 건 자체는 이미
+    # 성공했으므로 전체 요청을 실패시키지 않는다(다음 새로고침 때 남은 게 있으면
+    # 그것만 다시 보일 뿐).
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                group_ids = [
+                    gid for gid in _open_group_ids(
+                        cursor, event.get("scenario_type"), event.get("attacker_ip"), event.get("title")
+                    ) if gid != event_id
+                ]
+                for group_id in group_ids:
+                    cursor.execute(
+                        "UPDATE security_events SET status='조치 완료'"
+                        + (", blocked=TRUE, block_result='성공'" if action == "block_ip" else "")
+                        + " WHERE id = %s", (group_id,)
+                    )
+                    cursor.execute(
+                        "INSERT INTO remediation_history "
+                        "(event_id, action_type, method, approver, status, result, completed_at) "
+                        "VALUES (%s, %s, '자동', %s, '완료', '동일 조치로 일괄 처리', UTC_TIMESTAMP())",
+                        (group_id, action, session.get("username") or "admin"),
+                    )
+    except Exception:
+        app.logger.exception("Failed to close grouped duplicate events after remediation")
     return jsonify(success=True, event_id=event_id)
 
 
@@ -790,22 +853,34 @@ def except_events():
     try:
         with get_connection() as connection:
             with connection.cursor() as cursor:
+                to_close = {}
                 for event_id in event_ids:
-                    cursor.execute("SELECT id, status FROM security_events WHERE id = %s", (event_id,))
+                    cursor.execute(
+                        "SELECT id, status, scenario_type, attacker_ip, title "
+                        "FROM security_events WHERE id = %s", (event_id,)
+                    )
                     event = cursor.fetchone()
                     if not event or event["status"] in REMEDIATION_CLOSED_STATUSES:
                         skipped.append(event_id)
                         continue
+                    # 화면에 하나로 합쳐서 보이던 나머지(같은 종류로 반복 감지된 것들)도
+                    # 같이 예외 처리한다.
+                    for group_id in _open_group_ids(
+                        cursor, event["scenario_type"], event.get("attacker_ip"), event.get("title")
+                    ):
+                        to_close[group_id] = True
+
+                for group_id in to_close:
                     cursor.execute(
-                        "UPDATE security_events SET status = '예외 처리' WHERE id = %s", (event_id,)
+                        "UPDATE security_events SET status = '예외 처리' WHERE id = %s", (group_id,)
                     )
                     cursor.execute(
                         "INSERT INTO remediation_history "
                         "(event_id, action_type, method, approver, status, result, completed_at) "
                         "VALUES (%s, 'exception', '수동', %s, '완료', '예외 처리', UTC_TIMESTAMP())",
-                        (event_id, approver),
+                        (group_id, approver),
                     )
-                    updated.append(event_id)
+                    updated.append(group_id)
     except Exception:
         app.logger.exception("Failed to mark events as exception")
         return jsonify(error="DATABASE_ERROR", message="예외 처리 중 오류가 발생했습니다."), 500

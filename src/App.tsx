@@ -77,6 +77,14 @@ function ActionCard({
                 자동 조치 가능
               </span>
             )}
+            {(ev.occurrenceCount ?? 1) > 1 && (
+              <span
+                className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#FEF0C7] text-[#B54708]"
+                title="같은 종류로 반복 감지된 것을 최신 1건으로 합쳐서 보여주고 있어요"
+              >
+                {ev.occurrenceCount}번 반복 감지
+              </span>
+            )}
           </div>
           <span className="text-[10px] text-[#6B6B6B] whitespace-nowrap">
             미조치 {ev.elapsed}

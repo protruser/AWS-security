@@ -21,6 +21,10 @@ export interface ActionEvent {
 
   elapsed: string
 
+  // 같은 종류로 반복 감지된 것들을 서버가 최신 1건으로 합쳐서 내려준 것.
+  // 2 이상이면 "N번 반복 감지됨"이라는 뜻 - 실제로는 이만큼의 이벤트가 있다.
+  occurrenceCount?: number
+
   status: string
 
   recommendation: string
