@@ -2114,23 +2114,6 @@ export default function App() {
               ),
             },
             {
-              key: "ai-actions",
-              label: "AI 조치",
-              icon: (
-                <svg
-                  viewBox="0 0 24 24"
-                  width="17"
-                  height="17"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                >
-                  <path d="M12 3l1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2L12 3z" />
-                  <path d="M18.5 13l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2zM5 14l.7 2.3L8 17l-2.3.7L5 20l-.7-2.3L2 17l2.3-.7L5 14z" />
-                </svg>
-              ),
-            },
-            {
               key: "ai-diagnosis",
               label: "AI 진단",
               icon: (
@@ -2144,6 +2127,23 @@ export default function App() {
                 >
                   <path d="M9 12l2 2 4-4" />
                   <circle cx="12" cy="12" r="9" />
+                </svg>
+              ),
+            },
+            {
+              key: "ai-actions",
+              label: "AI 조치",
+              icon: (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="17"
+                  height="17"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <path d="M12 3l1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2L12 3z" />
+                  <path d="M18.5 13l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2zM5 14l.7 2.3L8 17l-2.3.7L5 20l-.7-2.3L2 17l2.3-.7L5 14z" />
                 </svg>
               ),
             },
