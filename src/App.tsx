@@ -132,9 +132,9 @@ function ActionCard({
               e.stopPropagation()
               if (canRemediate(ev)) {
                 onApprove()
-              } else if (!selected) {
-                // 자동 조치가 없는 시나리오(예: vuln)는 대신 카드를 펼쳐서
-                // 권장 조치 텍스트(ev.recommendation)를 보여준다.
+              } else {
+                // 자동 조치가 없는 시나리오(예: vuln)는 대신 카드를 펼치고/접어서
+                // 권장 조치 텍스트(ev.recommendation)를 보여준다(다시 누르면 접힘).
                 onSelect()
               }
             }}
