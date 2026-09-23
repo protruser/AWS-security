@@ -198,6 +198,48 @@ function RightPanel({
   const [detectFilter, setDetectFilter] = useState("전체")
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
 
+  // 탐지/조치 이력은 이미 처리(차단 등)가 끝난 이벤트라 "조치 필요" 목록엔 없다.
+  // 그래도 클릭하면 AI 챗봇 컨텍스트로 넘길 수 있게 ActionEvent 모양으로 맞춰준다.
+  const detectHistoryToEvent = (d: DetectHistoryItem): ActionEvent => ({
+    id: String(d.id),
+    severity: d.sev,
+    title: d.event,
+    service: d.service,
+    asset: d.asset,
+    detectedAt: d.time,
+    elapsed: "",
+    status: d.status,
+    recommendation: "",
+    autoRemediation: false,
+    highlightAssets: [],
+    attackPath: [],
+    details: {
+      attackerIP: d.ip && d.ip !== "-" ? d.ip : undefined,
+      blocked: d.blocked === "차단" ? true : d.blocked === "-" ? undefined : undefined,
+      logs: "",
+    },
+  })
+
+  const remediationToEvent = (r: RemediationHistoryItem): ActionEvent => ({
+    id: String(r.id),
+    severity: "Info",
+    title: r.event,
+    service: "-",
+    asset: r.asset,
+    detectedAt: r.completedAt || r.time,
+    elapsed: "",
+    status: r.result,
+    recommendation: "",
+    autoRemediation: false,
+    highlightAssets: [],
+    attackPath: [],
+    details: {
+      attackerIP: r.ip ?? undefined,
+      blocked: r.ip ? true : undefined,
+      logs: `${r.method} 조치 · 승인 ${r.approver} · ${r.completedAt}`,
+    },
+  })
+
   const detectFilters = ["전체", "Critical", "High", "Medium", "Low"]
 
   const activeEvents = events
@@ -312,7 +354,8 @@ function RightPanel({
             {remediationHistory.map((r) => (
               <div
                 key={r.id}
-                className="rounded-xl border border-[#EAECF0] bg-white p-3"
+                onClick={() => onSelectEvent(remediationToEvent(r))}
+                className="rounded-xl border border-[#EAECF0] bg-white p-3 cursor-pointer hover:bg-[#FAFAFA] transition-colors"
               >
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-bold text-[#0D0D0D]">{r.event}</p>
@@ -383,6 +426,7 @@ function RightPanel({
                   .map((d) => (
                     <tr
                       key={d.id}
+                      onClick={() => onSelectEvent(detectHistoryToEvent(d))}
                       className="border-b border-[#F5F5F5] hover:bg-[#FAFAFA] cursor-pointer"
                     >
                       <td className="py-1.5 px-2 text-[10px] font-mono text-[#6B6B6B]">
