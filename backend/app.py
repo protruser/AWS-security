@@ -42,7 +42,7 @@ CORS(
 VALID_SEVERITIES = {"Critical", "High", "Medium", "Low", "Info"}
 REMEDIATION_ACTIONS = {
     "sqli": "block_ip", "dir": "block_ip", "brute": "block_ip",
-    "xss": "block_ip", "cred": "disable_access_key",
+    "xss": "block_ip", "cred": "disable_access_key", "port": "block_ip",
 }
 REMEDIATION_CLOSED_STATUSES = {"조치 완료", "자동 완료", "완료", "예외 처리"}
 LOG_RANGE_DELTAS = {
