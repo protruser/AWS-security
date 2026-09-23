@@ -18,6 +18,7 @@ import { ASSETS } from "./data/architecture"
 import { ArchitectureMap } from "./components/ArchitectureMap"
 import { ScenarioPage } from "./components/ScenarioPage"
 import { ManualMonitoringPage } from "./components/ManualMonitoringPage"
+import { AIDiagnosisPage } from "./components/AIDiagnosisPage"
 import { ApprovalModal, DonutGauge, SeverityBadge } from "./components/common"
 import { LoginPage } from "./components/LoginPage"
 import { fetchOverviewMetrics } from "./services/dashboardApi"
@@ -1028,7 +1029,7 @@ export function ScenarioCardWrapper({
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
-type MainSection = "dashboard" | "events" | "monitoring" | "ai-actions"
+type MainSection = "dashboard" | "events" | "monitoring" | "ai-actions" | "ai-diagnosis"
 type DashboardDataState = "loading" | "success" | "error"
 
 interface SecurityNotification {
@@ -2129,6 +2130,23 @@ export default function App() {
                 </svg>
               ),
             },
+            {
+              key: "ai-diagnosis",
+              label: "AI 진단",
+              icon: (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="17"
+                  height="17"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <path d="M9 12l2 2 4-4" />
+                  <circle cx="12" cy="12" r="9" />
+                </svg>
+              ),
+            },
           ].map((item) => {
             const selected =
               (item.key === "dashboard" && pageId !== null) ||
@@ -2263,6 +2281,13 @@ export default function App() {
                 "예상 영향",
                 "승인 · 보류 · 예외 처리",
               ]}
+            />
+          ) : activeSection === "ai-diagnosis" ? (
+            <AIDiagnosisPage
+              onUnauthorized={() => {
+                setAuthUser(null)
+                setAuthState("unauthenticated")
+              }}
             />
           ) : (
             <main className="min-h-full flex flex-col gap-2 p-3">

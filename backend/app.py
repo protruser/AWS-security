@@ -1,6 +1,7 @@
 import hmac
 import json
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 
@@ -12,6 +13,8 @@ from flask_cors import CORS
 from openai import OpenAI
 
 from db import get_connection
+from services.ai_diagnosis_service import DiagnosisError, diagnose_aws_state
+from services.aws_collector import collect_aws_state
 
 load_dotenv()
 
@@ -691,6 +694,69 @@ def _read_monitoring_metrics(args):
     }
 
 
+AI_DIAGNOSIS_ACTIVE_STATUSES = {"collecting", "diagnosing"}
+
+
+def _ai_diagnosis_row_to_json(row):
+    result = row.get("result")
+    return {
+        "id": row["id"],
+        "status": row.get("status"),
+        "message": row.get("message"),
+        "requestedBy": row.get("requested_by"),
+        "result": json.loads(result) if result else None,
+        "error": row.get("error"),
+        "startedAt": _format_datetime(row.get("started_at"), "%Y.%m.%d %H:%M:%S"),
+        "finishedAt": _format_datetime(row.get("finished_at"), "%Y.%m.%d %H:%M:%S"),
+    }
+
+
+def _run_ai_diagnosis_job(run_id):
+    """collect_aws_state()/diagnose_aws_state()는 IAM 전체 조회 + OpenAI 호출
+    4번을 순서대로 돌기 때문에 수십 초~수 분이 걸릴 수 있다. 요청 스레드를
+    붙잡지 않도록 백그라운드 스레드에서 실행하고, 진행 상황은 gunicorn
+    워커가 여러 개라도 모두 같은 값을 보도록 DB(ai_diagnosis_runs)에 남긴다."""
+
+    def _update(**fields):
+        columns = ", ".join(f"{key} = %s" for key in fields)
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"UPDATE ai_diagnosis_runs SET {columns} WHERE id = %s",
+                    (*fields.values(), run_id),
+                )
+
+    try:
+        _update(status="collecting", message="AWS 현재 설정을 수집하는 중입니다...")
+        aws_state = collect_aws_state()
+
+        _update(status="diagnosing", message="AI가 33개 항목을 진단하는 중입니다...")
+        result = diagnose_aws_state(aws_state)
+
+        _update(
+            status="done",
+            message=None,
+            result=json.dumps(result, ensure_ascii=False, default=str),
+            finished_at=datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0),
+        )
+    except DiagnosisError as exc:
+        app.logger.exception("AI 진단 실패(run_id=%s)", run_id)
+        _update(
+            status="error",
+            message=None,
+            error=str(exc),
+            finished_at=datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0),
+        )
+    except Exception as exc:
+        app.logger.exception("AI 진단 실패, 예상치 못한 오류(run_id=%s)", run_id)
+        _update(
+            status="error",
+            message=None,
+            error=f"예상치 못한 오류: {exc}",
+            finished_at=datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0),
+        )
+
+
 @app.get("/api/health")
 def health():
     try:
@@ -1052,6 +1118,58 @@ def chat():
             ),
             502,
         )
+
+
+@app.post("/api/ai-diagnosis/run")
+@login_required
+def run_ai_diagnosis():
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT status FROM ai_diagnosis_runs ORDER BY started_at DESC LIMIT 1"
+            )
+            latest = cursor.fetchone()
+            if latest and latest["status"] in AI_DIAGNOSIS_ACTIVE_STATUSES:
+                return (
+                    jsonify(
+                        {
+                            "error": "ALREADY_RUNNING",
+                            "message": "이미 진단이 진행 중입니다.",
+                        }
+                    ),
+                    409,
+                )
+
+            cursor.execute(
+                "INSERT INTO ai_diagnosis_runs "
+                "(status, message, requested_by, started_at) "
+                "VALUES ('collecting', 'AWS 현재 설정을 수집하는 중입니다...', %s, UTC_TIMESTAMP())",
+                (_current_user()["username"],),
+            )
+            run_id = cursor.lastrowid
+
+    thread = threading.Thread(
+        target=_run_ai_diagnosis_job, args=(run_id,), daemon=True
+    )
+    thread.start()
+
+    return jsonify({"status": "started", "runId": run_id})
+
+
+@app.get("/api/ai-diagnosis/status")
+@login_required
+def ai_diagnosis_status():
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM ai_diagnosis_runs ORDER BY started_at DESC LIMIT 1"
+            )
+            row = cursor.fetchone()
+
+    if not row:
+        return jsonify({"status": "idle"})
+
+    return jsonify(_ai_diagnosis_row_to_json(row))
 
 
 # 화면(SPA). 해시 라우팅(#/scenario/...)을 쓰므로 서버는 항상 index.html만 주면 된다.

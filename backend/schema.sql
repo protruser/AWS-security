@@ -82,3 +82,20 @@ CREATE TABLE IF NOT EXISTS service_metrics (
     INDEX idx_service_metrics_window_end (window_end),
     INDEX idx_service_metrics_server_window (server, window_end)
 );
+
+-- SK쉴더스 33개 항목 AI 진단 실행 이력. gunicorn 워커가 여러 개라 진행 상태를
+-- 프로세스 메모리에 두면 워커마다 따로 보여서 폴링이 어긋난다. DB에 상태를
+-- 두면 어느 워커가 /status 요청을 받아도 같은 진행 상황을 보여줄 수 있다.
+CREATE TABLE IF NOT EXISTS ai_diagnosis_runs (
+    id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+    status        VARCHAR(20) NOT NULL DEFAULT 'collecting',
+    message       VARCHAR(255) NULL,
+    requested_by  VARCHAR(80) NULL,
+    result        JSON NULL,
+    error         TEXT NULL,
+    started_at    DATETIME NOT NULL,
+    finished_at   DATETIME NULL,
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    INDEX idx_ai_diagnosis_runs_started_at (started_at)
+);

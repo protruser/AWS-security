@@ -1,0 +1,840 @@
+{
+  "schema_version": "1.0.0",
+  "file_purpose": "AWS 현재 구성/활동 데이터를 LLM에 제공하여 SK쉴더스 공개 가이드 기반 33개 항목을 진단하기 위한 프로젝트용 규칙 파일",
+  "provenance": {
+    "source_title": "'25년 CSPM(DataDog) AWS 보안 가이드",
+    "publisher": "SK Shieldus Co., Ltd.",
+    "published": "2025-12-30",
+    "source_url": "https://assets.ctfassets.net/6hqdqj4fjyeg/54MdMSDAhjTchIxDy3IQHh/bf7673a98dfb8a14fd46c6e4e762acb8/-25%C3%AB___CSPM_DataDog__AWS_%C3%AB__%C3%AC___%C3%AA__%C3%AC__%C3%AB__.pdf",
+    "source_scope": "계정 관리 9개, 권한 관리 3개, 가상 리소스 관리 9개, 운영 관리 12개 (총 33개)",
+    "important_notice": "이 JSON은 SK쉴더스가 배포한 공식 기계판독 규칙 파일이 아니라, 공개 PDF의 체크리스트/탐지기준을 프로젝트에서 AI 진단에 사용할 수 있도록 구조화·요약한 파생 규칙 파일이다."
+  },
+  "diagnosis_contract": {
+    "allowed_status": [
+      "PASS",
+      "FAIL",
+      "REVIEW",
+      "N/A"
+    ],
+    "rules": [
+      "제공된 AWS evidence와 이 파일의 기준만으로 판단한다.",
+      "근거가 부족하면 FAIL을 추측하지 않고 REVIEW로 판정한다.",
+      "대상 리소스가 없으면 각 항목의 N/A 조건을 따른다.",
+      "FAIL 또는 REVIEW에는 사용한 실제 AWS 필드/리소스 ID를 evidence로 반환한다.",
+      "event_monitoring 항목은 이벤트 발생 자체를 즉시 취약으로 단정하지 않고 승인 여부를 검토한다.",
+      "contextual 항목은 승인된 관리자/업무 역할 정보가 없으면 REVIEW를 우선한다.",
+      "source_mismatch 항목은 원문 불일치를 숨기지 않고 REVIEW/주석을 함께 제공한다."
+    ]
+  },
+  "severity_definition": {
+    "상": "관리자 계정 및 주요정보 유출 등 치명적 피해 가능성 — 단기 조치",
+    "중": "노출 정보를 통한 추가 서비스/시스템 정보 유출 우려 — 중기 조치",
+    "하": "다른 취약점과 연계 가능한 잠재적 위험 — 장기 조치"
+  },
+  "categories": {
+    "계정 관리": 9,
+    "권한 관리": 3,
+    "가상 리소스 관리": 9,
+    "운영 관리": 12
+  },
+  "rules": [
+    {
+      "id": "1.1",
+      "category": "계정 관리",
+      "name": "사용자 계정 관리",
+      "severity": "상",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "542-ddc-8ba"
+      ],
+      "source_detection_summary": "IAM 사용자에게 'AdministratorAccess' 정책이 직접 연결된 경우 탐지",
+      "required_evidence": [
+        "iam.users",
+        "iam.user_attached_policies",
+        "iam.user_inline_policies"
+      ],
+      "ai_judgement": {
+        "PASS": "일반 IAM 사용자에게 AdministratorAccess가 직접 연결되어 있지 않음",
+        "FAIL": "IAM 사용자에게 AdministratorAccess가 직접 연결되어 있음",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": [
+        "가이드는 고권한 정책을 최소 인원에게만 부여하도록 권고한다."
+      ]
+    },
+    {
+      "id": "1.2",
+      "category": "계정 관리",
+      "name": "IAM 사용자 계정 장기간 비활성화 관리",
+      "severity": "상",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "7h6-fp7-pc3"
+      ],
+      "source_detection_summary": "IAM 사용자의 활성 비밀번호 또는 Access Key가 45일 이상 사용되지 않은 경우 탐지",
+      "required_evidence": [
+        "iam.credential_report.password_enabled",
+        "iam.credential_report.password_last_used",
+        "iam.credential_report.access_key_active",
+        "iam.access_key_last_used"
+      ],
+      "ai_judgement": {
+        "PASS": "활성 자격증명이 최근 45일 이내 사용되었거나 불필요 자격증명이 비활성화됨",
+        "FAIL": "활성 비밀번호 또는 Access Key가 45일 이상 미사용 상태임",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "1.3",
+      "category": "계정 관리",
+      "name": "IAM 사용자 계정 식별 관리",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "CUSTOM"
+      ],
+      "source_detection_summary": "IAM 사용자의 필수 태그가 정의되어 있지 않은 경우 탐지",
+      "required_evidence": [
+        "iam.users",
+        "iam.user_tags",
+        "project_policy.required_iam_tags"
+      ],
+      "ai_judgement": {
+        "PASS": "프로젝트에서 정의한 필수 IAM 사용자 태그가 모두 존재함",
+        "FAIL": "하나 이상의 필수 IAM 사용자 태그가 누락됨",
+        "REVIEW": "required_iam_tags 정책이 제공되지 않으면 REVIEW",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": [
+        "필수 태그의 실제 키 이름은 조직 정책으로 별도 정의해야 한다."
+      ]
+    },
+    {
+      "id": "1.4",
+      "category": "계정 관리",
+      "name": "IAM 그룹 사용자 계정 관리",
+      "severity": "중",
+      "diagnosis_mode": "mixed",
+      "datadog_rule_codes": [
+        "def-000-ysz",
+        "CUSTOM"
+      ],
+      "source_detection_summary": "사용자가 연결되지 않은 IAM 그룹을 탐지하며, 불필요한 그룹/그룹 소속 여부는 별도 감사 필요",
+      "required_evidence": [
+        "iam.groups",
+        "iam.group_users",
+        "project_policy.approved_group_memberships"
+      ],
+      "ai_judgement": {
+        "PASS": "모든 운영 IAM 그룹에 최소 1명의 사용자가 있고 소속이 승인된 업무 목적과 부합함",
+        "FAIL": "사용자가 없는 IAM 그룹이 존재함",
+        "REVIEW": "그룹에 사용자가 있으나 해당 소속이 업무상 필요한지 판단할 승인 정보가 없으면 REVIEW",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": [
+        "원문 Custom 규칙 설명은 그룹 소속 계정 존재 여부를 별도 감사 대상으로 제시한다."
+      ]
+    },
+    {
+      "id": "1.5",
+      "category": "계정 관리",
+      "name": "Key Pair 접근 관리",
+      "severity": "상",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "CUSTOM"
+      ],
+      "source_detection_summary": "EC2 인스턴스에 할당된 Key Pair가 존재하지 않는 경우 탐지",
+      "required_evidence": [
+        "ec2.instances.instance_id",
+        "ec2.instances.key_name"
+      ],
+      "ai_judgement": {
+        "PASS": "가이드 기준상 EC2 인스턴스에 Key Pair가 할당되어 있음",
+        "FAIL": "EC2 인스턴스의 KeyName이 없거나 할당된 Key Pair가 없음",
+        "REVIEW": "조직이 SSM Session Manager 등 Key Pair 없는 접속을 공식 정책으로 사용하는 경우 REVIEW",
+        "N/A": "EC2 인스턴스가 없으면 N/A"
+      },
+      "notes": [
+        "현대적인 SSM 기반 운영과 충돌할 수 있어 프로젝트 환경에서는 예외 정책을 둘 수 있다."
+      ]
+    },
+    {
+      "id": "1.6",
+      "category": "계정 관리",
+      "name": "Admin Console 관리자 정책 관리",
+      "severity": "중",
+      "diagnosis_mode": "activity",
+      "datadog_rule_codes": [
+        "v9v-uhp-uk5"
+      ],
+      "source_detection_summary": "루트 계정을 비밀번호 또는 Access Key를 통해 최근 30일 이내 사용한 경우 탐지",
+      "required_evidence": [
+        "iam.credential_report.root_user",
+        "iam.credential_report.password_last_used",
+        "iam.credential_report.access_key_last_used"
+      ],
+      "ai_judgement": {
+        "PASS": "루트 계정의 최근 30일 사용 흔적이 없음",
+        "FAIL": "루트 계정이 비밀번호 또는 Access Key를 통해 최근 30일 이내 사용됨",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "루트 계정은 항상 존재하므로 N/A를 사용하지 않음"
+      },
+      "notes": []
+    },
+    {
+      "id": "1.7",
+      "category": "계정 관리",
+      "name": "Admin Console 계정 Access Key 활성화 및 사용주기 관리",
+      "severity": "상",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "ee4-ngx-bwr",
+        "bcz-prk-dr6",
+        "r1s-kud-79s"
+      ],
+      "source_detection_summary": "루트 Access Key 활성화, 90일 초과 Access Key, 장기 미사용/장기 미재발급 Access Key를 탐지",
+      "required_evidence": [
+        "iam.credential_report.root_access_key_active",
+        "iam.access_keys.create_date",
+        "iam.access_key_last_used",
+        "iam.credential_report.access_key_rotated"
+      ],
+      "ai_judgement": {
+        "PASS": "루트 Access Key가 비활성/미존재하며 일반 Access Key가 가이드의 사용주기 조건을 위반하지 않음",
+        "FAIL": "루트 Access Key가 활성화되어 있거나, Access Key 발급 후 90일을 초과했거나, 가이드 탐지조건의 장기 미사용/미재발급 상태임",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": [
+        "가이드 본문에는 Key 수명 60일 이내 권고도 있으나 매칭된 탐지규칙에는 90일 기준이 포함되어 있다."
+      ]
+    },
+    {
+      "id": "1.8",
+      "category": "계정 관리",
+      "name": "MFA (Multi-Factor Authentication) 설정",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "8yh-cqk-qbn",
+        "hsh-y5w-hxe"
+      ],
+      "source_detection_summary": "루트 계정 MFA 비활성 또는 콘솔 로그인이 활성화된 IAM 사용자 MFA 비활성 시 탐지",
+      "required_evidence": [
+        "iam.credential_report.root_mfa_active",
+        "iam.credential_report.password_enabled",
+        "iam.credential_report.mfa_active"
+      ],
+      "ai_judgement": {
+        "PASS": "루트 MFA가 활성화되어 있고 콘솔 접근 가능한 모든 IAM 사용자에 MFA가 활성화됨",
+        "FAIL": "루트 MFA가 비활성화되어 있거나 콘솔 접근 가능한 IAM 사용자 중 MFA 비활성 사용자가 존재함",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": [
+        "가이드는 조직 SSO 사용 시 일부 IAM 사용자 MFA 항목을 양호로 처리할 수 있음을 언급한다."
+      ]
+    },
+    {
+      "id": "1.9",
+      "category": "계정 관리",
+      "name": "AWS 계정 패스워드 정책 관리",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "2mn-qgc-gka",
+        "r88-a34-ppx",
+        "ziw-w2v-e6z",
+        "z23-f9p-six",
+        "ayr-n9s-q87"
+      ],
+      "source_detection_summary": "IAM 암호 정책의 숫자, 특수문자, 대문자, 재사용 방지, 최소 14자 요구사항을 탐지",
+      "required_evidence": [
+        "iam.account_password_policy.minimum_password_length",
+        "iam.account_password_policy.require_numbers",
+        "iam.account_password_policy.require_symbols",
+        "iam.account_password_policy.require_uppercase_characters",
+        "iam.account_password_policy.password_reuse_prevention",
+        "iam.account_password_policy.max_password_age"
+      ],
+      "ai_judgement": {
+        "PASS": "숫자/특수문자/대문자 요구, 비밀번호 재사용 방지, 최소 길이 14자 이상이 설정됨",
+        "FAIL": "위 필수 암호 정책 중 하나 이상이 설정되지 않음",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": [
+        "가이드 본문에는 최대 사용기간 60일 이하 권고와 만료일 90일 이하 설명이 함께 존재하므로 기간값은 조직 정책에 맞춰 별도 적용할 수 있다."
+      ]
+    },
+    {
+      "id": "2.1",
+      "category": "권한 관리",
+      "name": "인스턴스 서비스 정책 관리",
+      "severity": "상",
+      "diagnosis_mode": "contextual",
+      "datadog_rule_codes": [
+        "CUSTOM"
+      ],
+      "source_detection_summary": "IAM 그룹/사용자/역할에 연결된 인스턴스 서비스(EC2, ECS, ECR, EKS, EFS, RDS, S3 등) 고권한 관리형 정책을 탐지",
+      "required_evidence": [
+        "iam.users_policies",
+        "iam.groups_policies",
+        "iam.roles_policies",
+        "project_policy.approved_privileged_identities"
+      ],
+      "ai_judgement": {
+        "PASS": "고권한 인스턴스 서비스 정책이 승인된 Infra 운영/관리 주체에만 최소한으로 부여됨",
+        "FAIL": "고권한 인스턴스 서비스 FullAccess/관리 권한이 승인되지 않은 사용자·그룹·역할에 부여됨",
+        "REVIEW": "승인된 운영/관리 주체 목록이 없으면 고권한 연결을 REVIEW",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": [
+        "업무 역할 맥락이 필요하므로 AWS 상태만으로 무조건 FAIL 처리하지 않는다."
+      ]
+    },
+    {
+      "id": "2.2",
+      "category": "권한 관리",
+      "name": "네트워크 서비스 정책 관리",
+      "severity": "상",
+      "diagnosis_mode": "contextual",
+      "datadog_rule_codes": [
+        "CUSTOM"
+      ],
+      "source_detection_summary": "IAM 그룹/사용자에 연결된 VPC, CloudFront, Route53, API Gateway, Direct Connect 등 네트워크 서비스 고권한 정책을 탐지",
+      "required_evidence": [
+        "iam.users_policies",
+        "iam.groups_policies",
+        "iam.roles_policies",
+        "project_policy.approved_privileged_identities"
+      ],
+      "ai_judgement": {
+        "PASS": "네트워크 서비스 고권한 정책이 승인된 인프라 운영 주체에만 최소한으로 부여됨",
+        "FAIL": "네트워크 서비스 FullAccess/관리 권한이 승인되지 않은 주체에 부여됨",
+        "REVIEW": "승인된 운영 주체/업무 목적 정보가 없으면 고권한 연결을 REVIEW",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "2.3",
+      "category": "권한 관리",
+      "name": "기타 서비스 정책 관리",
+      "severity": "상",
+      "diagnosis_mode": "contextual",
+      "datadog_rule_codes": [
+        "CUSTOM"
+      ],
+      "source_detection_summary": "IAM 그룹/사용자에 연결된 CloudWatch, CloudTrail, KMS, WAF, Security Hub 등 기타 서비스 고권한 정책을 탐지",
+      "required_evidence": [
+        "iam.users_policies",
+        "iam.groups_policies",
+        "iam.roles_policies",
+        "project_policy.approved_privileged_identities"
+      ],
+      "ai_judgement": {
+        "PASS": "기타 서비스 고권한 정책이 승인된 운영 주체에만 최소한으로 부여됨",
+        "FAIL": "기타 서비스 FullAccess/관리 권한이 승인되지 않은 주체에 부여됨",
+        "REVIEW": "승인된 운영 주체/업무 목적 정보가 없으면 고권한 연결을 REVIEW",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "3.1",
+      "category": "가상 리소스 관리",
+      "name": "보안 그룹 인/아웃바운드 PORT ANY 설정 관리",
+      "severity": "상",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "CUSTOM"
+      ],
+      "source_detection_summary": "보안 그룹에서 가이드가 정의한 기본 포트 외 PORT ANY/과도한 전체 포트 정책을 탐지",
+      "required_evidence": [
+        "ec2.security_groups.ip_permissions",
+        "ec2.security_groups.ip_permissions_egress"
+      ],
+      "ai_judgement": {
+        "PASS": "보안 그룹에 전체 프로토콜/전체 포트 등 과도한 ANY 규칙이 없고 필요한 포트만 명시됨",
+        "FAIL": "IpProtocol=-1 또는 전체 포트 범위 등 PORT ANY 성격의 과도한 규칙이 존재함",
+        "REVIEW": "ANY 규칙이 특수 네트워크 설계상 필요한지 명확한 승인 정보가 있으면 REVIEW",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": [
+        "project_mapping: 원문 Custom 탐지 문구를 AWS Security Group 필드에 적용한 구현 해석이다."
+      ]
+    },
+    {
+      "id": "3.2",
+      "category": "가상 리소스 관리",
+      "name": "보안 그룹 인/아웃바운드 불필요 정책 관리",
+      "severity": "상",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "tch-c9p-gh4",
+        "def-000-9mn"
+      ],
+      "source_detection_summary": "Security Group의 IPv4/IPv6 Source IP가 ANY인 경우 탐지",
+      "required_evidence": [
+        "ec2.security_groups.ip_permissions.ip_ranges",
+        "ec2.security_groups.ip_permissions.ipv6_ranges"
+      ],
+      "ai_judgement": {
+        "PASS": "인바운드 접근 소스가 신뢰 가능한 범위로 제한되어 있음",
+        "FAIL": "IPv4 Source가 0.0.0.0/0 또는 IPv6 Source가 ::/0인 규칙이 존재함",
+        "REVIEW": "공개 웹 서비스처럼 의도적으로 ANY 소스가 필요한 규칙은 업무 목적/앞단 보호수단을 검토하여 REVIEW 가능",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "3.3",
+      "category": "가상 리소스 관리",
+      "name": "네트워크 ACL 인/아웃바운드 트래픽 정책 관리",
+      "severity": "중",
+      "diagnosis_mode": "source_mismatch",
+      "datadog_rule_codes": [
+        "rx9-tkr-e6b"
+      ],
+      "source_detection_summary": "가이드의 매칭 탐지기준은 Default VPC 보안 그룹의 인/아웃바운드가 All Traffic/Protocol인 경우를 탐지",
+      "required_evidence": [
+        "ec2.default_security_groups.ip_permissions",
+        "ec2.default_security_groups.ip_permissions_egress",
+        "ec2.network_acls.entries"
+      ],
+      "ai_judgement": {
+        "PASS": "가이드 매칭 기준상 Default VPC 보안 그룹에 과도한 All Traffic 인/아웃바운드가 없음",
+        "FAIL": "Default VPC 보안 그룹 인/아웃바운드에 All Traffic/Protocol 규칙이 존재함",
+        "REVIEW": "항목명은 NACL이나 원문 탐지기준은 Default VPC Security Group을 가리키므로, NACL 자체 평가는 REVIEW로 별도 표시",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": [
+        "SOURCE_INCONSISTENCY: 가이드 항목명과 탐지 기준 대상이 서로 다르게 기재되어 있다. 기준 파일은 원문 탐지기준을 보존한다."
+      ]
+    },
+    {
+      "id": "3.4",
+      "category": "가상 리소스 관리",
+      "name": "라우팅 테이블 정책 관리",
+      "severity": "중",
+      "diagnosis_mode": "event_monitoring",
+      "datadog_rule_codes": [
+        "def-000-j0s"
+      ],
+      "source_detection_summary": "CloudTrail에서 VPC Route Table 변경 이벤트가 감지될 경우 탐지",
+      "required_evidence": [
+        "cloudtrail.events.route_table_changes",
+        "cloudtrail.enabled"
+      ],
+      "ai_judgement": {
+        "PASS": "CloudTrail을 통해 변경 이벤트를 확인할 수 있고 검토 기간 내 미승인 변경 이벤트가 없음",
+        "FAIL": "변경 이벤트가 발생했으나 조직 정책상 미승인 변경으로 확인됨",
+        "REVIEW": "라우팅 테이블 생성/수정/삭제 이벤트가 감지되면 정상 변경인지 REVIEW",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "3.5",
+      "category": "가상 리소스 관리",
+      "name": "인터넷 게이트웨이 연결 관리",
+      "severity": "하",
+      "diagnosis_mode": "event_monitoring",
+      "datadog_rule_codes": [
+        "def-000-k5x"
+      ],
+      "source_detection_summary": "Internet Gateway 생성/삭제/연결 변경 이벤트가 감지될 경우 탐지",
+      "required_evidence": [
+        "cloudtrail.events.internet_gateway_changes",
+        "ec2.internet_gateways",
+        "cloudtrail.enabled"
+      ],
+      "ai_judgement": {
+        "PASS": "변경 이벤트를 추적할 수 있고 검토 기간 내 미승인 IGW 변경이 없음",
+        "FAIL": "IGW 생성/삭제/연결 변경이 미승인 변경으로 확인됨",
+        "REVIEW": "IGW 변경 이벤트가 존재하면 정상 변경 여부를 REVIEW",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "3.6",
+      "category": "가상 리소스 관리",
+      "name": "NAT 게이트웨이 연결 관리",
+      "severity": "중",
+      "diagnosis_mode": "event_monitoring",
+      "datadog_rule_codes": [
+        "def-000-k5x"
+      ],
+      "source_detection_summary": "NAT Gateway 생성/삭제/연결 변경 이벤트가 감지될 경우 탐지",
+      "required_evidence": [
+        "cloudtrail.events.nat_gateway_changes",
+        "ec2.nat_gateways",
+        "cloudtrail.enabled"
+      ],
+      "ai_judgement": {
+        "PASS": "변경 이벤트를 추적할 수 있고 검토 기간 내 미승인 NAT Gateway 변경이 없음",
+        "FAIL": "NAT Gateway 생성/삭제/연결 변경이 미승인 변경으로 확인됨",
+        "REVIEW": "NAT Gateway 변경 이벤트가 존재하면 정상 변경 여부를 REVIEW",
+        "N/A": "진단 대상 리소스가 존재하지 않으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "3.7",
+      "category": "가상 리소스 관리",
+      "name": "S3 버킷/객체 접근 관리",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "def-000-hb1",
+        "def-000-0f1",
+        "5yq-fi1-8pn",
+        "hkp-p6b-f7w"
+      ],
+      "source_detection_summary": "외부 계정 주요 권한, 공개 쓰기 Bucket Policy, 공개 쓰기 ACL, Public Access Block 비활성화를 탐지",
+      "required_evidence": [
+        "s3.bucket_policy",
+        "s3.bucket_acl",
+        "s3.public_access_block",
+        "sts.account_id"
+      ],
+      "ai_judgement": {
+        "PASS": "외부 계정에 불필요한 주요 권한이 없고 공개 쓰기가 차단되며 Public Access Block이 활성화됨",
+        "FAIL": "외부 계정 주요 권한 허용, 모든 사용자 쓰기 허용, 퍼블릭 그룹 쓰기 ACL, 또는 Public Access Block 비활성 중 하나 이상 존재함",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "S3 버킷이 없으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "3.8",
+      "category": "가상 리소스 관리",
+      "name": "RDS 서브넷 가용 영역 관리",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "fu0-rtv-2rb"
+      ],
+      "source_detection_summary": "RDS PublicAccessible=True 이고 퍼블릭 서브넷(IGW 연결)에 포함된 경우 탐지",
+      "required_evidence": [
+        "rds.db_instances.publicly_accessible",
+        "rds.db_instances.db_subnet_group",
+        "ec2.route_tables",
+        "ec2.internet_gateways"
+      ],
+      "ai_judgement": {
+        "PASS": "RDS가 PubliclyAccessible=False 이거나 인터넷에 직접 노출되지 않는 서브넷에 위치함",
+        "FAIL": "RDS PubliclyAccessible=True이며 연결된 서브넷이 IGW 경로를 가진 퍼블릭 서브넷임",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "RDS 인스턴스가 없으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "3.9",
+      "category": "가상 리소스 관리",
+      "name": "ELB(Elastic Load Balancing) 연결 관리",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "def-000-khx",
+        "def-000-v6y",
+        "def-000-v86",
+        "ix9-ih4-ucg"
+      ],
+      "source_detection_summary": "인증서 출처, ALB 삭제 보호, 잘못된 헤더 삭제, HTTPS 리스너 사용 여부를 탐지",
+      "required_evidence": [
+        "elbv2.load_balancers",
+        "elbv2.listeners",
+        "elbv2.attributes",
+        "elb.classic_load_balancers",
+        "acm.certificates"
+      ],
+      "ai_judgement": {
+        "PASS": "해당 로드밸런서가 요구되는 HTTPS/인증서/삭제보호/헤더보호 설정을 충족함",
+        "FAIL": "HTTPS 리스너 인증서가 ACM 기준을 충족하지 않거나, ALB 삭제 보호 비활성, Public ALB의 drop_invalid_header_fields 비활성, 또는 ALB HTTP 리스너 사용 중 하나 이상 해당함",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "ELB/ALB가 없으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "4.1",
+      "category": "운영 관리",
+      "name": "EBS 및 볼륨 암호화 설정",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "n68-nzh-pl8",
+        "146-kl4-mas"
+      ],
+      "source_detection_summary": "EBS Snapshot 또는 EBS Volume 암호화가 비활성화된 경우 탐지",
+      "required_evidence": [
+        "ec2.volumes.encrypted",
+        "ec2.snapshots.encrypted"
+      ],
+      "ai_judgement": {
+        "PASS": "모든 진단 대상 EBS Volume과 Snapshot이 암호화되어 있음",
+        "FAIL": "암호화되지 않은 EBS Volume 또는 Snapshot이 하나 이상 존재함",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "EBS Volume/Snapshot 진단 대상이 없으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "4.2",
+      "category": "운영 관리",
+      "name": "RDS 암호화 설정",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "625-933-d8d"
+      ],
+      "source_detection_summary": "RDS 인스턴스 암호화 설정이 비활성화된 경우 탐지",
+      "required_evidence": [
+        "rds.db_instances.storage_encrypted"
+      ],
+      "ai_judgement": {
+        "PASS": "모든 RDS DB 인스턴스의 StorageEncrypted=True",
+        "FAIL": "StorageEncrypted=False인 RDS DB 인스턴스가 존재함",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "RDS 인스턴스가 없으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "4.3",
+      "category": "운영 관리",
+      "name": "S3 암호화 설정",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "tcg-c9p-gh4"
+      ],
+      "source_detection_summary": "S3 기본 암호화 유형/설정 여부를 탐지",
+      "required_evidence": [
+        "s3.bucket_encryption"
+      ],
+      "ai_judgement": {
+        "PASS": "모든 S3 버킷에 SSE-S3 또는 SSE-KMS 기본 서버측 암호화가 설정됨",
+        "FAIL": "기본 서버측 암호화 설정이 확인되지 않는 S3 버킷이 존재함",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "S3 버킷이 없으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "4.4",
+      "category": "운영 관리",
+      "name": "통신구간 암호화 설정",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "def-000-e19",
+        "ix9-ih4-ucg",
+        "def-000-oat"
+      ],
+      "source_detection_summary": "CloudFront SSL/TLS, ALB HTTPS 리스너, S3 HTTP 요청 거부 정책 존재 여부를 탐지",
+      "required_evidence": [
+        "cloudfront.distributions.viewer_certificate",
+        "elbv2.listeners.protocol",
+        "s3.bucket_policy"
+      ],
+      "ai_judgement": {
+        "PASS": "CloudFront/ALB/S3 중 사용 중인 대상이 HTTPS 통신 요구조건을 충족함",
+        "FAIL": "CloudFront가 요구된 SSL/TLS 설정을 충족하지 않거나, ALB가 HTTP 리스너를 사용하거나, S3 버킷 정책에 HTTP 요청 거부(aws:SecureTransport) 통제가 없음",
+        "REVIEW": "서비스 용도상 HTTP가 의도된 예외라면 승인 근거를 REVIEW",
+        "N/A": "CloudFront/ALB/S3 중 진단할 통신구간 대상이 없으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "4.5",
+      "category": "운영 관리",
+      "name": "CloudTrail 암호화 설정",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "yg4-3in-tkd"
+      ],
+      "source_detection_summary": "CloudTrail 추적 로그 파일의 SSE-KMS 암호화 활성화 여부를 탐지",
+      "required_evidence": [
+        "cloudtrail.trails.kms_key_id"
+      ],
+      "ai_judgement": {
+        "PASS": "모든 진단 대상 CloudTrail에 KMSKeyId가 설정되어 SSE-KMS를 사용함",
+        "FAIL": "KMSKeyId가 없는 CloudTrail 추적이 존재함",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "CloudTrail 추적이 없으면 FAIL이 아니라 별도 로깅 항목 4.6에서 평가하며 본 항목은 N/A 가능"
+      },
+      "notes": []
+    },
+    {
+      "id": "4.6",
+      "category": "운영 관리",
+      "name": "AWS 사용자 계정 로깅 설정",
+      "severity": "상",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "def-000-bop",
+        "6c6-101-b03"
+      ],
+      "source_detection_summary": "CloudTrail의 CloudWatch Logs 연동과 관리/글로벌 이벤트 수집 설정을 탐지",
+      "required_evidence": [
+        "cloudtrail.trails.cloud_watch_logs_log_group_arn",
+        "cloudtrail.event_selectors",
+        "cloudtrail.trails.include_global_service_events",
+        "cloudtrail.trails.is_multi_region_trail"
+      ],
+      "ai_judgement": {
+        "PASS": "CloudTrail이 CloudWatch Logs와 연동되고 관리 이벤트 및 필요한 글로벌 이벤트를 수집함",
+        "FAIL": "CloudWatch Logs 연동이 없거나 관리 이벤트/글로벌 서비스 이벤트 수집이 요구 수준에 미달함",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "CloudTrail이 전혀 없으면 N/A가 아니라 FAIL"
+      },
+      "notes": []
+    },
+    {
+      "id": "4.7",
+      "category": "운영 관리",
+      "name": "인스턴스 로깅 설정",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "CUSTOM"
+      ],
+      "source_detection_summary": "CloudWatch 로그 스트림 설정 유무를 확인하여 탐지",
+      "required_evidence": [
+        "ec2.instances",
+        "logs.log_groups",
+        "logs.log_streams",
+        "ssm.cloudwatch_agent_status"
+      ],
+      "ai_judgement": {
+        "PASS": "진단 대상 EC2 인스턴스의 운영 로그가 CloudWatch Logs 스트림으로 수집되는 근거가 있음",
+        "FAIL": "EC2 인스턴스는 존재하지만 해당 인스턴스 로그 수집 스트림/에이전트 근거가 없음",
+        "REVIEW": "로그 그룹/스트림과 인스턴스의 매핑 근거가 부족하면 REVIEW",
+        "N/A": "EC2 인스턴스가 없으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "4.8",
+      "category": "운영 관리",
+      "name": "RDS 로깅 설정",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "def-000-3on",
+        "def-000-u7d"
+      ],
+      "source_detection_summary": "RDS 로그 내보내기 및 DocumentDB 감사로그 내보내기 설정 여부를 탐지",
+      "required_evidence": [
+        "rds.db_instances.enabled_cloudwatch_logs_exports",
+        "docdb.db_clusters.enabled_cloudwatch_logs_exports"
+      ],
+      "ai_judgement": {
+        "PASS": "사용 중인 RDS/DocumentDB에서 요구되는 로그/감사로그를 CloudWatch Logs로 내보냄",
+        "FAIL": "RDS 로그 내보내기가 비활성화되었거나 DocumentDB audit 로그 내보내기가 비활성화됨",
+        "REVIEW": "DB 엔진별 지원 로그 종류가 달라 어떤 로그가 필수인지 불명확하면 REVIEW",
+        "N/A": "RDS와 DocumentDB가 모두 없으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "4.9",
+      "category": "운영 관리",
+      "name": "S3 버킷 로깅 설정",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "def-000-o7x",
+        "def-000-bf9"
+      ],
+      "source_detection_summary": "CloudTrail에서 S3 데이터 이벤트의 Read/Write 수집 활성화 여부를 탐지",
+      "required_evidence": [
+        "cloudtrail.event_selectors.data_resources",
+        "cloudtrail.advanced_event_selectors"
+      ],
+      "ai_judgement": {
+        "PASS": "진단 대상 S3 데이터 이벤트에 대해 읽기와 쓰기 이벤트가 모두 수집됨",
+        "FAIL": "S3 데이터 이벤트 Read 또는 Write 중 하나 이상이 CloudTrail에서 수집되지 않음",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "S3 버킷이 없으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "4.10",
+      "category": "운영 관리",
+      "name": "VPC 플로우 로깅 설정",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "npt-kg2-pv2"
+      ],
+      "source_detection_summary": "VPC Flow Log 활성화 여부를 탐지",
+      "required_evidence": [
+        "ec2.vpcs",
+        "ec2.flow_logs.resource_id",
+        "ec2.flow_logs.flow_log_status"
+      ],
+      "ai_judgement": {
+        "PASS": "모든 진단 대상 VPC에 ACTIVE 상태의 Flow Log가 존재함",
+        "FAIL": "Flow Log가 없거나 비활성 상태인 VPC가 존재함",
+        "REVIEW": "필요한 근거가 부족하거나 조직의 승인 목록/업무 맥락이 필요한 경우 REVIEW",
+        "N/A": "진단 대상 VPC가 없으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "4.11",
+      "category": "운영 관리",
+      "name": "로그 보관 기간 설정",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "CUSTOM"
+      ],
+      "source_detection_summary": "CloudWatch 로그 보관 기간 설정 유무를 확인하며 가이드 설정 예시는 1년 이상을 제시",
+      "required_evidence": [
+        "logs.log_groups.retention_in_days",
+        "project_policy.minimum_log_retention_days"
+      ],
+      "ai_judgement": {
+        "PASS": "CloudWatch Log Group 보존기간이 프로젝트 기준 이상이며 기본값은 365일 이상으로 평가",
+        "FAIL": "retentionInDays가 없거나 365일 미만인 Log Group이 존재함",
+        "REVIEW": "조직의 법적/업무 보존 정책이 별도로 제공되면 그 기준과 365일 중 적용할 기준을 REVIEW",
+        "N/A": "CloudWatch Log Group이 없으면 N/A"
+      },
+      "notes": []
+    },
+    {
+      "id": "4.12",
+      "category": "운영 관리",
+      "name": "백업 사용 여부",
+      "severity": "중",
+      "diagnosis_mode": "configuration",
+      "datadog_rule_codes": [
+        "def-000-5q3"
+      ],
+      "source_detection_summary": "DocumentDB 클러스터의 백업 보존기간에 따라 탐지",
+      "required_evidence": [
+        "docdb.db_clusters.backup_retention_period"
+      ],
+      "ai_judgement": {
+        "PASS": "DocumentDB BackupRetentionPeriod가 최소 1일 이상이며 조직 백업정책을 충족함",
+        "FAIL": "BackupRetentionPeriod가 1일 미만이거나 백업이 사실상 비활성 상태임",
+        "REVIEW": "1일 이상이지만 조직의 요구 RPO/RTO 또는 보존정책 충족 여부가 불명확하면 REVIEW",
+        "N/A": "DocumentDB 클러스터가 없으면 N/A"
+      },
+      "notes": []
+    }
+  ]
+}
