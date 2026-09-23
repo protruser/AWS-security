@@ -625,14 +625,26 @@ class AWSCollector:
                 "tags": nat.get("Tags", []),
             } for nat in raw_nat]
 
+            # 리전마다 AWS가 기본으로 깔아주는 빈 default VPC는 실제로 아무것도
+            # 안 올려서 쓰는 경우가 흔하다. 그런 VPC까지 4.10(VPC 플로우 로깅)
+            # 진단 대상에 넣으면, 우리가 실제 쓰는 VPC는 Flow Log가 멀쩡히
+            # 켜져 있어도 "쓰지도 않는 default VPC에 Flow Log가 없다"는 이유로
+            # FAIL이 나는 오탐이 생긴다. default VPC라도 인스턴스가 떠 있으면
+            # 실사용 중인 것이니 그대로 진단 대상에 남기고, 인스턴스가 하나도
+            # 없는 default VPC만 evidence에서 뺀다.
+            used_vpc_ids = {i.get("vpc_id") for i in instances if i.get("vpc_id")}
             raw_vpcs = self._paginate(ec2, "describe_vpcs", "Vpcs")
-            vpcs = [{
-                "vpc_id": vpc.get("VpcId"),
-                "cidr_block": vpc.get("CidrBlock"),
-                "is_default": vpc.get("IsDefault"),
-                "state": vpc.get("State"),
-                "tags": vpc.get("Tags", []),
-            } for vpc in raw_vpcs]
+            vpcs = [
+                {
+                    "vpc_id": vpc.get("VpcId"),
+                    "cidr_block": vpc.get("CidrBlock"),
+                    "is_default": vpc.get("IsDefault"),
+                    "state": vpc.get("State"),
+                    "tags": vpc.get("Tags", []),
+                }
+                for vpc in raw_vpcs
+                if not (vpc.get("IsDefault") and vpc.get("VpcId") not in used_vpc_ids)
+            ]
 
             raw_flow = self._paginate(ec2, "describe_flow_logs", "FlowLogs")
             flow_logs = [{
