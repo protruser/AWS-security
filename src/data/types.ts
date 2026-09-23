@@ -82,6 +82,7 @@ export interface RemediationHistoryItem {
   time: string
   event: string
   asset: string
+  ip?: string | null
   method: string
   approver: string
   result: string

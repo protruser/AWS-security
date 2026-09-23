@@ -322,6 +322,11 @@ function RightPanel({
                 </div>
                 <p className="text-[10px] text-[#6B6B6B] mt-1">{r.asset}</p>
                 <div className="flex flex-wrap gap-1 mt-1.5">
+                  {r.ip && (
+                    <span className="text-[10px] font-mono bg-[#FEF3F2] text-[#B42318] rounded px-1.5 py-0.5">
+                      {r.ip}
+                    </span>
+                  )}
                   <span className="text-[10px] bg-[#F2F4F7] text-[#475467] rounded px-1.5 py-0.5">
                     {r.method} 조치
                   </span>
@@ -360,7 +365,7 @@ function RightPanel({
             <table className="w-full text-left" style={{ minWidth: 320 }}>
               <thead>
                 <tr className="bg-[#FAFAFA] border-b border-[#E0E0E0]">
-                  {["시각", "등급", "이벤트", "차단", "상태"].map((h) => (
+                  {["시각", "등급", "이벤트", "IP", "차단", "상태"].map((h) => (
                     <th
                       key={h}
                       className="py-2 px-2 text-[10px] font-semibold text-[#6B6B6B] whitespace-nowrap"
@@ -388,6 +393,9 @@ function RightPanel({
                       </td>
                       <td className="py-1.5 px-2 text-[10px] text-[#0D0D0D] max-w-[100px] truncate">
                         {d.event}
+                      </td>
+                      <td className="py-1.5 px-2 text-[10px] font-mono text-[#475467] whitespace-nowrap">
+                        {d.ip}
                       </td>
                       <td className="py-1.5 px-2">
                         <span

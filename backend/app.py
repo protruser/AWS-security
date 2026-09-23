@@ -223,6 +223,7 @@ def _remediation_to_history(row):
         "time": _format_datetime(requested or completed, "%H:%M"),
         "event": row.get("event_title") or row.get("action_type") or "보안 조치",
         "asset": row.get("asset") or "-",
+        "ip": row.get("attacker_ip") or None,
         "method": row.get("method") or "수동",
         "approver": row.get("approver") or "-",
         "result": row.get("result") or row.get("status") or "-",
@@ -422,7 +423,8 @@ def _read_dashboard_data():
                 SELECT
                     rh.*,
                     se.title AS event_title,
-                    se.asset AS asset
+                    se.asset AS asset,
+                    se.attacker_ip AS attacker_ip
                 FROM remediation_history rh
                 LEFT JOIN security_events se ON se.id = rh.event_id
                 WHERE se.scenario_type IN ('sqli', 'dir', 'brute', 'cred', 'vuln', 'xss', 'port')
