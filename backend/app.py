@@ -22,7 +22,14 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import (
+    KeepTogether,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
 from db import get_connection
 from services.ai_diagnosis_service import (
@@ -892,9 +899,13 @@ _pdf_style_body = ParagraphStyle(
     "AIDiagBody", fontName=_PDF_FONT, fontSize=9.5, leading=14,
     textColor=colors.HexColor("#344054"),
 )
-_pdf_style_item_header = ParagraphStyle(
-    "AIDiagItemHeader", fontName=_PDF_FONT_BOLD, fontSize=10.5, leading=15,
-    textColor=colors.HexColor("#101828"), spaceBefore=8,
+_pdf_style_kv_title = ParagraphStyle(
+    "AIDiagKVTitle", fontName=_PDF_FONT_BOLD, fontSize=10.5, leading=14,
+    textColor=colors.HexColor("#101828"),
+)
+_pdf_style_kv_value = ParagraphStyle(
+    "AIDiagKVValue", fontName=_PDF_FONT, fontSize=9, leading=13,
+    textColor=colors.HexColor("#344054"),
 )
 
 
@@ -982,14 +993,18 @@ def _build_ai_diagnosis_pdf(report):
         for row, meta in rows:
             status = row.get("status")
             status_hex = _PDF_STATUS_HEX.get(status, "#101828")
-            header = (
-                f"{_pdf_esc(row.get('rule_id'))} {_pdf_esc(meta.get('name'))}"
-                f"&nbsp;&nbsp;<font color='{status_hex}'>"
-                f"[{_pdf_esc(row.get('severity'))}·{_pdf_esc(status)}]</font>"
-            )
-            story.append(Paragraph(header, _pdf_style_item_header))
 
-            detail_parts = []
+            title_para = Paragraph(
+                f"{_pdf_esc(row.get('rule_id'))} {_pdf_esc(meta.get('name'))}",
+                _pdf_style_kv_title,
+            )
+            status_para = Paragraph(
+                f"<font color='{status_hex}'><b>{_pdf_esc(status)}</b></font>"
+                f"&nbsp;&nbsp;(위험도 {_pdf_esc(row.get('severity'))})",
+                _pdf_style_kv_value,
+            )
+
+            item_rows = [["항목", title_para], ["판정", status_para]]
             for label, key in [
                 ("현재 상태", "current_value"),
                 ("기대 상태", "expected_value"),
@@ -998,11 +1013,34 @@ def _build_ai_diagnosis_pdf(report):
             ]:
                 value = row.get(key)
                 if value:
-                    detail_parts.append(
-                        f"<font color='#667085'>{label}</font> {_pdf_esc(value)}"
+                    item_rows.append(
+                        [label, Paragraph(_pdf_esc(value), _pdf_style_kv_value)]
                     )
-            if detail_parts:
-                story.append(Paragraph("<br/>".join(detail_parts), _pdf_style_body))
+
+            item_table = Table(item_rows, colWidths=[26 * mm, 148 * mm])
+            item_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F9FAFB")),
+                        ("FONTNAME", (0, 0), (0, -1), _PDF_FONT_BOLD),
+                        ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#667085")),
+                        ("FONTSIZE", (0, 0), (0, -1), 8.5),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#E4E7EC")),
+                        ("TOPPADDING", (0, 0), (-1, -1), 5),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                        (
+                            "BACKGROUND",
+                            (1, 1),
+                            (1, 1),
+                            _PDF_STATUS_BG.get(status, colors.white),
+                        ),
+                    ]
+                )
+            )
+            story.append(KeepTogether([item_table, Spacer(1, 8)]))
 
     doc.build(story)
     return buffer.getvalue()
