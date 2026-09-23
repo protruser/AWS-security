@@ -240,8 +240,11 @@ def _event_to_log(row):
         "severity": _severity(row.get("severity")),
         "title": row.get("title") or "보안 이벤트",
         "asset": row.get("asset") or None,
+        # DB에 저장된 시각은 항상 UTC라, 타임존 표기 없이 그냥 isoformat()만 하면
+        # 브라우저(JS)가 이걸 "이미 로컬시간"으로 착각해서 9시간 밀려 보인다.
+        # UTC임을 명시해서 내려주면 프론트에서 알아서 KST로 변환해 표시한다.
         "detectedAt": (
-            detected_at.isoformat(timespec="seconds")
+            detected_at.replace(tzinfo=timezone.utc).isoformat(timespec="seconds")
             if isinstance(detected_at, datetime)
             else str(detected_at or "")
         ),
@@ -263,9 +266,13 @@ def _event_to_log(row):
 
 def _parse_query_datetime(value, label):
     try:
-        return datetime.fromisoformat(value)
+        naive = datetime.fromisoformat(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{label} 날짜/시간 형식이 올바르지 않습니다.") from exc
+    # 프론트의 시작/종료 시간 입력(datetime-local)은 사용자가 보는 KST 기준값인데,
+    # DB의 detected_at은 UTC라서 그대로 비교하면 9시간 어긋난다. KST로 해석해
+    # UTC로 변환한 뒤 비교한다.
+    return naive.replace(tzinfo=KST).astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _log_time_window(args):
