@@ -130,12 +130,21 @@ function ActionCard({
           <button
             onClick={(e) => {
               e.stopPropagation()
-              if (canRemediate(ev)) onApprove()
+              if (canRemediate(ev)) {
+                onApprove()
+              } else if (!selected) {
+                // 자동 조치가 없는 시나리오(예: vuln)는 대신 카드를 펼쳐서
+                // 권장 조치 텍스트(ev.recommendation)를 보여준다.
+                onSelect()
+              }
             }}
-            disabled={!canRemediate(ev)}
-            className="flex-1 text-[11px] font-bold text-white bg-[#111111] hover:bg-[#262626] px-2.5 py-1.5 rounded-lg transition-colors"
+            className={`flex-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition-colors ${
+              canRemediate(ev)
+                ? "text-white bg-[#111111] hover:bg-[#262626]"
+                : "text-[#475467] bg-[#F2F4F7] hover:bg-[#E4E7EC]"
+            }`}
           >
-            {canRemediate(ev) ? "조치 승인" : "수동 조치 필요"}
+            {canRemediate(ev) ? "조치 승인" : "수동 조치 필요 (권장 조치 보기)"}
           </button>
           <button
             onClick={(e) => {
