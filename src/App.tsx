@@ -1287,6 +1287,20 @@ function parseRoute(): string | null {
   return m && SCENARIO_CARDS.some((c) => c.id === m[1]) ? m[1] : null
 }
 
+const SECTION_KEYS: MainSection[] = [
+  "events",
+  "monitoring",
+  "ai-diagnosis",
+  "ai-actions",
+]
+
+// 새로고침해도 보고 있던 탭(대시보드 제외)이 유지되도록, 현재 섹션을 해시에 남긴다.
+function parseSectionRoute(): MainSection {
+  const m = window.location.hash.match(/^#\/(events|monitoring|ai-diagnosis|ai-actions)$/)
+  const key = m?.[1] as MainSection | undefined
+  return key && SECTION_KEYS.includes(key) ? key : "dashboard"
+}
+
 export default function App() {
   const [now, setNow] = useState(new Date())
   const [authState, setAuthState] =
@@ -1295,7 +1309,7 @@ export default function App() {
 
   const [autoRefresh, setAutoRefresh] = useState(true)
 
-  const [activeSection, setActiveSection] = useState<MainSection>("dashboard")
+  const [activeSection, setActiveSection] = useState<MainSection>(parseSectionRoute)
   const [chatOpen, setChatOpen] = useState(false)
 
   const [rightTab, setRightTab] = useState<RightTab>("action")
@@ -1465,6 +1479,7 @@ export default function App() {
   useEffect(() => {
     const onHash = () => {
       setPageId(parseRoute())
+      setActiveSection(parseSectionRoute())
     }
     window.addEventListener("hashchange", onHash)
     return () => window.removeEventListener("hashchange", onHash)
@@ -1502,7 +1517,7 @@ export default function App() {
   }
 
   const goSection = (section: MainSection) => {
-    window.location.hash = ""
+    window.location.hash = section === "dashboard" ? "" : `#/${section}`
     setActiveSection(section)
   }
 
