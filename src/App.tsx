@@ -17,7 +17,6 @@ import { ASSETS } from "./data/architecture"
 
 import { ArchitectureMap } from "./components/ArchitectureMap"
 import { ScenarioPage } from "./components/ScenarioPage"
-import { AttackLabPage } from "./components/AttackLabPage"
 import { ManualMonitoringPage } from "./components/ManualMonitoringPage"
 import { ApprovalModal, DonutGauge, SeverityBadge } from "./components/common"
 import { LoginPage } from "./components/LoginPage"
@@ -1235,8 +1234,6 @@ function parseRoute(): string | null {
   return m && SCENARIO_CARDS.some((c) => c.id === m[1]) ? m[1] : null
 }
 
-const isLabRoute = () => window.location.hash === "#/lab"
-
 export default function App() {
   const [now, setNow] = useState(new Date())
   const [authState, setAuthState] =
@@ -1270,9 +1267,6 @@ export default function App() {
 
   // Scenario detail page (hash route: #/scenario/<id>)
   const [pageId, setPageId] = useState<string | null>(parseRoute)
-
-  // 공격 시뮬레이션 페이지 (hash route: #/lab) — 관제 화면과 분리된 별도 페이지
-  const [labOpen, setLabOpen] = useState(isLabRoute)
 
   // actionId -> 실행 시각 (상세 페이지에서 실행한 조치)
   const [doneActions, setDoneActions] = useState<Record<string, string>>({})
@@ -1418,7 +1412,6 @@ export default function App() {
   useEffect(() => {
     const onHash = () => {
       setPageId(parseRoute())
-      setLabOpen(isLabRoute())
     }
     window.addEventListener("hashchange", onHash)
     return () => window.removeEventListener("hashchange", onHash)
@@ -1455,11 +1448,6 @@ export default function App() {
     setActiveSection("dashboard")
   }
 
-  const closeLab = () => {
-    window.location.hash = ""
-    setActiveSection("dashboard")
-  }
-
   const goSection = (section: MainSection) => {
     window.location.hash = ""
     setActiveSection(section)
@@ -1474,10 +1462,6 @@ export default function App() {
     setAutoRefresh(true)
     void loadDashboardData(false)
     void loadOverviewMetrics(false)
-  }
-
-  const openLab = () => {
-    window.location.hash = "#/lab"
   }
 
   // 실제 현재 시간: 브라우저 시스템 시간을 1초마다 다시 읽는다.
@@ -2095,9 +2079,8 @@ export default function App() {
             },
           ].map((item) => {
             const selected =
-              !labOpen &&
-              ((item.key === "dashboard" && pageId !== null) ||
-                (pageId === null && activeSection === item.key))
+              (item.key === "dashboard" && pageId !== null) ||
+              (pageId === null && activeSection === item.key)
             return (
               <button
                 key={item.key}
@@ -2127,28 +2110,6 @@ export default function App() {
             )
           })}
 
-          <button
-            onClick={openLab}
-            className={`w-full min-h-[44px] flex items-center gap-2.5 rounded-xl px-3 text-left transition-colors ${
-              labOpen
-                ? "bg-[#101828] text-white shadow-sm"
-                : "text-[#475467] hover:bg-[#F2F4F7] hover:text-[#101828]"
-            }`}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              width="17"
-              height="17"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-            >
-              <path d="M9 3h6M10 3v5l-5.5 9.5A2.3 2.3 0 006.5 21h11a2.3 2.3 0 002-3.5L14 8V3" />
-              <path d="M8 15h8" />
-            </svg>
-            <span className="text-[11px] font-semibold">Attack Lab</span>
-          </button>
-
           <div className="mt-auto px-2 py-2 rounded-xl bg-[#F8F9FB] border border-[#EAECF0]">
             <div className="flex items-center gap-2">
               <span
@@ -2168,9 +2129,7 @@ export default function App() {
 
         {/* ── Main content ───────────────────────────────────────────── */}
         <section className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-[#FAFAFA]">
-          {labOpen ? (
-            <AttackLabPage onBack={closeLab} />
-          ) : pageId ? (
+          {pageId ? (
             <ScenarioPage
               id={pageId}
               doneActions={doneActions}
