@@ -2309,7 +2309,11 @@ export default function App() {
                   selectedEvent={selectedEvent}
                   onSelectEvent={handleSelectEvent}
                   onApprove={(event) => {
-                    if (remediationPendingRef.current || !canRemediate(event)) return
+                    // canRemediate 여부와 상관없이 열어야 한다 - 수동 조치 항목도
+                    // 이제 승인 요청을 보낼 수 있고(자동 실행이 아니라 요청일 뿐),
+                    // 이미 대기 중인 항목은 ActionCard 쪽에서 버튼 자체를
+                    // disabled 처리해 여기까지 호출이 오지 않는다.
+                    if (remediationPendingRef.current || isPendingApproval(event)) return
                     setRemediationError(null)
                     setRemediationSucceeded(false)
                     setApprovalTarget(event)
