@@ -99,3 +99,26 @@ CREATE TABLE IF NOT EXISTS ai_diagnosis_runs (
 
     INDEX idx_ai_diagnosis_runs_started_at (started_at)
 );
+
+-- 관리자가 보낸 조치 요청을 승인자가 승인/반려하는 흐름. 수동조치/자동조치
+-- 둘 다 이 표를 거친다 - 자동조치도 승인자가 승인해야 그때 Lambda가
+-- 실행되고, 관리자 혼자 바로 실행하지 못한다.
+CREATE TABLE IF NOT EXISTS approval_requests (
+    id               BIGINT AUTO_INCREMENT PRIMARY KEY,
+    event_id         VARCHAR(255) NOT NULL,
+    action_type      VARCHAR(100) NULL,
+    request_type     VARCHAR(20) NOT NULL,               -- 'auto' | 'manual'
+    status           VARCHAR(20) NOT NULL DEFAULT '대기', -- 대기 / 승인 / 반려
+    previous_status  VARCHAR(40) NULL,                   -- 반려 시 이벤트를 이 상태로 되돌림
+    requested_by     VARCHAR(80) NULL,
+    reviewed_by      VARCHAR(80) NULL,
+    reject_reason    TEXT NULL,
+    requested_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at      DATETIME NULL,
+
+    INDEX idx_approval_requests_event_id (event_id),
+    INDEX idx_approval_requests_status (status),
+    CONSTRAINT fk_approval_requests_event
+      FOREIGN KEY (event_id) REFERENCES security_events(id)
+      ON DELETE CASCADE
+);

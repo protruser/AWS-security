@@ -105,6 +105,10 @@ export function ApprovalModal({
   isExecuting = false,
   error,
   confirmLabel,
+  title = "조치 승인 확인",
+  description = "아래 내용을 검토 후 조치를 실행하세요.",
+  agreementText = "위 내용을 확인했으며 서비스 영향을 인지하고 조치를 승인합니다.",
+  executingLabel = "조치 실행 중...",
 }: {
   ev: ApprovalRequest
   onClose: () => void
@@ -112,6 +116,10 @@ export function ApprovalModal({
   isExecuting?: boolean
   error?: string | null
   confirmLabel?: string
+  title?: string
+  description?: string
+  agreementText?: string
+  executingLabel?: string
 }) {
   const [checked, setChecked] = useState(false)
   const isHighRisk = ev.severity === "Critical"
@@ -125,9 +133,9 @@ export function ApprovalModal({
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 fade-in">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#EEF0F3]">
           <div>
-            <h3 className="text-sm font-bold text-[#0D0D0D]">조치 승인 확인</h3>
+            <h3 className="text-sm font-bold text-[#0D0D0D]">{title}</h3>
             <p className="text-xs text-[#6B6B6B] mt-0.5">
-              아래 내용을 검토 후 조치를 실행하세요.
+              {description}
             </p>
           </div>
           <button
@@ -184,7 +192,7 @@ export function ApprovalModal({
                 className="mt-0.5"
               />
               <span className="text-xs text-[#0D0D0D]">
-                위 내용을 확인했으며 서비스 영향을 인지하고 조치를 승인합니다.
+                {agreementText}
               </span>
             </label>
           )}
@@ -206,7 +214,7 @@ export function ApprovalModal({
               backgroundColor: isHighRisk && !checked ? "#A3A3A3" : "#111111",
             }}
           >
-            {isExecuting ? "조치 실행 중..." : confirmLabel ?? "조치 실행"}
+            {isExecuting ? executingLabel : confirmLabel ?? "조치 실행"}
           </button>
         </div>
       </div>

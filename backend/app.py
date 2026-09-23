@@ -106,6 +106,25 @@ def login_required(view):
     return wrapped
 
 
+def role_required(*allowed_roles):
+    """login_required에 역할 제한을 추가한다. 관리자는 조치 요청을 보낼 수
+    있지만 직접 승인할 수 없고, 승인자는 그 반대다 - 역할이 섞이면 요청자와
+    승인자가 같은 사람이 되어버려서 승인 절차 자체가 의미 없어진다."""
+
+    def decorator(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if not session.get("authenticated"):
+                return jsonify({"error": "UNAUTHORIZED", "message": "로그인이 필요합니다."}), 401
+            if session.get("role") not in allowed_roles:
+                return jsonify({"error": "FORBIDDEN", "message": "이 작업을 수행할 권한이 없습니다."}), 403
+            return view(*args, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
 def _current_user():
     return {
         "username": session.get("username", "admin"),
@@ -1112,16 +1131,38 @@ def auth_status():
     return jsonify({"authenticated": True, "user": _current_user()})
 
 
+def _login_accounts():
+    """관리자 계정은 항상 존재하고, 승인자 계정은 APPROVER_PASSWORD가
+    설정된 경우에만 로그인 가능한 계정으로 취급한다(둘 다 env var 기반
+    단일 공유 계정 - 여러 명의 승인자를 개별 관리하는 건 아직 아님)."""
+    accounts = [
+        {
+            "username": os.getenv("ADMIN_USERNAME", "admin"),
+            "password": os.getenv("ADMIN_PASSWORD", ""),
+            "role": os.getenv("ADMIN_ROLE", "관리자"),
+            "team": os.getenv("ADMIN_TEAM", "보안관제팀"),
+        }
+    ]
+    if os.getenv("APPROVER_PASSWORD", "").strip():
+        accounts.append(
+            {
+                "username": os.getenv("APPROVER_USERNAME", "approver"),
+                "password": os.getenv("APPROVER_PASSWORD", ""),
+                "role": os.getenv("APPROVER_ROLE", "승인자"),
+                "team": os.getenv("APPROVER_TEAM", "보안관제팀"),
+            }
+        )
+    return accounts
+
+
 @app.post("/api/auth/login")
 def auth_login():
     data = request.get_json(silent=True) or {}
     username = str(data.get("username") or "").strip()
     password = str(data.get("password") or "")
 
-    expected_username = os.getenv("ADMIN_USERNAME", "admin")
-    expected_password = os.getenv("ADMIN_PASSWORD", "")
-
-    if not expected_password:
+    accounts = _login_accounts()
+    if not any(acc["password"] for acc in accounts):
         return (
             jsonify(
                 {
@@ -1132,17 +1173,25 @@ def auth_login():
             503,
         )
 
-    username_ok = hmac.compare_digest(username, expected_username)
-    password_ok = hmac.compare_digest(password, expected_password)
-    if not (username_ok and password_ok):
+    matched = None
+    for account in accounts:
+        if not account["password"]:
+            continue
+        username_ok = hmac.compare_digest(username, account["username"])
+        password_ok = hmac.compare_digest(password, account["password"])
+        if username_ok and password_ok:
+            matched = account
+            break
+
+    if not matched:
         return jsonify({"error": "INVALID_CREDENTIALS", "message": "아이디 또는 비밀번호가 올바르지 않습니다."}), 401
 
     session.clear()
     session.permanent = True
     session["authenticated"] = True
-    session["username"] = expected_username
-    session["role"] = os.getenv("ADMIN_ROLE", "관리자")
-    session["team"] = os.getenv("ADMIN_TEAM", "보안관제팀")
+    session["username"] = matched["username"]
+    session["role"] = matched["role"]
+    session["team"] = matched["team"]
 
     return jsonify({"ok": True, "user": _current_user()})
 
@@ -1153,38 +1202,25 @@ def auth_logout():
     return jsonify({"ok": True})
 
 
-@app.post("/api/remediation")
-@login_required
-def remediate_event():
-    data = request.get_json(silent=True)
-    if (not isinstance(data, dict) or set(data) != {"event_id"}
-            or not isinstance(data["event_id"], str) or not data["event_id"].strip()):
-        return jsonify(error="INVALID_REQUEST", message="event_id만 전달해야 합니다."), 400
-    event_id = data["event_id"]
-    try:
-        with get_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT * FROM security_events WHERE id = %s", (event_id,))
-                event = cursor.fetchone()
-    except Exception:
-        app.logger.exception("Failed to read remediation event")
-        return jsonify(error="DATABASE_ERROR", message="보안 이벤트를 조회하지 못했습니다."), 500
-    if not event:
-        return jsonify(error="EVENT_NOT_FOUND", message="보안 이벤트를 찾을 수 없습니다."), 404
-    action = REMEDIATION_ACTIONS.get(event.get("scenario_type"))
-    if not action:
-        return jsonify(error="REMEDIATION_NOT_SUPPORTED",
-                       message="현재 자동 조치를 지원하지 않는 보안 시나리오입니다."), 400
-    if event.get("status") in REMEDIATION_CLOSED_STATUSES:
-        return jsonify(error="EVENT_ALREADY_CLOSED", message="이미 완료되거나 예외 처리된 이벤트입니다."), 409
-    if action == "block_ip" and not str(event.get("attacker_ip") or "").strip():
-        return jsonify(error="REMEDIATION_DATA_MISSING", message="차단할 공격 IP 정보가 없습니다."), 400
+APPROVAL_PENDING = "대기"
+APPROVAL_APPROVED = "승인"
+APPROVAL_REJECTED = "반려"
+PENDING_APPROVAL_STATUS = "승인 대기"
+
+
+def _execute_remediation_action(event, action, approver_username):
+    """실제 조치(block_ip/disable_access_key 등)를 Lambda로 실행하고, 같은
+    그룹으로 화면에 합쳐서 보이던 나머지 중복 이벤트도 같이 닫는다.
+    성공 여부와 실패 메시지를 반환한다(예외를 던지지 않음 - 호출하는 쪽이
+    승인 요청 상태를 같이 다루기 때문에 흐름 제어를 명시적으로 하려는 것)."""
+    event_id = event["id"]
     function_name = os.getenv("REMEDIATION_LAMBDA_NAME", "").strip()
     if not function_name:
-        return jsonify(error="REMEDIATION_NOT_CONFIGURED", message="REMEDIATION_LAMBDA_NAME 설정이 필요합니다."), 503
+        return False, "REMEDIATION_LAMBDA_NAME 설정이 필요합니다."
+
     payload = {
         "event_id": event_id, "action": action,
-        "approver": session.get("username") or "admin", "method": "수동", "params": {},
+        "approver": approver_username, "method": "수동", "params": {},
     }
     try:
         # Mutating invocation must not be retried automatically after an ambiguous timeout.
@@ -1211,10 +1247,11 @@ def remediate_event():
                 or str(body.get("status", "")).lower() in ("failed", "failure", "error", "실패")
                 or str(body.get("result", "")).lower() in ("failed", "failure", "error", "실패")):
             message = body.get("message") or body.get("errorMessage") or body.get("error") or "Lambda 조치 실행에 실패했습니다."
-            return jsonify(error="REMEDIATION_FAILED", message=str(message)), 502
+            return False, str(message)
     except Exception as exc:
         app.logger.exception("Remediation invocation failed")
-        return jsonify(error="REMEDIATION_FAILED", message=str(exc)), 502
+        return False, str(exc)
+
     # Lambda alone owns event_id 자신의 status/remediation_history 기록.
     # 화면에 이 이벤트 하나로 합쳐서 보이던 나머지(같은 IP/같은 취약점의 반복 탐지)도
     # 같은 조치가 이미 적용된 셈이니 같이 닫는다 - 실패해도 대표 건 자체는 이미
@@ -1238,11 +1275,233 @@ def remediate_event():
                         "INSERT INTO remediation_history "
                         "(event_id, action_type, method, approver, status, result, completed_at) "
                         "VALUES (%s, %s, '자동', %s, '완료', '동일 조치로 일괄 처리', UTC_TIMESTAMP())",
-                        (group_id, action, session.get("username") or "admin"),
+                        (group_id, action, approver_username),
                     )
     except Exception:
         app.logger.exception("Failed to close grouped duplicate events after remediation")
-    return jsonify(success=True, event_id=event_id)
+
+    return True, None
+
+
+def _approval_request_to_json(row):
+    return {
+        "id": row["id"],
+        "eventId": row.get("event_id"),
+        "eventTitle": row.get("event_title"),
+        "eventSeverity": row.get("event_severity"),
+        "eventAsset": row.get("event_asset"),
+        "actionType": row.get("action_type"),
+        "requestType": row.get("request_type"),
+        "status": row.get("status"),
+        "requestedBy": row.get("requested_by"),
+        "reviewedBy": row.get("reviewed_by"),
+        "rejectReason": row.get("reject_reason"),
+        "requestedAt": _format_datetime(row.get("requested_at"), "%Y.%m.%d %H:%M"),
+        "reviewedAt": _format_datetime(row.get("reviewed_at"), "%Y.%m.%d %H:%M"),
+    }
+
+
+@app.post("/api/approval-requests")
+@role_required(os.getenv("ADMIN_ROLE", "관리자"))
+def create_approval_request():
+    """관리자가 조치(수동/자동 모두)를 승인자에게 요청한다. 여기서는 아무
+    조치도 실행하지 않는다 - 승인자가 승인해야만 그때 실제로 실행된다."""
+    data = request.get_json(silent=True) or {}
+    event_id = str(data.get("event_id") or "").strip()
+    if not event_id:
+        return jsonify(error="INVALID_REQUEST", message="event_id가 필요합니다."), 400
+
+    requested_by = session.get("username") or "admin"
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM security_events WHERE id = %s", (event_id,))
+                event = cursor.fetchone()
+                if not event:
+                    return jsonify(error="EVENT_NOT_FOUND", message="보안 이벤트를 찾을 수 없습니다."), 404
+                if event.get("status") in REMEDIATION_CLOSED_STATUSES:
+                    return jsonify(error="EVENT_ALREADY_CLOSED", message="이미 완료되거나 예외 처리된 이벤트입니다."), 409
+                if event.get("status") == PENDING_APPROVAL_STATUS:
+                    return jsonify(error="ALREADY_REQUESTED", message="이미 승인 대기 중인 요청이 있습니다."), 409
+
+                action = REMEDIATION_ACTIONS.get(event.get("scenario_type"))
+                request_type = "auto" if action else "manual"
+                if action == "block_ip" and not str(event.get("attacker_ip") or "").strip():
+                    return jsonify(error="REMEDIATION_DATA_MISSING", message="차단할 공격 IP 정보가 없습니다."), 400
+
+                cursor.execute(
+                    "INSERT INTO approval_requests "
+                    "(event_id, action_type, request_type, status, previous_status, requested_by, requested_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, UTC_TIMESTAMP())",
+                    (event_id, action, request_type, APPROVAL_PENDING, event.get("status"), requested_by),
+                )
+                request_id = cursor.lastrowid
+
+                # 화면에 하나로 합쳐서 보이던 나머지(같은 종류로 반복 감지된 것들)도
+                # 같이 '승인 대기'로 표시한다 - 안 그러면 다음 새로고침 때 그중
+                # 하나가 새 대표 건으로 튀어나와 마치 요청이 씹힌 것처럼 보인다.
+                group_ids = _open_group_ids(
+                    cursor, event.get("scenario_type"), event.get("attacker_ip"), event.get("title")
+                )
+                for group_id in group_ids:
+                    cursor.execute(
+                        "UPDATE security_events SET status = %s WHERE id = %s",
+                        (PENDING_APPROVAL_STATUS, group_id),
+                    )
+    except Exception:
+        app.logger.exception("Failed to create approval request")
+        return jsonify(error="DATABASE_ERROR", message="승인 요청 생성 중 오류가 발생했습니다."), 500
+
+    return jsonify(success=True, requestId=request_id)
+
+
+@app.get("/api/approval-requests")
+@login_required
+def list_approval_requests():
+    status_filter = str(request.args.get("status") or "").strip()
+    query = (
+        "SELECT ar.*, se.title AS event_title, se.severity AS event_severity, "
+        "se.asset AS event_asset "
+        "FROM approval_requests ar "
+        "LEFT JOIN security_events se ON se.id = ar.event_id "
+    )
+    params = []
+    if status_filter:
+        query += "WHERE ar.status = %s "
+        params.append(status_filter)
+    query += "ORDER BY ar.requested_at DESC LIMIT 200"
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+    except Exception:
+        app.logger.exception("Failed to list approval requests")
+        return jsonify(error="DATABASE_ERROR", message="승인 요청 목록을 조회하지 못했습니다."), 500
+
+    return jsonify(requests=[_approval_request_to_json(row) for row in rows])
+
+
+@app.post("/api/approval-requests/<int:request_id>/approve")
+@role_required(os.getenv("APPROVER_ROLE", "승인자"))
+def approve_approval_request(request_id):
+    approver = session.get("username") or "approver"
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM approval_requests WHERE id = %s", (request_id,))
+                req = cursor.fetchone()
+    except Exception:
+        app.logger.exception("Failed to read approval request")
+        return jsonify(error="DATABASE_ERROR", message="승인 요청을 조회하지 못했습니다."), 500
+
+    if not req:
+        return jsonify(error="REQUEST_NOT_FOUND", message="승인 요청을 찾을 수 없습니다."), 404
+    if req["status"] != APPROVAL_PENDING:
+        return jsonify(error="REQUEST_ALREADY_REVIEWED", message="이미 처리된 요청입니다."), 409
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM security_events WHERE id = %s", (req["event_id"],))
+                event = cursor.fetchone()
+    except Exception:
+        app.logger.exception("Failed to read event for approval")
+        return jsonify(error="DATABASE_ERROR", message="보안 이벤트를 조회하지 못했습니다."), 500
+    if not event:
+        return jsonify(error="EVENT_NOT_FOUND", message="보안 이벤트를 찾을 수 없습니다."), 404
+
+    if req["request_type"] == "auto":
+        success, error_message = _execute_remediation_action(event, req.get("action_type"), approver)
+        if not success:
+            return jsonify(error="REMEDIATION_FAILED", message=error_message), 502
+    else:
+        # 수동 조치는 시스템 밖(실제 콘솔/작업)에서 사람이 처리한 걸 승인자가
+        # 확인하고 승인하는 것 - Lambda를 부르지 않고 완료로만 기록한다.
+        try:
+            with get_connection() as connection:
+                with connection.cursor() as cursor:
+                    group_ids = _open_group_ids(
+                        cursor, event.get("scenario_type"), event.get("attacker_ip"), event.get("title")
+                    )
+                    for group_id in group_ids:
+                        cursor.execute(
+                            "UPDATE security_events SET status = '조치 완료' WHERE id = %s",
+                            (group_id,),
+                        )
+                        cursor.execute(
+                            "INSERT INTO remediation_history "
+                            "(event_id, action_type, method, approver, status, result, completed_at) "
+                            "VALUES (%s, %s, '수동', %s, '완료', '수동 조치 확인 후 승인', UTC_TIMESTAMP())",
+                            (group_id, req.get("action_type") or "manual", approver),
+                        )
+        except Exception:
+            app.logger.exception("Failed to close manual remediation event after approval")
+            return jsonify(error="DATABASE_ERROR", message="이벤트 상태 갱신 중 오류가 발생했습니다."), 500
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE approval_requests SET status = %s, reviewed_by = %s, "
+                    "reviewed_at = UTC_TIMESTAMP() WHERE id = %s",
+                    (APPROVAL_APPROVED, approver, request_id),
+                )
+    except Exception:
+        app.logger.exception("Failed to mark approval request as approved")
+
+    return jsonify(success=True)
+
+
+@app.post("/api/approval-requests/<int:request_id>/reject")
+@role_required(os.getenv("APPROVER_ROLE", "승인자"))
+def reject_approval_request(request_id):
+    data = request.get_json(silent=True) or {}
+    reason = str(data.get("reason") or "").strip() or None
+    approver = session.get("username") or "approver"
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM approval_requests WHERE id = %s", (request_id,))
+                req = cursor.fetchone()
+                if not req:
+                    return jsonify(error="REQUEST_NOT_FOUND", message="승인 요청을 찾을 수 없습니다."), 404
+                if req["status"] != APPROVAL_PENDING:
+                    return jsonify(error="REQUEST_ALREADY_REVIEWED", message="이미 처리된 요청입니다."), 409
+
+                cursor.execute(
+                    "SELECT scenario_type, attacker_ip, title FROM security_events WHERE id = %s",
+                    (req["event_id"],),
+                )
+                event = cursor.fetchone()
+
+                restore_status = req.get("previous_status") or "검토 필요"
+                # 요청 당시 같이 '승인 대기'로 묶었던 중복 건들도 원래 상태로 되돌려서
+                # 관리자가 다시 조치 요청을 보낼 수 있게 한다("재승인요청").
+                group_ids = (
+                    _open_group_ids(cursor, event["scenario_type"], event.get("attacker_ip"), event.get("title"))
+                    if event else [req["event_id"]]
+                )
+                for group_id in group_ids:
+                    cursor.execute(
+                        "UPDATE security_events SET status = %s WHERE id = %s",
+                        (restore_status, group_id),
+                    )
+
+                cursor.execute(
+                    "UPDATE approval_requests SET status = %s, reviewed_by = %s, "
+                    "reviewed_at = UTC_TIMESTAMP(), reject_reason = %s WHERE id = %s",
+                    (APPROVAL_REJECTED, approver, reason, request_id),
+                )
+    except Exception:
+        app.logger.exception("Failed to reject approval request")
+        return jsonify(error="DATABASE_ERROR", message="반려 처리 중 오류가 발생했습니다."), 500
+
+    return jsonify(success=True)
 
 
 @app.post("/api/exception")

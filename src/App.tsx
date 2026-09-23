@@ -19,6 +19,7 @@ import { ArchitectureMap } from "./components/ArchitectureMap"
 import { ScenarioPage } from "./components/ScenarioPage"
 import { ManualMonitoringPage } from "./components/ManualMonitoringPage"
 import { AIDiagnosisPage } from "./components/AIDiagnosisPage"
+import { ApprovalQueuePage } from "./components/ApprovalQueuePage"
 import { ApprovalModal, DonutGauge, SeverityBadge } from "./components/common"
 import { LoginPage } from "./components/LoginPage"
 import { fetchOverviewMetrics } from "./services/dashboardApi"
@@ -29,6 +30,10 @@ function canRemediate(event: ActionEvent) {
   // 가능" 배지는 뜨는데 승인 버튼은 "수동 조치 필요"로 나오는 불일치가 생김).
   return ["sqli", "dir", "brute", "xss", "cred", "port"].includes(event.scenarioType ?? "")
     && !["조치 완료", "자동 완료", "완료", "예외 처리"].includes(event.status)
+}
+
+function isPendingApproval(event: ActionEvent) {
+  return event.status === "승인 대기"
 }
 
 function ActionCard({
@@ -127,6 +132,17 @@ function ActionCard({
                 {ev.recommendation}
               </p>
             )}
+            {!canRemediate(ev) && !isPendingApproval(ev) && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onApprove()
+                }}
+                className="text-[10px] font-bold text-white bg-[#111111] hover:bg-[#262626] rounded-lg px-2.5 py-1.5"
+              >
+                이 조치로 승인 요청 보내기
+              </button>
+            )}
             {ev.details.logs && (
               <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-all rounded bg-white p-2 font-mono text-[9px] text-[#667085]">
                 {ev.details.logs}
@@ -138,21 +154,28 @@ function ActionCard({
           <button
             onClick={(e) => {
               e.stopPropagation()
+              if (isPendingApproval(ev)) return
               if (canRemediate(ev)) {
                 onApprove()
               } else {
                 // 자동 조치가 없는 시나리오(예: vuln)는 대신 카드를 펼치고/접어서
-                // 권장 조치 텍스트(ev.recommendation)를 보여준다(다시 누르면 접힘).
+                // 권장 조치 텍스트(ev.recommendation)와 요청 보내기 버튼을 보여준다
+                // (다시 누르면 접힘).
                 onSelect()
               }
             }}
-            className={`flex-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition-colors ${
+            disabled={isPendingApproval(ev)}
+            className={`flex-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
               canRemediate(ev)
                 ? "text-white bg-[#111111] hover:bg-[#262626]"
                 : "text-[#475467] bg-[#F2F4F7] hover:bg-[#E4E7EC]"
             }`}
           >
-            {canRemediate(ev) ? "조치 승인" : "수동 조치 필요 (권장 조치 보기)"}
+            {isPendingApproval(ev)
+              ? "승인자 확인 대기 중"
+              : canRemediate(ev)
+                ? "조치 요청 보내기"
+                : "수동 조치 필요 (권장 조치 보기)"}
           </button>
           <button
             onClick={(e) => {
@@ -1029,7 +1052,7 @@ export function ScenarioCardWrapper({
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
-type MainSection = "dashboard" | "events" | "monitoring" | "ai-actions" | "ai-diagnosis"
+type MainSection = "dashboard" | "events" | "monitoring" | "ai-actions" | "ai-diagnosis" | "approvals"
 type DashboardDataState = "loading" | "success" | "error"
 
 interface SecurityNotification {
@@ -1292,11 +1315,12 @@ const SECTION_KEYS: MainSection[] = [
   "monitoring",
   "ai-diagnosis",
   "ai-actions",
+  "approvals",
 ]
 
 // 새로고침해도 보고 있던 탭(대시보드 제외)이 유지되도록, 현재 섹션을 해시에 남긴다.
 function parseSectionRoute(): MainSection {
-  const m = window.location.hash.match(/^#\/(events|monitoring|ai-diagnosis|ai-actions)$/)
+  const m = window.location.hash.match(/^#\/(events|monitoring|ai-diagnosis|ai-actions|approvals)$/)
   const key = m?.[1] as MainSection | undefined
   return key && SECTION_KEYS.includes(key) ? key : "dashboard"
 }
@@ -1619,13 +1643,13 @@ export default function App() {
   }
 
   const handleApproveConfirm = async () => {
-    if (!approvalTarget || remediationPendingRef.current || !canRemediate(approvalTarget)) return
+    if (!approvalTarget || remediationPendingRef.current) return
     remediationPendingRef.current = true
     setIsRemediating(true)
     setRemediationError(null)
     try {
       if (!remediationSucceeded) {
-        const response = await fetch("/api/remediation", {
+        const response = await fetch("/api/approval-requests", {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
@@ -1633,18 +1657,18 @@ export default function App() {
         })
         const result = await response.json()
         if (!response.ok || result.success !== true) {
-          throw new Error(result.message || "조치 실행에 실패했습니다.")
+          throw new Error(result.message || "승인 요청 전송에 실패했습니다.")
         }
         setRemediationSucceeded(true)
       }
       if (!(await loadDashboardData(false, true))) {
-        throw new Error("조치는 성공했지만 최신 데이터를 조회하지 못했습니다. 다시 확인하면 데이터만 재조회합니다.")
+        throw new Error("요청은 전송됐지만 최신 데이터를 조회하지 못했습니다. 다시 확인하면 데이터만 재조회합니다.")
       }
       setApprovalTarget(null)
       clearSelection()
-      setToast(`조치가 실행되었습니다 — ${approvalTarget.title}`)
+      setToast(`승인자에게 조치 요청을 보냈습니다 — ${approvalTarget.title}`)
     } catch (error) {
-      setRemediationError(error instanceof Error ? error.message : "조치 실행에 실패했습니다.")
+      setRemediationError(error instanceof Error ? error.message : "승인 요청 전송에 실패했습니다.")
     } finally {
       remediationPendingRef.current = false
       setIsRemediating(false)
@@ -2162,6 +2186,23 @@ export default function App() {
                 </svg>
               ),
             },
+            {
+              key: "approvals",
+              label: "승인 관리",
+              icon: (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="17"
+                  height="17"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <path d="M9 11l3 3L22 4" />
+                  <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+                </svg>
+              ),
+            },
           ].map((item) => {
             const selected =
               (item.key === "dashboard" && pageId !== null) ||
@@ -2304,6 +2345,14 @@ export default function App() {
                 setAuthState("unauthenticated")
               }}
             />
+          ) : activeSection === "approvals" ? (
+            <ApprovalQueuePage
+              role={authUser?.role ?? ""}
+              onUnauthorized={() => {
+                setAuthUser(null)
+                setAuthState("unauthenticated")
+              }}
+            />
           ) : (
             <main className="min-h-full flex flex-col gap-2 p-3">
               {/* Architecture map now uses the full dashboard width */}
@@ -2436,7 +2485,11 @@ export default function App() {
           ev={{ ...approvalTarget, executor: "Remediation Lambda", rollback: "조치별 별도 확인 필요" }}
           isExecuting={isRemediating}
           error={remediationError}
-          confirmLabel={remediationSucceeded ? "최신 상태 다시 조회" : undefined}
+          title="조치 요청 보내기"
+          description="아래 내용으로 승인자에게 조치 요청을 보냅니다. 승인자가 승인해야 실제로 조치가 실행됩니다."
+          agreementText="위 내용을 확인했으며 이 조치 요청을 승인자에게 보냅니다."
+          executingLabel="요청 보내는 중..."
+          confirmLabel={remediationSucceeded ? "최신 상태 다시 조회" : "승인 요청 보내기"}
           onClose={() => { if (!remediationPendingRef.current) setApprovalTarget(null) }}
           onConfirm={handleApproveConfirm}
         />
