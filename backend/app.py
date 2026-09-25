@@ -1224,6 +1224,11 @@ APPROVAL_REJECTED = "반려"
 # 때문에 요청을 하나도 안 보낸 자동조치 대상 건들까지 전부 승인 대기 중인
 # 것처럼 잠겨버리는 문제가 있었다. 겹치지 않는 별도 문자열을 쓴다.
 PENDING_APPROVAL_STATUS = "승인 요청됨"
+# 수동 조치가 승인자 승인까지는 끝났지만, 실제로 사람이 손으로 그 조치를
+# 아직 안 한 상태. 관리자가 "수동 조치 완료 처리"를 눌러야 비로소
+# '조치 완료'로 넘어간다(자동 조치는 승인 즉시 Lambda가 실행하니 이 중간
+# 단계가 없다).
+MANUAL_APPROVED_STATUS = "수동 조치 대기"
 
 
 def _execute_remediation_action(event, action, approver_username):
@@ -1308,7 +1313,9 @@ def _approval_request_to_json(row):
         "eventTitle": row.get("event_title"),
         "eventSeverity": row.get("event_severity"),
         "eventAsset": row.get("event_asset"),
+        "eventStatus": row.get("event_status"),
         "actionType": row.get("action_type"),
+        "note": row.get("note"),
         "requestType": row.get("request_type"),
         "status": row.get("status"),
         "requestedBy": row.get("requested_by"),
@@ -1316,6 +1323,11 @@ def _approval_request_to_json(row):
         "rejectReason": row.get("reject_reason"),
         "requestedAt": _format_datetime(row.get("requested_at"), "%Y.%m.%d %H:%M"),
         "reviewedAt": _format_datetime(row.get("reviewed_at"), "%Y.%m.%d %H:%M"),
+        "needsManualCompletion": (
+            row.get("request_type") == "manual"
+            and row.get("status") == APPROVAL_APPROVED
+            and row.get("event_status") == MANUAL_APPROVED_STATUS
+        ),
     }
 
 
@@ -1328,6 +1340,7 @@ def create_approval_request():
     event_id = str(data.get("event_id") or "").strip()
     if not event_id:
         return jsonify(error="INVALID_REQUEST", message="event_id가 필요합니다."), 400
+    note = str(data.get("note") or "").strip() or None
 
     requested_by = session.get("username") or "admin"
 
@@ -1350,9 +1363,9 @@ def create_approval_request():
 
                 cursor.execute(
                     "INSERT INTO approval_requests "
-                    "(event_id, action_type, request_type, status, previous_status, requested_by, requested_at) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, UTC_TIMESTAMP())",
-                    (event_id, action, request_type, APPROVAL_PENDING, event.get("status"), requested_by),
+                    "(event_id, action_type, note, request_type, status, previous_status, requested_by, requested_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP())",
+                    (event_id, action, note, request_type, APPROVAL_PENDING, event.get("status"), requested_by),
                 )
                 request_id = cursor.lastrowid
 
@@ -1380,12 +1393,21 @@ def list_approval_requests():
     status_filter = str(request.args.get("status") or "").strip()
     query = (
         "SELECT ar.*, se.title AS event_title, se.severity AS event_severity, "
-        "se.asset AS event_asset "
+        "se.asset AS event_asset, se.status AS event_status "
         "FROM approval_requests ar "
         "LEFT JOIN security_events se ON se.id = ar.event_id "
     )
     params = []
-    if status_filter:
+    if status_filter == APPROVAL_PENDING:
+        # "대기 중" 화면은 "내가 지금 뭔가 해야 하는 것"을 보여주는 화면이라,
+        # 아직 승인자 판단이 안 난 것(ar.status='대기')뿐 아니라 승인은
+        # 됐지만 관리자가 아직 손으로 완료 처리를 안 한 수동 조치도 같이 보여준다.
+        query += (
+            "WHERE (ar.status = %s "
+            "OR (ar.status = %s AND ar.request_type = 'manual' AND se.status = %s)) "
+        )
+        params.extend([APPROVAL_PENDING, APPROVAL_APPROVED, MANUAL_APPROVED_STATUS])
+    elif status_filter:
         query += "WHERE ar.status = %s "
         params.append(status_filter)
     query += "ORDER BY ar.requested_at DESC LIMIT 200"
@@ -1437,8 +1459,10 @@ def approve_approval_request(request_id):
         if not success:
             return jsonify(error="REMEDIATION_FAILED", message=error_message), 502
     else:
-        # 수동 조치는 시스템 밖(실제 콘솔/작업)에서 사람이 처리한 걸 승인자가
-        # 확인하고 승인하는 것 - Lambda를 부르지 않고 완료로만 기록한다.
+        # 수동 조치는 승인만으로 끝이 아니다 - 실제로 사람이 손으로 그 조치를
+        # 해야 하므로, 여기서는 "이 계획대로 진행해도 좋다"는 승인만 기록하고
+        # MANUAL_APPROVED_STATUS로 옮겨둔다. '조치 완료'로 넘어가는 건 관리자가
+        # 실제로 조치를 마치고 /complete 를 호출할 때다.
         try:
             with get_connection() as connection:
                 with connection.cursor() as cursor:
@@ -1447,17 +1471,11 @@ def approve_approval_request(request_id):
                     )
                     for group_id in group_ids:
                         cursor.execute(
-                            "UPDATE security_events SET status = '조치 완료' WHERE id = %s",
-                            (group_id,),
-                        )
-                        cursor.execute(
-                            "INSERT INTO remediation_history "
-                            "(event_id, action_type, method, approver, status, result, completed_at) "
-                            "VALUES (%s, %s, '수동', %s, '완료', '수동 조치 확인 후 승인', UTC_TIMESTAMP())",
-                            (group_id, req.get("action_type") or "manual", approver),
+                            "UPDATE security_events SET status = %s WHERE id = %s",
+                            (MANUAL_APPROVED_STATUS, group_id),
                         )
         except Exception:
-            app.logger.exception("Failed to close manual remediation event after approval")
+            app.logger.exception("Failed to move manual remediation event to approved state")
             return jsonify(error="DATABASE_ERROR", message="이벤트 상태 갱신 중 오류가 발생했습니다."), 500
 
     try:
@@ -1470,6 +1488,64 @@ def approve_approval_request(request_id):
                 )
     except Exception:
         app.logger.exception("Failed to mark approval request as approved")
+
+    return jsonify(success=True)
+
+
+@app.post("/api/approval-requests/<int:request_id>/complete")
+@role_required(os.getenv("ADMIN_ROLE", "관리자"))
+def complete_manual_approval_request(request_id):
+    """승인자가 승인한 수동 조치를, 실제로 손으로 다 마친 뒤 관리자가 눌러서
+    '조치 완료'로 넘긴다. 자동 조치는 승인 시점에 Lambda가 바로 실행하니
+    이 단계가 필요 없다(request_type이 auto면 거절)."""
+    approver = session.get("username") or "admin"
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM approval_requests WHERE id = %s", (request_id,))
+                req = cursor.fetchone()
+    except Exception:
+        app.logger.exception("Failed to read approval request for completion")
+        return jsonify(error="DATABASE_ERROR", message="승인 요청을 조회하지 못했습니다."), 500
+
+    if not req:
+        return jsonify(error="REQUEST_NOT_FOUND", message="승인 요청을 찾을 수 없습니다."), 404
+    if req["request_type"] != "manual" or req["status"] != APPROVAL_APPROVED:
+        return jsonify(error="NOT_COMPLETABLE", message="완료 처리할 수 있는 상태가 아닙니다."), 409
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM security_events WHERE id = %s", (req["event_id"],))
+                event = cursor.fetchone()
+                if not event:
+                    return jsonify(error="EVENT_NOT_FOUND", message="보안 이벤트를 찾을 수 없습니다."), 404
+                if event.get("status") != MANUAL_APPROVED_STATUS:
+                    return jsonify(error="NOT_COMPLETABLE", message="완료 처리할 수 있는 상태가 아닙니다."), 409
+
+                group_ids = _open_group_ids(
+                    cursor, event.get("scenario_type"), event.get("attacker_ip"), event.get("title")
+                )
+                for group_id in group_ids:
+                    cursor.execute(
+                        "UPDATE security_events SET status = '조치 완료' WHERE id = %s",
+                        (group_id,),
+                    )
+                    cursor.execute(
+                        "INSERT INTO remediation_history "
+                        "(event_id, action_type, method, approver, status, result, completed_at) "
+                        "VALUES (%s, %s, '수동', %s, '완료', %s, UTC_TIMESTAMP())",
+                        (
+                            group_id,
+                            req.get("action_type") or "manual",
+                            approver,
+                            req.get("note") or "수동 조치 완료 처리",
+                        ),
+                    )
+    except Exception:
+        app.logger.exception("Failed to complete manual remediation")
+        return jsonify(error="DATABASE_ERROR", message="완료 처리 중 오류가 발생했습니다."), 500
 
     return jsonify(success=True)
 

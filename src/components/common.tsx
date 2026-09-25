@@ -109,6 +109,8 @@ export function ApprovalModal({
   description = "아래 내용을 검토 후 조치를 실행하세요.",
   agreementText = "위 내용을 확인했으며 서비스 영향을 인지하고 조치를 승인합니다.",
   executingLabel = "조치 실행 중...",
+  noteValue,
+  onNoteChange,
 }: {
   ev: ApprovalRequest
   onClose: () => void
@@ -120,6 +122,9 @@ export function ApprovalModal({
   description?: string
   agreementText?: string
   executingLabel?: string
+  // 둘 다 있을 때만 "수동 조치 계획" 입력칸을 보여준다(자동 조치 요청엔 불필요).
+  noteValue?: string
+  onNoteChange?: (value: string) => void
 }) {
   const [checked, setChecked] = useState(false)
   const isHighRisk = ev.severity === "Critical"
@@ -182,6 +187,21 @@ export function ApprovalModal({
               <span className="text-[#0D0D0D]">{v}</span>
             </div>
           ))}
+
+          {onNoteChange && (
+            <div>
+              <label className="text-xs font-medium text-[#6B6B6B] block mb-1">
+                수동으로 어떻게 조치할 계획인가요? (승인자에게 표시됩니다)
+              </label>
+              <textarea
+                value={noteValue ?? ""}
+                onChange={(e) => onNoteChange(e.target.value)}
+                rows={3}
+                placeholder="예: 해당 서버에 SSH로 접속해서 취약한 패키지를 수동으로 업데이트할 예정입니다."
+                className="w-full text-xs rounded-lg border border-[#D0D5DD] px-3 py-2 outline-none focus:border-[#101828] resize-none"
+              />
+            </div>
+          )}
 
           {isHighRisk && (
             <label className="flex items-start gap-2 cursor-pointer mt-1">

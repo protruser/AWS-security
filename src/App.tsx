@@ -32,12 +32,29 @@ function canRemediate(event: ActionEvent) {
     && !["조치 완료", "자동 완료", "완료", "예외 처리"].includes(event.status)
 }
 
+const SEVERITY_RANK: Record<string, number> = {
+  Critical: 0,
+  High: 1,
+  Medium: 2,
+  Low: 3,
+  Info: 4,
+}
+
+type ActionSortKey = "time" | "severity"
+
+function sortActionEvents(items: ActionEvent[], sortKey: ActionSortKey): ActionEvent[] {
+  if (sortKey === "time") return items
+  return [...items].sort(
+    (a, b) => (SEVERITY_RANK[a.severity] ?? 99) - (SEVERITY_RANK[b.severity] ?? 99),
+  )
+}
+
 function isPendingApproval(event: ActionEvent) {
-  // 백엔드의 PENDING_APPROVAL_STATUS와 반드시 같은 문자열이어야 한다.
-  // "승인 대기"는 Lambda A가 자동 조치 가능한 탐지 건에 기본으로 붙이는
-  // 상태(아직 아무도 안 건드림)라 겹치면 안 된다 - 실제로 겹쳐서 요청을
-  // 하나도 안 보낸 건들까지 전부 잠겨버렸던 적이 있다.
-  return event.status === "승인 요청됨"
+  // 백엔드의 PENDING_APPROVAL_STATUS/MANUAL_APPROVED_STATUS와 반드시 같은
+  // 문자열이어야 한다. "승인 대기"는 Lambda A가 자동 조치 가능한 탐지 건에
+  // 기본으로 붙이는 상태(아직 아무도 안 건드림)라 겹치면 안 된다 - 실제로
+  // 겹쳐서 요청을 하나도 안 보낸 건들까지 전부 잠겨버렸던 적이 있다.
+  return event.status === "승인 요청됨" || event.status === "수동 조치 대기"
 }
 
 function ActionCard({
@@ -232,6 +249,8 @@ function RightPanel({
   const [detectFilter, setDetectFilter] = useState("전체")
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
   const [requestCheckedIds, setRequestCheckedIds] = useState<Set<string>>(new Set())
+  const [autoSortKey, setAutoSortKey] = useState<ActionSortKey>("time")
+  const [manualSortKey, setManualSortKey] = useState<ActionSortKey>("time")
 
   // 탐지/조치 이력은 이미 처리(차단 등)가 끝난 이벤트라 "조치 필요" 목록엔 없다.
   // 그래도 클릭하면 AI 챗봇 컨텍스트로 넘길 수 있게 ActionEvent 모양으로 맞춰준다.
@@ -402,20 +421,37 @@ function RightPanel({
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               {[
-                { label: "자동 조치", items: autoEvents },
-                { label: "수동 조치", items: manualEvents },
-              ].map(({ label, items }) => (
+                { label: "자동 조치", items: autoEvents, sortKey: autoSortKey, setSortKey: setAutoSortKey },
+                { label: "수동 조치", items: manualEvents, sortKey: manualSortKey, setSortKey: setManualSortKey },
+              ].map(({ label, items, sortKey, setSortKey }) => (
                 <div key={label}>
-                  <p className="text-[11px] font-bold text-[#344054] mb-1.5">
-                    {label} ({items.length})
-                  </p>
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <p className="text-[11px] font-bold text-[#344054]">
+                      {label} ({items.length})
+                    </p>
+                    <div className="inline-flex rounded-lg border border-[#D0D5DD] bg-white p-0.5">
+                      {(["severity", "time"] as const).map((key) => (
+                        <button
+                          key={key}
+                          onClick={() => setSortKey(key)}
+                          className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-colors ${
+                            sortKey === key
+                              ? "bg-[#101828] text-white"
+                              : "text-[#667085] hover:text-[#101828]"
+                          }`}
+                        >
+                          {key === "severity" ? "위험도순" : "시간순"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   {items.length === 0 ? (
                     <div className="flex items-center justify-center h-16 text-[#98A2B3]">
                       <p className="text-[11px] font-medium">항목 없음</p>
                     </div>
                   ) : (
                     <div className="space-y-2.5">
-                      {items.map((ev: ActionEvent) => (
+                      {sortActionEvents(items, sortKey).map((ev: ActionEvent) => (
                         <ActionCard
                           key={ev.id}
                           ev={ev}
@@ -1502,6 +1538,7 @@ export default function App() {
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null)
 
   const [approvalTarget, setApprovalTarget] = useState<ActionEvent | null>(null)
+  const [requestNote, setRequestNote] = useState("")
 
   const [isRemediating, setIsRemediating] = useState(false)
   const remediationPendingRef = useRef(false)
@@ -1807,7 +1844,7 @@ export default function App() {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ event_id: approvalTarget.id }),
+          body: JSON.stringify({ event_id: approvalTarget.id, note: requestNote }),
         })
         const result = await response.json()
         if (!response.ok || result.success !== true) {
@@ -1819,6 +1856,7 @@ export default function App() {
         throw new Error("요청은 전송됐지만 최신 데이터를 조회하지 못했습니다. 다시 확인하면 데이터만 재조회합니다.")
       }
       setApprovalTarget(null)
+      setRequestNote("")
       clearSelection()
       setToast(`승인자에게 조치 요청을 보냈습니다 — ${approvalTarget.title}`)
     } catch (error) {
@@ -2689,8 +2727,16 @@ export default function App() {
           agreementText="위 내용을 확인했으며 이 조치 요청을 승인자에게 보냅니다."
           executingLabel="요청 보내는 중..."
           confirmLabel={remediationSucceeded ? "최신 상태 다시 조회" : "승인 요청 보내기"}
-          onClose={() => { if (!remediationPendingRef.current) setApprovalTarget(null) }}
+          onClose={() => {
+            if (!remediationPendingRef.current) {
+              setApprovalTarget(null)
+              setRequestNote("")
+            }
+          }}
           onConfirm={handleApproveConfirm}
+          {...(!canRemediate(approvalTarget)
+            ? { noteValue: requestNote, onNoteChange: setRequestNote }
+            : {})}
         />
       )}
     </div>

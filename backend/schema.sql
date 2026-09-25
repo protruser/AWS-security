@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS approval_requests (
     id               BIGINT AUTO_INCREMENT PRIMARY KEY,
     event_id         VARCHAR(255) NOT NULL,
     action_type      VARCHAR(100) NULL,
+    note             TEXT NULL,                          -- 수동 조치 계획(관리자가 요청 보낼 때 작성, 승인자에게 노출)
     request_type     VARCHAR(20) NOT NULL,               -- 'auto' | 'manual'
     status           VARCHAR(20) NOT NULL DEFAULT '대기', -- 대기 / 승인 / 반려
     previous_status  VARCHAR(40) NULL,                   -- 반려 시 이벤트를 이 상태로 되돌림

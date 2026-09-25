@@ -6,7 +6,9 @@ interface ApprovalRequestItem {
   eventTitle: string | null
   eventSeverity: string | null
   eventAsset: string | null
+  eventStatus: string | null
   actionType: string | null
+  note: string | null
   requestType: "auto" | "manual"
   status: "대기" | "승인" | "반려"
   requestedBy: string | null
@@ -14,6 +16,7 @@ interface ApprovalRequestItem {
   rejectReason: string | null
   requestedAt: string | null
   reviewedAt: string | null
+  needsManualCompletion: boolean
 }
 
 const SEVERITY_STYLE: Record<string, string> = {
@@ -48,6 +51,17 @@ async function postReject(id: number, reason: string) {
   }
 }
 
+async function postComplete(id: number) {
+  const response = await fetch(`/api/approval-requests/${id}/complete`, {
+    method: "POST",
+    credentials: "include",
+  })
+  const result = await response.json()
+  if (!response.ok || result.success !== true) {
+    throw new Error(result.message || "완료 처리에 실패했습니다.")
+  }
+}
+
 // 요청 현황 목록만 담당한다 - "승인 관리" 페이지(승인자 전용, 전체 화면)와
 // "보안 이벤트 > 승인요청" 탭(관리자가 보낸 요청 추적용) 둘 다 이걸 그대로
 // 재사용한다. 승인/반려 버튼과 선택 체크박스는 role이 승인자일 때만 뜬다.
@@ -73,6 +87,7 @@ export function ApprovalRequestList({
   const [bulkRejectReason, setBulkRejectReason] = useState("")
 
   const isApprover = role === "승인자"
+  const isAdmin = role === "관리자"
   const pendingRequests = requests.filter((r) => r.status === "대기")
   const busy = busyId !== null || bulkBusy
 
@@ -140,6 +155,19 @@ export function ApprovalRequestList({
       await load()
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "반려 처리에 실패했습니다.")
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const complete = async (id: number) => {
+    if (busy) return
+    setBusyId(id)
+    try {
+      await postComplete(id)
+      await load()
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "완료 처리에 실패했습니다.")
     } finally {
       setBusyId(null)
     }
@@ -344,6 +372,12 @@ export function ApprovalRequestList({
                     <p className="text-[10px] text-[#667085] mt-0.5">
                       {req.eventAsset ?? "-"} · 요청자 {req.requestedBy ?? "-"} · {req.requestedAt}
                     </p>
+                    {req.note && (
+                      <p className="text-[10px] text-[#344054] mt-1 bg-[#F9FAFB] rounded-lg px-2 py-1.5 whitespace-pre-wrap">
+                        <span className="font-semibold text-[#667085]">수동 조치 계획</span>{" "}
+                        {req.note}
+                      </p>
+                    )}
                     {req.status !== "대기" && (
                       <p className="text-[10px] text-[#667085] mt-0.5">
                         처리자 {req.reviewedBy ?? "-"} · {req.reviewedAt}
@@ -370,6 +404,16 @@ export function ApprovalRequestList({
                       반려
                     </button>
                   </div>
+                )}
+
+                {req.needsManualCompletion && isAdmin && (
+                  <button
+                    onClick={() => complete(req.id)}
+                    disabled={busy}
+                    className="text-[11px] font-bold text-white bg-[#067647] hover:bg-[#05603A] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors flex-shrink-0"
+                  >
+                    수동 조치 완료 처리
+                  </button>
                 )}
               </div>
 
