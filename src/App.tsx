@@ -23,6 +23,8 @@ import { ApprovalQueuePage, ApprovalRequestList } from "./components/ApprovalQue
 import { ApprovalModal, DonutGauge, SeverityBadge } from "./components/common"
 import { LoginPage } from "./components/LoginPage"
 import { fetchOverviewMetrics } from "./services/dashboardApi"
+import { EventAIAnalysis, OriginalEventLogs } from "./components/EventAIAnalysis"
+import { eventDisplayTitle } from "./services/eventAnalysis"
 
 // ─── Action card ──────────────────────────────────────────────────────────────
 function canRemediate(event: ActionEvent) {
@@ -116,7 +118,7 @@ function ActionCard({
             미조치 {ev.elapsed}
           </span>
         </div>
-        <p className="text-xs font-bold text-[#0D0D0D] mb-1">{ev.title}</p>
+        <p className="text-xs font-bold text-[#0D0D0D] mb-1">{eventDisplayTitle(ev)}</p>
         <div className="flex items-center gap-2 mb-1 flex-wrap">
           <span className="text-[10px] text-[#111111] font-medium">
             {ev.service}
@@ -149,7 +151,7 @@ function ActionCard({
             )}
             {ev.recommendation && (
               <p className="text-[#475467]">
-                <span className="font-semibold text-[#344054]">권장 조치</span> ·{" "}
+                <span className="font-semibold text-[#344054]">{(ev.remediationType ?? (canRemediate(ev) ? "AUTO" : "MANUAL")) === "AUTO" ? "조치 내용" : "권장 조치"}</span> ·{" "}
                 {ev.recommendation}
               </p>
             )}
@@ -164,11 +166,8 @@ function ActionCard({
                 이 조치로 승인 요청 보내기
               </button>
             )}
-            {ev.details.logs && (
-              <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-all rounded bg-white p-2 font-mono text-[9px] text-[#667085]">
-                {ev.details.logs}
-              </pre>
-            )}
+            <EventAIAnalysis key={ev.id} eventId={ev.id} />
+            <OriginalEventLogs key={`logs-${ev.id}`} logs={ev.details.logs} />
           </div>
         )}
         <div className="flex gap-1.5 mt-2.5">

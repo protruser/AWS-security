@@ -30,6 +30,7 @@ export interface ActionEvent {
   recommendation: string
 
   autoRemediation: boolean
+  remediationType?: "AUTO" | "MANUAL"
 
   highlightAssets: string[]
 

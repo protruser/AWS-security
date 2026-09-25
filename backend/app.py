@@ -32,6 +32,7 @@ from reportlab.platypus import (
 )
 
 from db import get_connection
+from services.event_analysis_service import AnalysisBusy, EventNotFound, analyze_event
 from services.ai_diagnosis_service import (
     CATEGORY_ORDER,
     DiagnosisError,
@@ -225,6 +226,7 @@ def _event_to_action_event(row):
         "status": row.get("status") or "검토 필요",
         "recommendation": row.get("recommendation") or "",
         "autoRemediation": bool(row.get("auto_remediation")),
+        "remediationType": "AUTO" if row.get("scenario_type") in REMEDIATION_ACTIONS else "MANUAL",
         "highlightAssets": _json_list(row.get("highlight_assets")),
         "attackPath": _json_list(row.get("attack_path")),
         "details": {
@@ -1704,6 +1706,26 @@ def monitoring_metrics():
     except Exception as exc:
         app.logger.exception("Failed to read monitoring metrics")
         return jsonify({"error": "DATABASE_READ_FAILED", "message": str(exc)}), 500
+
+
+@app.post("/api/events/ai-analysis")
+@login_required
+def event_ai_analysis():
+    body = request.get_json(silent=True)
+    event_id = body.get("event_id") if isinstance(body, dict) else None
+    if (isinstance(event_id, bool) or not isinstance(event_id, (str, int))
+            or not str(event_id).strip() or len(str(event_id)) > 255):
+        return jsonify({"error": "INVALID_EVENT_ID"}), 400
+    try:
+        return jsonify(analyze_event(str(event_id), get_connection, REMEDIATION_ACTIONS))
+    except EventNotFound:
+        return jsonify({"error": "EVENT_NOT_FOUND"}), 404
+    except AnalysisBusy:
+        return jsonify({"error": "ANALYSIS_IN_PROGRESS"}), 409
+    except Exception:
+        # Do not expose event logs, model output, credentials or provider errors.
+        app.logger.warning("Event AI analysis unavailable")
+        return jsonify({"error": "AI_ANALYSIS_UNAVAILABLE", "message": "AI 분석을 불러오지 못했습니다."}), 503
 
 
 @app.post("/api/chat")

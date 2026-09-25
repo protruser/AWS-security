@@ -34,11 +34,21 @@ done
 
 [[ "$ECR_REGISTRY" != "$IMAGE_URI" ]] || fail "image URI must include an ECR registry and repository"
 [[ -s "$ENV_FILE" ]] || fail "$ENV_FILE not found; set it up once via SSM before the first GitHub Actions deploy"
+grep -Eq '^OPENAI_API_KEY=[^[:space:]]+' "$ENV_FILE" ||
+  fail "OPENAI_API_KEY is missing from $ENV_FILE"
 
 log "Logging in to Amazon ECR and pulling the requested image."
 aws ecr get-login-password --region "$AWS_REGION" |
   docker login --username AWS --password-stdin "$ECR_REGISTRY" >/dev/null
 docker pull "$IMAGE_URI"
+
+# The new image contains the additive migration. Apply it while the previous
+# dashboard remains available; a DB failure stops before container replacement.
+log "Applying event AI analysis migration."
+docker run --rm \
+  --env-file "$ENV_FILE" \
+  --entrypoint python \
+  "$IMAGE_URI" -m migrate_event_ai
 
 previous_image=""
 if docker container inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
