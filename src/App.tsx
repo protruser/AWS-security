@@ -449,7 +449,12 @@ function RightPanel({
                       <p className="text-[11px] font-medium">항목 없음</p>
                     </div>
                   ) : (
-                    <div className="space-y-2.5">
+                    <div
+                      role="region"
+                      aria-label={`${label} 이벤트 목록`}
+                      tabIndex={0}
+                      className="space-y-2.5 max-h-[min(520px,55vh)] overflow-y-auto overscroll-y-contain [scrollbar-gutter:stable]"
+                    >
                       {sortActionEvents(items, sortKey).map((ev: ActionEvent) => (
                         <ActionCard
                           key={ev.id}

@@ -1313,6 +1313,7 @@ def _approval_request_to_json(row):
         "id": row["id"],
         "eventId": row.get("event_id"),
         "eventTitle": row.get("event_title"),
+        "eventScenarioType": row.get("event_scenario_type"),
         "eventSeverity": row.get("event_severity"),
         "eventAsset": row.get("event_asset"),
         "eventStatus": row.get("event_status"),
@@ -1394,7 +1395,7 @@ def create_approval_request():
 def list_approval_requests():
     status_filter = str(request.args.get("status") or "").strip()
     query = (
-        "SELECT ar.*, se.title AS event_title, se.severity AS event_severity, "
+        "SELECT ar.*, se.title AS event_title, se.scenario_type AS event_scenario_type, se.severity AS event_severity, "
         "se.asset AS event_asset, se.status AS event_status "
         "FROM approval_requests ar "
         "LEFT JOIN security_events se ON se.id = ar.event_id "

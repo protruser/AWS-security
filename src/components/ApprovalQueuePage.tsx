@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react"
+import { eventDisplayTitle } from "../services/eventAnalysis"
 
 interface ApprovalRequestItem {
   id: number
   eventId: string
   eventTitle: string | null
+  eventScenarioType: string | null
   eventSeverity: string | null
   eventAsset: string | null
   eventStatus: string | null
@@ -17,6 +19,22 @@ interface ApprovalRequestItem {
   requestedAt: string | null
   reviewedAt: string | null
   needsManualCompletion: boolean
+}
+
+export function ApprovalEventTitle({
+  title,
+  scenarioType,
+  eventId,
+}: {
+  title: string | null
+  scenarioType: string | null
+  eventId: string
+}) {
+  return (
+    <p className="text-[12px] font-bold text-[#101828]">
+      {title ? eventDisplayTitle({ title, scenarioType: scenarioType ?? undefined }) : eventId}
+    </p>
+  )
 }
 
 const SEVERITY_STYLE: Record<string, string> = {
@@ -366,9 +384,11 @@ export function ApprovalRequestList({
                         {req.status}
                       </span>
                     </div>
-                    <p className="text-[12px] font-bold text-[#101828]">
-                      {req.eventTitle ?? req.eventId}
-                    </p>
+                    <ApprovalEventTitle
+                      title={req.eventTitle}
+                      scenarioType={req.eventScenarioType}
+                      eventId={req.eventId}
+                    />
                     <p className="text-[10px] text-[#667085] mt-0.5">
                       {req.eventAsset ?? "-"} · 요청자 {req.requestedBy ?? "-"} · {req.requestedAt}
                     </p>
