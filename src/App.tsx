@@ -2156,6 +2156,17 @@ export default function App() {
           >
             {autoRefresh ? "자동 갱신 ON" : "자동 갱신 OFF"}
           </button>
+          <button
+            onClick={() => {
+              void loadDashboardData(true)
+              void loadOverviewMetrics(true)
+            }}
+            title="지금 새로고침"
+            aria-label="지금 새로고침"
+            className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-[#E0E0E0] text-[#6B6B6B] hover:bg-[#FAFAFA] transition-colors"
+          >
+            ⟳ 새로고침
+          </button>
 
           {/* Alert bell */}
           <div className="relative" ref={notificationPopoverRef}>
