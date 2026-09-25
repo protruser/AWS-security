@@ -8,6 +8,18 @@ import app
 
 
 class ApprovalListScenarioTest(unittest.TestCase):
+    def test_dashboard_history_responses_keep_original_titles_and_include_scenario(self):
+        title = "CVE-2025-44168 - mariadb"
+        detected = app._event_to_detect_history({
+            "id": 1, "title": title, "scenario_type": "vuln",
+        })
+        remediated = app._remediation_to_history({
+            "id": 2, "event_title": title, "scenario_type": "vuln",
+        })
+        for item in (detected, remediated):
+            self.assertEqual(item["scenarioType"], "vuln")
+            self.assertEqual(item["event"], title)
+
     def test_approval_response_exposes_db_scenario_without_changing_title(self):
         original_title = "CVE-2025-44168 - mariadb"
 

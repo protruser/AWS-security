@@ -71,6 +71,7 @@ export interface DetectHistoryItem {
   time: string
   sev: Severity
   event: string
+  scenarioType?: string
   service: string
   asset: string
   ip: string
@@ -82,6 +83,7 @@ export interface RemediationHistoryItem {
   id: string | number
   time: string
   event: string
+  scenarioType?: string
   asset: string
   ip?: string | null
   method: string

@@ -255,6 +255,7 @@ def _event_to_detect_history(row):
         "time": _format_datetime(detected_at, "%H:%M"),
         "sev": _severity(row.get("severity")),
         "event": row.get("title") or "보안 이벤트",
+        "scenarioType": row.get("scenario_type") or "",
         "service": row.get("service") or "Unknown",
         "asset": row.get("asset") or "-",
         "ip": row.get("attacker_ip") or "-",
@@ -270,6 +271,7 @@ def _remediation_to_history(row):
         "id": str(row["id"]),
         "time": _format_datetime(requested or completed, "%H:%M"),
         "event": row.get("event_title") or row.get("action_type") or "보안 조치",
+        "scenarioType": row.get("scenario_type") or "",
         "asset": row.get("asset") or "-",
         "ip": row.get("attacker_ip") or None,
         "method": row.get("method") or "수동",
@@ -1337,8 +1339,7 @@ def _approval_request_to_json(row):
 @app.post("/api/approval-requests")
 @role_required(os.getenv("ADMIN_ROLE", "관리자"))
 def create_approval_request():
-    """관리자가 조치(수동/자동 모두)를 승인자에게 요청한다. 여기서는 아무
-    조치도 실행하지 않는다 - 승인자가 승인해야만 그때 실제로 실행된다."""
+    """자동 조치가 없는 이벤트의 수동 조치 계획만 승인자에게 요청한다."""
     data = request.get_json(silent=True) or {}
     event_id = str(data.get("event_id") or "").strip()
     if not event_id:
@@ -1360,15 +1361,14 @@ def create_approval_request():
                     return jsonify(error="ALREADY_REQUESTED", message="이미 승인자에게 보낸 요청이 있습니다."), 409
 
                 action = REMEDIATION_ACTIONS.get(event.get("scenario_type"))
-                request_type = "auto" if action else "manual"
-                if action == "block_ip" and not str(event.get("attacker_ip") or "").strip():
-                    return jsonify(error="REMEDIATION_DATA_MISSING", message="차단할 공격 IP 정보가 없습니다."), 400
+                if action:
+                    return jsonify(error="AUTO_REMEDIATION", message="자동 조치 이벤트는 조치 실행을 이용해 주세요."), 409
 
                 cursor.execute(
                     "INSERT INTO approval_requests "
                     "(event_id, action_type, note, request_type, status, previous_status, requested_by, requested_at) "
                     "VALUES (%s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP())",
-                    (event_id, action, note, request_type, APPROVAL_PENDING, event.get("status"), requested_by),
+                    (event_id, None, note, "manual", APPROVAL_PENDING, event.get("status"), requested_by),
                 )
                 request_id = cursor.lastrowid
 
@@ -1388,6 +1388,42 @@ def create_approval_request():
         return jsonify(error="DATABASE_ERROR", message="승인 요청 생성 중 오류가 발생했습니다."), 500
 
     return jsonify(success=True, requestId=request_id)
+
+
+@app.post("/api/remediate")
+@role_required(os.getenv("ADMIN_ROLE", "관리자"))
+def remediate_event():
+    """기존 자동 조치 정책과 Lambda를 승인 요청 없이 바로 실행한다."""
+    data = request.get_json(silent=True) or {}
+    event_id = str(data.get("event_id") or "").strip()
+    if not event_id:
+        return jsonify(error="INVALID_REQUEST", message="event_id가 필요합니다."), 400
+
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM security_events WHERE id = %s", (event_id,))
+                event = cursor.fetchone()
+    except Exception:
+        app.logger.exception("Failed to read event for remediation")
+        return jsonify(error="DATABASE_ERROR", message="보안 이벤트를 조회하지 못했습니다."), 500
+
+    if not event:
+        return jsonify(error="EVENT_NOT_FOUND", message="보안 이벤트를 찾을 수 없습니다."), 404
+    if event.get("status") in REMEDIATION_CLOSED_STATUSES or event.get("status") == PENDING_APPROVAL_STATUS:
+        return jsonify(error="EVENT_NOT_ACTIONABLE", message="조치할 수 없는 상태의 이벤트입니다."), 409
+    action = REMEDIATION_ACTIONS.get(event.get("scenario_type"))
+    if not action:
+        return jsonify(error="MANUAL_REMEDIATION", message="수동 조치는 승인 요청이 필요합니다."), 409
+    if action == "block_ip" and not str(event.get("attacker_ip") or "").strip():
+        return jsonify(error="REMEDIATION_DATA_MISSING", message="차단할 공격 IP 정보가 없습니다."), 400
+
+    success, error_message = _execute_remediation_action(
+        event, action, session.get("username") or "admin"
+    )
+    if not success:
+        return jsonify(error="REMEDIATION_FAILED", message=error_message), 502
+    return jsonify(success=True)
 
 
 @app.get("/api/approval-requests")

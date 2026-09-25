@@ -108,7 +108,7 @@ export function EventAIAnalysis({ eventId }: { eventId: string }) {
         <p role="status">
           {current.failed
             ? "AI 분석을 불러오지 못했습니다."
-            : "AI 분석을 불러오는 중입니다."}
+            : "AI가 보안 이벤트를 분석하고 있습니다."}
           {current.failed && (
             <button
               className="ml-2 underline"

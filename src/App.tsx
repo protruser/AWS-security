@@ -23,7 +23,7 @@ import { ApprovalQueuePage, ApprovalRequestList } from "./components/ApprovalQue
 import { ApprovalModal, DonutGauge, SeverityBadge } from "./components/common"
 import { LoginPage } from "./components/LoginPage"
 import { fetchOverviewMetrics } from "./services/dashboardApi"
-import { EventAIAnalysis, OriginalEventLogs } from "./components/EventAIAnalysis"
+import { EventDetailModal } from "./components/EventDetailModal"
 import { eventDisplayTitle } from "./services/eventAnalysis"
 
 // ─── Action card ──────────────────────────────────────────────────────────────
@@ -63,22 +63,30 @@ function ActionCard({
   ev,
   selected,
   onSelect,
-  onApprove,
   checked,
   onToggleCheck,
-  onExcept,
 }: {
   ev: ActionEvent
   selected: boolean
   onSelect: () => void
-  onApprove: () => void
   checked: boolean
   onToggleCheck: () => void
-  onExcept: () => void
 }) {
   return (
     <div
-      onClick={onSelect}
+      role="group"
+      tabIndex={0}
+      aria-label={`${eventDisplayTitle(ev)} 상세 보기`}
+      onClick={(event) => {
+        event.currentTarget.focus()
+        onSelect()
+      }}
+      onKeyDown={(event) => {
+        if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault()
+          onSelect()
+        }
+      }}
       className={`relative rounded-xl border cursor-pointer transition-all overflow-hidden ${
         selected
           ? "border-[#101828] ring-2 ring-[#101828]/10 shadow-sm"
@@ -129,84 +137,6 @@ function ActionCard({
           {ev.detectedAt} ·{" "}
           <span className="text-[#F79009] font-semibold">{ev.status}</span>
         </p>
-        {selected && (
-          <div className="mt-2.5 space-y-1.5 rounded-lg border border-[#EAECF0] bg-[#F9FAFB] p-2.5 text-[10px]">
-            {ev.scenarioType && (
-              <p className="text-[#475467]">
-                <span className="font-semibold text-[#344054]">유형</span> ·{" "}
-                {ev.scenarioType}
-              </p>
-            )}
-            {ev.details.attackerIP && (
-              <p className="text-[#475467]">
-                <span className="font-semibold text-[#344054]">공격 IP</span> ·{" "}
-                {ev.details.attackerIP}
-              </p>
-            )}
-            {ev.details.requestURL && (
-              <p className="break-all text-[#475467]">
-                <span className="font-semibold text-[#344054]">요청</span> ·{" "}
-                {ev.details.requestURL}
-              </p>
-            )}
-            {ev.recommendation && (
-              <p className="text-[#475467]">
-                <span className="font-semibold text-[#344054]">{(ev.remediationType ?? (canRemediate(ev) ? "AUTO" : "MANUAL")) === "AUTO" ? "조치 내용" : "권장 조치"}</span> ·{" "}
-                {ev.recommendation}
-              </p>
-            )}
-            {!canRemediate(ev) && !isPendingApproval(ev) && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onApprove()
-                }}
-                className="text-[10px] font-bold text-white bg-[#111111] hover:bg-[#262626] rounded-lg px-2.5 py-1.5"
-              >
-                이 조치로 승인 요청 보내기
-              </button>
-            )}
-            <EventAIAnalysis key={ev.id} eventId={ev.id} />
-            <OriginalEventLogs key={`logs-${ev.id}`} logs={ev.details.logs} />
-          </div>
-        )}
-        <div className="flex gap-1.5 mt-2.5">
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              if (isPendingApproval(ev)) return
-              if (canRemediate(ev)) {
-                onApprove()
-              } else {
-                // 자동 조치가 없는 시나리오(예: vuln)는 대신 카드를 펼치고/접어서
-                // 권장 조치 텍스트(ev.recommendation)와 요청 보내기 버튼을 보여준다
-                // (다시 누르면 접힘).
-                onSelect()
-              }
-            }}
-            disabled={isPendingApproval(ev)}
-            className={`flex-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
-              canRemediate(ev)
-                ? "text-white bg-[#111111] hover:bg-[#262626]"
-                : "text-[#475467] bg-[#F2F4F7] hover:bg-[#E4E7EC]"
-            }`}
-          >
-            {isPendingApproval(ev)
-              ? "승인자 확인 대기 중"
-              : canRemediate(ev)
-                ? "조치 요청 보내기"
-                : "수동 조치 필요 (권장 조치 보기)"}
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onExcept()
-            }}
-            className="text-[11px] text-[#6B6B6B] border border-[#E0E0E0] hover:bg-[#FAFAFA] px-2.5 py-1.5 rounded-lg transition-colors"
-          >
-            예외 처리
-          </button>
-        </div>
       </div>
     </div>
   )
@@ -250,6 +180,11 @@ function RightPanel({
   const [requestCheckedIds, setRequestCheckedIds] = useState<Set<string>>(new Set())
   const [autoSortKey, setAutoSortKey] = useState<ActionSortKey>("time")
   const [manualSortKey, setManualSortKey] = useState<ActionSortKey>("time")
+  const [detailEventId, setDetailEventId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (tab !== "action") setDetailEventId(null)
+  }, [tab])
 
   // 탐지/조치 이력은 이미 처리(차단 등)가 끝난 이벤트라 "조치 필요" 목록엔 없다.
   // 그래도 클릭하면 AI 챗봇 컨텍스트로 넘길 수 있게 ActionEvent 모양으로 맞춰준다.
@@ -257,6 +192,7 @@ function RightPanel({
     id: String(d.id),
     severity: d.sev,
     title: d.event,
+    scenarioType: d.scenarioType,
     service: d.service,
     asset: d.asset,
     detectedAt: d.time,
@@ -277,6 +213,7 @@ function RightPanel({
     id: String(r.id),
     severity: "Info",
     title: r.event,
+    scenarioType: r.scenarioType,
     service: "-",
     asset: r.asset,
     detectedAt: r.completedAt || r.time,
@@ -296,6 +233,7 @@ function RightPanel({
   const detectFilters = ["전체", "Critical", "High", "Medium", "Low"]
 
   const activeEvents = events
+  const detailEvent = activeEvents.find((event) => event.id === detailEventId) ?? null
   const autoEvents = activeEvents.filter(canRemediate)
   const manualEvents = activeEvents.filter((ev) => !canRemediate(ev))
 
@@ -317,17 +255,17 @@ function RightPanel({
     })
   }
 
+  // "승인요청"에는 자동 조치 정책이 없는 수동 이벤트만 표시한다.
+  const requestableEvents = activeEvents.filter(
+    (ev) => !canRemediate(ev) && !isPendingApproval(ev) && ev.status !== "예외 처리",
+  )
+
   const handleBulkRequest = () => {
-    if (requestCheckedIds.size === 0) return
-    onBulkRequest([...requestCheckedIds])
+    const eventIds = requestableEvents.filter((event) => requestCheckedIds.has(event.id)).map((event) => event.id)
+    if (eventIds.length === 0) return
+    onBulkRequest(eventIds)
     setRequestCheckedIds(new Set())
   }
-
-  // "승인요청" 탭 상단에 보여줄, 아직 요청을 안 보낸 조치 대상 목록
-  // (수동/자동 조치 둘 다 포함 - vuln처럼 자동조치가 없는 것도 요청은 보낼 수 있다).
-  const requestableEvents = activeEvents.filter(
-    (ev) => !isPendingApproval(ev) && ev.status !== "예외 처리",
-  )
 
   const handleBulkExcept = () => {
     if (checkedIds.size === 0) return
@@ -460,11 +398,12 @@ function RightPanel({
                           key={ev.id}
                           ev={ev}
                           selected={selectedEvent?.id === ev.id}
-                          onSelect={() => onSelectEvent(ev)}
-                          onApprove={() => onApprove(ev)}
+                          onSelect={() => {
+                            if (selectedEvent?.id !== ev.id) onSelectEvent(ev)
+                            setDetailEventId(ev.id)
+                          }}
                           checked={checkedIds.has(ev.id)}
                           onToggleCheck={() => toggleChecked(ev.id)}
-                          onExcept={() => onExcept([ev.id])}
                         />
                       ))}
                     </div>
@@ -530,7 +469,7 @@ function RightPanel({
                     />
                     <SeverityBadge sev={ev.severity} small />
                     <span className="text-[11px] font-semibold text-[#101828] flex-1 truncate">
-                      {ev.title}
+                      {eventDisplayTitle(ev)}
                     </span>
                     <button
                       onClick={(e) => {
@@ -566,7 +505,7 @@ function RightPanel({
                 className="rounded-xl border border-[#EAECF0] bg-white p-3 cursor-pointer hover:bg-[#FAFAFA] transition-colors"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-bold text-[#0D0D0D]">{r.event}</p>
+                  <p className="text-xs font-bold text-[#0D0D0D]">{eventDisplayTitle({ title: r.event, scenarioType: r.scenarioType })}</p>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     {(r.occurrenceCount ?? 1) > 1 && (
                       <span
@@ -654,7 +593,7 @@ function RightPanel({
                         <SeverityBadge sev={d.sev} small />
                       </td>
                       <td className="py-1.5 px-2 text-[10px] text-[#0D0D0D] max-w-[100px] truncate">
-                        {d.event}
+                        {eventDisplayTitle({ title: d.event, scenarioType: d.scenarioType })}
                       </td>
                       <td className="py-1.5 px-2 text-[10px] font-mono text-[#475467] whitespace-nowrap">
                         {d.ip}
@@ -681,6 +620,23 @@ function RightPanel({
             </table>
           </div>
         </div>
+      )}
+      {tab === "action" && detailEvent && (
+        <EventDetailModal
+          key={detailEvent.id}
+          event={detailEvent}
+          isAuto={canRemediate(detailEvent)}
+          isPending={isPendingApproval(detailEvent)}
+          onClose={() => setDetailEventId(null)}
+          onApprove={() => {
+            setDetailEventId(null)
+            onApprove(detailEvent)
+          }}
+          onExcept={() => {
+            setDetailEventId(null)
+            onExcept([detailEvent.id])
+          }}
+        />
       )}
     </div>
   )
@@ -854,7 +810,7 @@ function SecurityChatbot({
               컨텍스트:
             </span>
             <span className="text-[9px] bg-white border border-[#A3A3A3] text-[#111111] px-1.5 py-0.5 rounded-full font-medium">
-              {selectedEvent.title}
+              {eventDisplayTitle(selectedEvent)}
             </span>
             <SeverityBadge sev={selectedEvent.severity} small />
             <span className="text-[9px] text-[#111111]">
@@ -1837,6 +1793,33 @@ export default function App() {
     )
   }
 
+  const handleDirectRemediation = async (event: ActionEvent) => {
+    if (remediationPendingRef.current) return
+    remediationPendingRef.current = true
+    setToast("자동 조치를 실행하고 있습니다.")
+    try {
+      const response = await fetch("/api/remediate", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_id: event.id }),
+      })
+      const result = await response.json()
+      if (!response.ok || result.success !== true) {
+        throw new Error(result.message || "자동 조치 실행에 실패했습니다.")
+      }
+      clearSelection()
+      const refreshed = await loadDashboardData(false, true)
+      setToast(refreshed
+        ? `자동 조치가 완료되었습니다 — ${eventDisplayTitle(event)}`
+        : "자동 조치는 완료됐지만 최신 목록을 조회하지 못했습니다. 새로고침해 주세요.")
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "자동 조치 실행에 실패했습니다.")
+    } finally {
+      remediationPendingRef.current = false
+    }
+  }
+
   const handleApproveConfirm = async () => {
     if (!approvalTarget || remediationPendingRef.current) return
     remediationPendingRef.current = true
@@ -1960,7 +1943,7 @@ export default function App() {
   const unreadNotificationCount = notifications.filter(
     (notification) => !notification.read,
   ).length
-  const displayedActionEvents = selectedEvent
+  const displayedActionEvents = selectedEvent && !activeEvents.some((event) => event.id === selectedEvent.id)
     ? [
         selectedEvent,
         ...activeEvents.filter((event) => event.id !== selectedEvent.id),
@@ -2267,7 +2250,7 @@ export default function App() {
                                 <span className={severityColor}>
                                   [{event.severity.toUpperCase()}]
                                 </span>{" "}
-                                {event.title}
+                                {eventDisplayTitle(event)}
                               </p>
                               <p className="mt-1 text-[10px] font-semibold text-[#475467]">
                                 {event.service}
@@ -2485,7 +2468,7 @@ export default function App() {
         </nav>
 
         {/* ── Main content ───────────────────────────────────────────── */}
-        <section className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-[#FAFAFA]">
+        <section data-app-scroll-container className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-[#FAFAFA]">
           {pageId ? (
             <ScenarioPage
               id={pageId}
@@ -2540,11 +2523,11 @@ export default function App() {
                   selectedEvent={selectedEvent}
                   onSelectEvent={handleSelectEvent}
                   onApprove={(event) => {
-                    // canRemediate 여부와 상관없이 열어야 한다 - 수동 조치 항목도
-                    // 이제 승인 요청을 보낼 수 있고(자동 실행이 아니라 요청일 뿐),
-                    // 이미 대기 중인 항목은 ActionCard 쪽에서 버튼 자체를
-                    // disabled 처리해 여기까지 호출이 오지 않는다.
                     if (remediationPendingRef.current || isPendingApproval(event)) return
+                    if (canRemediate(event)) {
+                      void handleDirectRemediation(event)
+                      return
+                    }
                     setRemediationError(null)
                     setRemediationSucceeded(false)
                     setApprovalTarget(event)

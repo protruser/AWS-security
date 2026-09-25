@@ -41,15 +41,21 @@ const cardSource = appSource.slice(
 )
 const cardUrl = moduleUrl(
   `
-import { EventAIAnalysis, OriginalEventLogs } from "./analysis"
 import { eventDisplayTitle } from "./api"
 function SeverityBadge({sev}) { return <span>{sev}</span> }
 ${cardSource}
 export { ActionCard }
 `,
-  { "./analysis": componentUrl, "./api": apiUrl },
+  { "./api": apiUrl },
 )
 const { ActionCard } = await import(cardUrl)
+const commonUrl = moduleUrl(`export function SeverityBadge({sev}) { return <span>{sev}</span> }`)
+const modalUrl = moduleUrl(await readFile("src/components/EventDetailModal.tsx", "utf8"), {
+  "../services/eventAnalysis": apiUrl,
+  "./EventAIAnalysis": componentUrl,
+  "./common": commonUrl,
+})
+const { EventDetailModal } = await import(modalUrl)
 const render = (component, props) =>
   renderToStaticMarkup(createElement(component, props))
 const analysis = (manual = false) => ({
@@ -71,7 +77,7 @@ const analysis = (manual = false) => ({
   additional_check: ["로그를 확인합니다."],
 })
 
-test("all seven cards preserve facts/buttons and place AI before collapsed original logs", () => {
+test("all seven cards open a large detail modal while staying compact", () => {
   for (const scenarioType of [
     "sqli",
     "xss",
@@ -105,9 +111,18 @@ test("all seven cards preserve facts/buttons and place AI before collapsed origi
       selected: true,
       checked: false,
       onSelect() {},
+      onToggleCheck() {},
+    })
+    assert.ok(html.includes("ring-2"))
+    assert.ok(!html.includes("AI 이벤트 분석"))
+    assert.ok(!html.includes("원본 로그 보기"))
+    const detail = render(EventDetailModal, {
+      event: ev,
+      isAuto: scenarioType !== "vuln",
+      isPending: false,
+      onClose() {},
       onApprove() {},
       onExcept() {},
-      onToggleCheck() {},
     })
     for (const text of [
       "유형",
@@ -122,22 +137,26 @@ test("all seven cards preserve facts/buttons and place AI before collapsed origi
       "AI 이벤트 분석",
       "원본 로그 보기",
     ])
-      assert.ok(html.includes(text), text)
-    assert.ok(html.indexOf("GET /.env") < html.indexOf("AI 이벤트 분석"))
-    assert.ok(html.indexOf("AI 이벤트 분석") < html.indexOf("원본 로그 보기"))
-    assert.doesNotMatch(html, /<details[^>]*\sopen(?:[\s=>])/)
+      assert.ok(detail.includes(text), text)
+    assert.ok(detail.indexOf("GET /.env") < detail.indexOf("AI 이벤트 분석"))
+    assert.ok(detail.indexOf("AI 이벤트 분석") < detail.indexOf("원본 로그 보기"))
+    assert.doesNotMatch(detail, /<details[^>]*\sopen(?:[\s=>])/)
+    assert.ok(detail.includes("AI가 보안 이벤트를 분석하고 있습니다."))
+    assert.ok(detail.includes('role="dialog"'))
+    assert.ok(detail.includes("max-h-[85dvh]"))
+    assert.ok(detail.includes("overflow-y-auto"))
     assert.ok(
-      html.includes(
+      detail.includes(
         scenarioType === "vuln"
           ? "이 조치로 승인 요청 보내기"
-          : "조치 요청 보내기",
+          : "자동 조치 실행",
       ),
     )
-    if (scenarioType === "vuln")
-      assert.ok(html.includes("mariadb 취약 패키지 탐지"))
-    else assert.ok(html.includes("조치 내용"))
-    const collapsed = render(ActionCard, { ev, selected: false })
-    assert.ok(!collapsed.includes("AI 이벤트 분석"))
+    if (scenarioType === "vuln") {
+      assert.ok(detail.includes("mariadb 취약 패키지 탐지"))
+      assert.ok(detail.includes("원본 이벤트 제목"))
+      assert.ok(detail.includes("CVE-2025-44168"))
+    } else assert.ok(detail.includes("조치 내용"))
   }
 })
 
