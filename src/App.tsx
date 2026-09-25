@@ -278,6 +278,8 @@ function RightPanel({
   const detectFilters = ["전체", "Critical", "High", "Medium", "Low"]
 
   const activeEvents = events
+  const autoEvents = activeEvents.filter(canRemediate)
+  const manualEvents = activeEvents.filter((ev) => !canRemediate(ev))
 
   const toggleChecked = (id: string) => {
     setCheckedIds((prev) => {
@@ -387,18 +389,36 @@ function RightPanel({
               <p className="text-sm font-medium">조치 필요 항목 없음</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-2.5">
-              {activeEvents.map((ev: ActionEvent) => (
-                <ActionCard
-                  key={ev.id}
-                  ev={ev}
-                  selected={selectedEvent?.id === ev.id}
-                  onSelect={() => onSelectEvent(ev)}
-                  onApprove={() => onApprove(ev)}
-                  checked={checkedIds.has(ev.id)}
-                  onToggleCheck={() => toggleChecked(ev.id)}
-                  onExcept={() => onExcept([ev.id])}
-                />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {[
+                { label: "자동 조치", items: autoEvents },
+                { label: "수동 조치", items: manualEvents },
+              ].map(({ label, items }) => (
+                <div key={label}>
+                  <p className="text-[11px] font-bold text-[#344054] mb-1.5">
+                    {label} ({items.length})
+                  </p>
+                  {items.length === 0 ? (
+                    <div className="flex items-center justify-center h-16 text-[#98A2B3]">
+                      <p className="text-[11px] font-medium">항목 없음</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {items.map((ev: ActionEvent) => (
+                        <ActionCard
+                          key={ev.id}
+                          ev={ev}
+                          selected={selectedEvent?.id === ev.id}
+                          onSelect={() => onSelectEvent(ev)}
+                          onApprove={() => onApprove(ev)}
+                          checked={checkedIds.has(ev.id)}
+                          onToggleCheck={() => toggleChecked(ev.id)}
+                          onExcept={() => onExcept([ev.id])}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           )}
