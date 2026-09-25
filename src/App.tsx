@@ -33,7 +33,11 @@ function canRemediate(event: ActionEvent) {
 }
 
 function isPendingApproval(event: ActionEvent) {
-  return event.status === "승인 대기"
+  // 백엔드의 PENDING_APPROVAL_STATUS와 반드시 같은 문자열이어야 한다.
+  // "승인 대기"는 Lambda A가 자동 조치 가능한 탐지 건에 기본으로 붙이는
+  // 상태(아직 아무도 안 건드림)라 겹치면 안 된다 - 실제로 겹쳐서 요청을
+  // 하나도 안 보낸 건들까지 전부 잠겨버렸던 적이 있다.
+  return event.status === "승인 요청됨"
 }
 
 function ActionCard({

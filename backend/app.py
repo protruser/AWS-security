@@ -1205,7 +1205,13 @@ def auth_logout():
 APPROVAL_PENDING = "대기"
 APPROVAL_APPROVED = "승인"
 APPROVAL_REJECTED = "반려"
-PENDING_APPROVAL_STATUS = "승인 대기"
+# 주의: Lambda A(mapping.py)가 자동 조치 가능한 탐지 건에 기본으로 붙이는
+# 상태가 이미 "승인 대기"다(관리자가 아직 안 눌렀다는 뜻, infra 레포에서
+# 정의됨). 여기서 같은 문자열을 쓰면 "그냥 아직 아무도 안 건드린 탐지 건"과
+# "승인자한테 요청을 실제로 보낸 건"을 구분할 수 없게 된다 - 실제로 이 충돌
+# 때문에 요청을 하나도 안 보낸 자동조치 대상 건들까지 전부 승인 대기 중인
+# 것처럼 잠겨버리는 문제가 있었다. 겹치지 않는 별도 문자열을 쓴다.
+PENDING_APPROVAL_STATUS = "승인 요청됨"
 
 
 def _execute_remediation_action(event, action, approver_username):
@@ -1323,7 +1329,7 @@ def create_approval_request():
                 if event.get("status") in REMEDIATION_CLOSED_STATUSES:
                     return jsonify(error="EVENT_ALREADY_CLOSED", message="이미 완료되거나 예외 처리된 이벤트입니다."), 409
                 if event.get("status") == PENDING_APPROVAL_STATUS:
-                    return jsonify(error="ALREADY_REQUESTED", message="이미 승인 대기 중인 요청이 있습니다."), 409
+                    return jsonify(error="ALREADY_REQUESTED", message="이미 승인자에게 보낸 요청이 있습니다."), 409
 
                 action = REMEDIATION_ACTIONS.get(event.get("scenario_type"))
                 request_type = "auto" if action else "manual"
@@ -1339,8 +1345,8 @@ def create_approval_request():
                 request_id = cursor.lastrowid
 
                 # 화면에 하나로 합쳐서 보이던 나머지(같은 종류로 반복 감지된 것들)도
-                # 같이 '승인 대기'로 표시한다 - 안 그러면 다음 새로고침 때 그중
-                # 하나가 새 대표 건으로 튀어나와 마치 요청이 씹힌 것처럼 보인다.
+                # 같이 PENDING_APPROVAL_STATUS로 표시한다 - 안 그러면 다음 새로고침 때
+                # 그중 하나가 새 대표 건으로 튀어나와 마치 요청이 씹힌 것처럼 보인다.
                 group_ids = _open_group_ids(
                     cursor, event.get("scenario_type"), event.get("attacker_ip"), event.get("title")
                 )
@@ -1480,8 +1486,8 @@ def reject_approval_request(request_id):
                 event = cursor.fetchone()
 
                 restore_status = req.get("previous_status") or "검토 필요"
-                # 요청 당시 같이 '승인 대기'로 묶었던 중복 건들도 원래 상태로 되돌려서
-                # 관리자가 다시 조치 요청을 보낼 수 있게 한다("재승인요청").
+                # 요청 당시 같이 PENDING_APPROVAL_STATUS로 묶었던 중복 건들도 원래
+                # 상태로 되돌려서 관리자가 다시 조치 요청을 보낼 수 있게 한다("재승인요청").
                 group_ids = (
                     _open_group_ids(cursor, event["scenario_type"], event.get("attacker_ip"), event.get("title"))
                     if event else [req["event_id"]]
