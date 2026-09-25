@@ -24,12 +24,17 @@ const SEVERITY_STYLE: Record<string, string> = {
   Info: "bg-[#F2F4F7] text-[#667085]",
 }
 
-export function ApprovalQueuePage({
+// 요청 현황 목록만 담당한다 - "승인 관리" 페이지(승인자 전용, 전체 화면)와
+// "보안 이벤트 > 승인요청" 탭(관리자가 보낸 요청 추적용) 둘 다 이걸 그대로
+// 재사용한다. 승인/반려 버튼은 role이 승인자일 때만 뜬다.
+export function ApprovalRequestList({
   role,
   onUnauthorized,
+  compact = false,
 }: {
   role: string
   onUnauthorized: () => void
+  compact?: boolean
 }) {
   const [requests, setRequests] = useState<ApprovalRequestItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -118,16 +123,15 @@ export function ApprovalQueuePage({
   }
 
   return (
-    <div className="min-h-full p-4 space-y-3">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <p className="text-[18px] font-bold text-[#101828]">승인 관리</p>
-          <p className="text-[11px] text-[#667085] mt-0.5">
+    <div className={compact ? "space-y-2" : "space-y-3"}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        {!compact && (
+          <p className="text-[11px] text-[#667085]">
             관리자가 보낸 수동/자동 조치 요청을 승인하거나 반려합니다.
             {!isApprover && " (현재 계정은 승인자가 아니라 조회만 가능합니다.)"}
           </p>
-        </div>
-        <div className="inline-flex rounded-xl border border-[#D0D5DD] bg-white p-1">
+        )}
+        <div className="inline-flex rounded-xl border border-[#D0D5DD] bg-white p-1 ml-auto">
           {[
             [false, "대기 중"],
             [true, "전체 이력"],
@@ -154,11 +158,11 @@ export function ApprovalQueuePage({
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center h-32 text-[#98A2B3]">
+        <div className="flex items-center justify-center h-24 text-[#98A2B3]">
           <p className="text-xs font-medium">불러오는 중...</p>
         </div>
       ) : requests.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-32 text-[#98A2B3]">
+        <div className="flex flex-col items-center justify-center h-24 text-[#98A2B3]">
           <p className="text-xs font-medium">
             {showHistory ? "요청 이력이 없습니다." : "대기 중인 승인 요청이 없습니다."}
           </p>
@@ -262,6 +266,23 @@ export function ApprovalQueuePage({
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+export function ApprovalQueuePage({
+  role,
+  onUnauthorized,
+}: {
+  role: string
+  onUnauthorized: () => void
+}) {
+  return (
+    <div className="min-h-full p-4 space-y-3">
+      <div>
+        <p className="text-[18px] font-bold text-[#101828]">승인 관리</p>
+      </div>
+      <ApprovalRequestList role={role} onUnauthorized={onUnauthorized} />
     </div>
   )
 }

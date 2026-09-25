@@ -19,7 +19,7 @@ import { ArchitectureMap } from "./components/ArchitectureMap"
 import { ScenarioPage } from "./components/ScenarioPage"
 import { ManualMonitoringPage } from "./components/ManualMonitoringPage"
 import { AIDiagnosisPage } from "./components/AIDiagnosisPage"
-import { ApprovalQueuePage } from "./components/ApprovalQueuePage"
+import { ApprovalQueuePage, ApprovalRequestList } from "./components/ApprovalQueuePage"
 import { ApprovalModal, DonutGauge, SeverityBadge } from "./components/common"
 import { LoginPage } from "./components/LoginPage"
 import { fetchOverviewMetrics } from "./services/dashboardApi"
@@ -208,6 +208,9 @@ function RightPanel({
   onSelectEvent,
   onApprove,
   onExcept,
+  onBulkRequest,
+  role,
+  onUnauthorized,
 }: {
   tab: RightTab
   setTab: (t: RightTab) => void
@@ -222,9 +225,13 @@ function RightPanel({
 
   onApprove: (ev: ActionEvent) => void
   onExcept: (eventIds: string[]) => void
+  onBulkRequest: (eventIds: string[]) => void
+  role: string
+  onUnauthorized: () => void
 }) {
   const [detectFilter, setDetectFilter] = useState("전체")
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
+  const [requestCheckedIds, setRequestCheckedIds] = useState<Set<string>>(new Set())
 
   // 탐지/조치 이력은 이미 처리(차단 등)가 끝난 이벤트라 "조치 필요" 목록엔 없다.
   // 그래도 클릭하면 AI 챗봇 컨텍스트로 넘길 수 있게 ActionEvent 모양으로 맞춰준다.
@@ -281,6 +288,27 @@ function RightPanel({
     })
   }
 
+  const toggleRequestChecked = (id: string) => {
+    setRequestCheckedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleBulkRequest = () => {
+    if (requestCheckedIds.size === 0) return
+    onBulkRequest([...requestCheckedIds])
+    setRequestCheckedIds(new Set())
+  }
+
+  // "승인요청" 탭 상단에 보여줄, 아직 요청을 안 보낸 조치 대상 목록
+  // (수동/자동 조치 둘 다 포함 - vuln처럼 자동조치가 없는 것도 요청은 보낼 수 있다).
+  const requestableEvents = activeEvents.filter(
+    (ev) => !isPendingApproval(ev) && ev.status !== "예외 처리",
+  )
+
   const handleBulkExcept = () => {
     if (checkedIds.size === 0) return
     onExcept([...checkedIds])
@@ -293,9 +321,11 @@ function RightPanel({
       <div className="flex-shrink-0 px-3 pt-3 pb-1">
         <div role="tablist" className="flex gap-1 p-1 rounded-xl bg-[#EEF0F3]">
           {[
+            { key: "detect", label: "탐지 이력" },
+
             { key: "action", label: "조치 필요", count: activeEvents.length },
 
-            { key: "detect", label: "탐지 이력" },
+            { key: "requests", label: "승인요청" },
 
             { key: "history", label: "조치 이력" },
           ].map((t) => (
@@ -372,6 +402,67 @@ function RightPanel({
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* 승인요청 탭: 위쪽은 아직 요청 안 보낸 것들 일괄 선택, 아래쪽은 이미 보낸 요청 현황 */}
+      {tab === "requests" && (
+        <div className="p-3 space-y-4">
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-[11px] font-bold text-[#101828]">
+                요청 대기 중인 항목 ({requestableEvents.length})
+              </p>
+              {requestCheckedIds.size > 0 && (
+                <button
+                  onClick={handleBulkRequest}
+                  className="text-[11px] font-bold text-white bg-[#111111] hover:bg-[#262626] rounded-lg px-2.5 py-1.5"
+                >
+                  선택한 {requestCheckedIds.size}건 승인 요청 보내기
+                </button>
+              )}
+            </div>
+            {requestableEvents.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-20 text-[#98A2B3]">
+                <p className="text-xs font-medium">요청 보낼 수 있는 항목이 없습니다.</p>
+              </div>
+            ) : (
+              <div className="space-y-1.5 max-h-64 overflow-auto">
+                {requestableEvents.map((ev) => (
+                  <label
+                    key={ev.id}
+                    className="flex items-center gap-2 rounded-lg border border-[#EAECF0] bg-white px-2.5 py-1.5 cursor-pointer hover:border-[#D0D5DD]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={requestCheckedIds.has(ev.id)}
+                      onChange={() => toggleRequestChecked(ev.id)}
+                      className="h-3.5 w-3.5 rounded border-[#D0D5DD] accent-[#111111]"
+                    />
+                    <SeverityBadge sev={ev.severity} small />
+                    <span className="text-[11px] font-semibold text-[#101828] flex-1 truncate">
+                      {ev.title}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        onApprove(ev)
+                      }}
+                      className="text-[10px] font-bold text-[#475467] hover:text-[#101828] flex-shrink-0"
+                    >
+                      개별 요청
+                    </button>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="pt-3 border-t border-[#EAECF0]">
+            <p className="text-[11px] font-bold text-[#101828] mb-2">보낸 요청 현황</p>
+            <ApprovalRequestList role={role} onUnauthorized={onUnauthorized} compact />
+          </div>
         </div>
       )}
 
@@ -1707,6 +1798,41 @@ export default function App() {
     }
   }
 
+  const bulkRequestPendingRef = useRef(false)
+
+  const handleBulkApprovalRequests = async (eventIds: string[]) => {
+    if (eventIds.length === 0 || bulkRequestPendingRef.current) return
+    bulkRequestPendingRef.current = true
+    try {
+      // 백엔드에 일괄 요청 API가 따로 없어서, 개별 요청을 병렬로 보낸다
+      // (한 건이 실패해도 나머지는 계속 보내지도록 allSettled 사용).
+      const results = await Promise.allSettled(
+        eventIds.map((eventId) =>
+          fetch("/api/approval-requests", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ event_id: eventId }),
+          }).then(async (response) => {
+            const result = await response.json()
+            if (!response.ok || result.success !== true) {
+              throw new Error(result.message || "요청 전송 실패")
+            }
+          }),
+        ),
+      )
+      const failed = results.filter((r) => r.status === "rejected").length
+      await loadDashboardData(false, true)
+      setToast(
+        failed === 0
+          ? `${eventIds.length}건 모두 승인 요청을 보냈습니다.`
+          : `${eventIds.length - failed}건 요청 완료, ${failed}건 실패했습니다.`,
+      )
+    } finally {
+      bulkRequestPendingRef.current = false
+    }
+  }
+
   const fmt = (d: Date) => {
     const parts = new Intl.DateTimeFormat("ko-KR", {
       timeZone: "Asia/Seoul",
@@ -2323,6 +2449,12 @@ export default function App() {
                     setApprovalTarget(event)
                   }}
                   onExcept={handleExceptEvents}
+                  onBulkRequest={handleBulkApprovalRequests}
+                  role={authUser?.role ?? ""}
+                  onUnauthorized={() => {
+                    setAuthUser(null)
+                    setAuthState("unauthenticated")
+                  }}
                 />
               </div>
             </div>

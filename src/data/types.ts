@@ -2,7 +2,7 @@ export type Severity = "Critical" | "High" | "Medium" | "Low" | "Info"
 
 export type AssetStatus = "normal" | "warning" | "danger" | "critical" | "acting" | "disconnected"
 
-export type RightTab = "action" | "detect" | "history"
+export type RightTab = "detect" | "action" | "requests" | "history"
 
 export interface ActionEvent {
   id: string
