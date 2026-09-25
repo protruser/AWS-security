@@ -24,9 +24,33 @@ const SEVERITY_STYLE: Record<string, string> = {
   Info: "bg-[#F2F4F7] text-[#667085]",
 }
 
+async function postApprove(id: number) {
+  const response = await fetch(`/api/approval-requests/${id}/approve`, {
+    method: "POST",
+    credentials: "include",
+  })
+  const result = await response.json()
+  if (!response.ok || result.success !== true) {
+    throw new Error(result.message || "승인 처리에 실패했습니다.")
+  }
+}
+
+async function postReject(id: number, reason: string) {
+  const response = await fetch(`/api/approval-requests/${id}/reject`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  })
+  const result = await response.json()
+  if (!response.ok || result.success !== true) {
+    throw new Error(result.message || "반려 처리에 실패했습니다.")
+  }
+}
+
 // 요청 현황 목록만 담당한다 - "승인 관리" 페이지(승인자 전용, 전체 화면)와
 // "보안 이벤트 > 승인요청" 탭(관리자가 보낸 요청 추적용) 둘 다 이걸 그대로
-// 재사용한다. 승인/반려 버튼은 role이 승인자일 때만 뜬다.
+// 재사용한다. 승인/반려 버튼과 선택 체크박스는 role이 승인자일 때만 뜬다.
 export function ApprovalRequestList({
   role,
   onUnauthorized,
@@ -40,11 +64,17 @@ export function ApprovalRequestList({
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
+  const [bulkBusy, setBulkBusy] = useState(false)
   const [rejectTargetId, setRejectTargetId] = useState<number | null>(null)
   const [rejectReason, setRejectReason] = useState("")
   const [showHistory, setShowHistory] = useState(false)
+  const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
+  const [bulkRejectOpen, setBulkRejectOpen] = useState(false)
+  const [bulkRejectReason, setBulkRejectReason] = useState("")
 
   const isApprover = role === "승인자"
+  const pendingRequests = requests.filter((r) => r.status === "대기")
+  const busy = busyId !== null || bulkBusy
 
   const load = async () => {
     try {
@@ -78,18 +108,20 @@ export function ApprovalRequestList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHistory])
 
+  const toggleChecked = (id: number) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   const approve = async (id: number) => {
-    if (busyId !== null) return
+    if (busy) return
     setBusyId(id)
     try {
-      const response = await fetch(`/api/approval-requests/${id}/approve`, {
-        method: "POST",
-        credentials: "include",
-      })
-      const result = await response.json()
-      if (!response.ok || result.success !== true) {
-        throw new Error(result.message || "승인 처리에 실패했습니다.")
-      }
+      await postApprove(id)
       await load()
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "승인 처리에 실패했습니다.")
@@ -99,19 +131,10 @@ export function ApprovalRequestList({
   }
 
   const reject = async (id: number) => {
-    if (busyId !== null) return
+    if (busy) return
     setBusyId(id)
     try {
-      const response = await fetch(`/api/approval-requests/${id}/reject`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: rejectReason }),
-      })
-      const result = await response.json()
-      if (!response.ok || result.success !== true) {
-        throw new Error(result.message || "반려 처리에 실패했습니다.")
-      }
+      await postReject(id, rejectReason)
       setRejectTargetId(null)
       setRejectReason("")
       await load()
@@ -119,6 +142,42 @@ export function ApprovalRequestList({
       setLoadError(error instanceof Error ? error.message : "반려 처리에 실패했습니다.")
     } finally {
       setBusyId(null)
+    }
+  }
+
+  const bulkApprove = async () => {
+    if (busy || checkedIds.size === 0) return
+    setBulkBusy(true)
+    try {
+      const ids = [...checkedIds]
+      const results = await Promise.allSettled(ids.map((id) => postApprove(id)))
+      const failed = results.filter((r) => r.status === "rejected").length
+      setCheckedIds(new Set())
+      await load()
+      if (failed > 0) {
+        setLoadError(`${ids.length - failed}건 승인 완료, ${failed}건 실패했습니다.`)
+      }
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const bulkReject = async () => {
+    if (busy || checkedIds.size === 0) return
+    setBulkBusy(true)
+    try {
+      const ids = [...checkedIds]
+      const results = await Promise.allSettled(ids.map((id) => postReject(id, bulkRejectReason)))
+      const failed = results.filter((r) => r.status === "rejected").length
+      setCheckedIds(new Set())
+      setBulkRejectOpen(false)
+      setBulkRejectReason("")
+      await load()
+      if (failed > 0) {
+        setLoadError(`${ids.length - failed}건 반려 완료, ${failed}건 실패했습니다.`)
+      }
+    } finally {
+      setBulkBusy(false)
     }
   }
 
@@ -138,7 +197,10 @@ export function ApprovalRequestList({
           ].map(([value, label]) => (
             <button
               key={label as string}
-              onClick={() => setShowHistory(value as boolean)}
+              onClick={() => {
+                setShowHistory(value as boolean)
+                setCheckedIds(new Set())
+              }}
               className={`text-[11px] font-semibold px-3 py-1.5 rounded-lg transition-colors ${
                 showHistory === value
                   ? "bg-[#101828] text-white shadow-sm"
@@ -150,6 +212,72 @@ export function ApprovalRequestList({
           ))}
         </div>
       </div>
+
+      {isApprover && pendingRequests.length > 0 && (
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={pendingRequests.every((r) => checkedIds.has(r.id))}
+              onChange={(e) =>
+                setCheckedIds(
+                  e.target.checked ? new Set(pendingRequests.map((r) => r.id)) : new Set(),
+                )
+              }
+              className="h-3.5 w-3.5 rounded border-[#D0D5DD] accent-[#111111]"
+            />
+            <span className="text-[11px] font-semibold text-[#344054]">
+              전체 선택 (대기 중 {pendingRequests.length}건)
+            </span>
+          </label>
+          {checkedIds.size > 0 && (
+            <div className="flex gap-1.5">
+              <button
+                onClick={bulkApprove}
+                disabled={busy}
+                className="text-[11px] font-bold text-white bg-[#101828] hover:bg-[#1D2939] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
+              >
+                선택한 {checkedIds.size}건 일괄 승인
+              </button>
+              <button
+                onClick={() => setBulkRejectOpen(true)}
+                disabled={busy}
+                className="text-[11px] font-bold text-[#B42318] bg-white ring-1 ring-[#FECDCA] hover:bg-[#FEF3F2] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
+              >
+                선택한 {checkedIds.size}건 일괄 반려
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {bulkRejectOpen && (
+        <div className="flex gap-1.5 rounded-lg bg-[#FEF3F2] ring-1 ring-[#FECDCA] px-2.5 py-2">
+          <input
+            autoFocus
+            value={bulkRejectReason}
+            onChange={(e) => setBulkRejectReason(e.target.value)}
+            placeholder={`반려 사유(선택) - 선택한 ${checkedIds.size}건 전체에 적용됩니다`}
+            className="flex-1 text-[11px] rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 outline-none focus:border-[#101828] bg-white"
+          />
+          <button
+            onClick={bulkReject}
+            disabled={busy}
+            className="text-[11px] font-bold text-white bg-[#B42318] hover:bg-[#912018] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
+          >
+            반려 확정
+          </button>
+          <button
+            onClick={() => {
+              setBulkRejectOpen(false)
+              setBulkRejectReason("")
+            }}
+            className="text-[11px] text-[#475467] hover:bg-[#F2F4F7] rounded-lg px-3 py-1.5 transition-colors"
+          >
+            취소
+          </button>
+        </div>
+      )}
 
       {loadError && (
         <p className="text-[11px] text-[#B42318] bg-[#FEF3F2] ring-1 ring-[#FECDCA] rounded-lg px-3 py-2">
@@ -175,58 +303,68 @@ export function ApprovalRequestList({
               className="rounded-xl border border-[#EAECF0] bg-white p-3.5"
             >
               <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div>
-                  <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                    {req.eventSeverity && (
+                <div className="flex items-start gap-2">
+                  {isApprover && req.status === "대기" && (
+                    <input
+                      type="checkbox"
+                      checked={checkedIds.has(req.id)}
+                      onChange={() => toggleChecked(req.id)}
+                      className="h-3.5 w-3.5 mt-0.5 rounded border-[#D0D5DD] accent-[#111111] flex-shrink-0"
+                    />
+                  )}
+                  <div>
+                    <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                      {req.eventSeverity && (
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                            SEVERITY_STYLE[req.eventSeverity] ?? "bg-[#F2F4F7] text-[#667085]"
+                          }`}
+                        >
+                          {req.eventSeverity}
+                        </span>
+                      )}
+                      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#F2F4F7] text-[#475467]">
+                        {req.requestType === "auto" ? "자동 조치" : "수동 조치"}
+                      </span>
                       <span
                         className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                          SEVERITY_STYLE[req.eventSeverity] ?? "bg-[#F2F4F7] text-[#667085]"
+                          req.status === "대기"
+                            ? "bg-[#FFFAEB] text-[#B54708]"
+                            : req.status === "승인"
+                              ? "bg-[#ECFDF3] text-[#067647]"
+                              : "bg-[#FEF3F2] text-[#B42318]"
                         }`}
                       >
-                        {req.eventSeverity}
+                        {req.status}
                       </span>
-                    )}
-                    <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#F2F4F7] text-[#475467]">
-                      {req.requestType === "auto" ? "자동 조치" : "수동 조치"}
-                    </span>
-                    <span
-                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                        req.status === "대기"
-                          ? "bg-[#FFFAEB] text-[#B54708]"
-                          : req.status === "승인"
-                            ? "bg-[#ECFDF3] text-[#067647]"
-                            : "bg-[#FEF3F2] text-[#B42318]"
-                      }`}
-                    >
-                      {req.status}
-                    </span>
-                  </div>
-                  <p className="text-[12px] font-bold text-[#101828]">
-                    {req.eventTitle ?? req.eventId}
-                  </p>
-                  <p className="text-[10px] text-[#667085] mt-0.5">
-                    {req.eventAsset ?? "-"} · 요청자 {req.requestedBy ?? "-"} · {req.requestedAt}
-                  </p>
-                  {req.status !== "대기" && (
-                    <p className="text-[10px] text-[#667085] mt-0.5">
-                      처리자 {req.reviewedBy ?? "-"} · {req.reviewedAt}
-                      {req.rejectReason && ` · 사유: ${req.rejectReason}`}
+                    </div>
+                    <p className="text-[12px] font-bold text-[#101828]">
+                      {req.eventTitle ?? req.eventId}
                     </p>
-                  )}
+                    <p className="text-[10px] text-[#667085] mt-0.5">
+                      {req.eventAsset ?? "-"} · 요청자 {req.requestedBy ?? "-"} · {req.requestedAt}
+                    </p>
+                    {req.status !== "대기" && (
+                      <p className="text-[10px] text-[#667085] mt-0.5">
+                        처리자 {req.reviewedBy ?? "-"} · {req.reviewedAt}
+                        {req.rejectReason && ` · 사유: ${req.rejectReason}`}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 {req.status === "대기" && isApprover && (
                   <div className="flex gap-1.5 flex-shrink-0">
                     <button
                       onClick={() => approve(req.id)}
-                      disabled={busyId !== null}
+                      disabled={busy}
                       className="text-[11px] font-bold text-white bg-[#101828] hover:bg-[#1D2939] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
                     >
                       승인
                     </button>
                     <button
                       onClick={() => setRejectTargetId(req.id)}
-                      disabled={busyId !== null}
+                      disabled={busy}
                       className="text-[11px] font-bold text-[#B42318] bg-white ring-1 ring-[#FECDCA] hover:bg-[#FEF3F2] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
                     >
                       반려
@@ -246,7 +384,7 @@ export function ApprovalRequestList({
                   />
                   <button
                     onClick={() => reject(req.id)}
-                    disabled={busyId !== null}
+                    disabled={busy}
                     className="text-[11px] font-bold text-white bg-[#B42318] hover:bg-[#912018] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
                   >
                     반려 확정
