@@ -87,6 +87,7 @@ export interface RemediationHistoryItem {
   approver: string
   result: string
   completedAt: string
+  occurrenceCount?: number
 }
 
 export interface DashboardApiResponse {

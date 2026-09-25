@@ -410,9 +410,27 @@ function RightPanel({
         <div className="p-3 space-y-4">
           <div>
             <div className="flex items-center justify-between gap-2 mb-2">
-              <p className="text-[11px] font-bold text-[#101828]">
-                요청 대기 중인 항목 ({requestableEvents.length})
-              </p>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={
+                    requestableEvents.length > 0 &&
+                    requestableEvents.every((ev) => requestCheckedIds.has(ev.id))
+                  }
+                  onChange={(e) =>
+                    setRequestCheckedIds(
+                      e.target.checked
+                        ? new Set(requestableEvents.map((ev) => ev.id))
+                        : new Set(),
+                    )
+                  }
+                  disabled={requestableEvents.length === 0}
+                  className="h-3.5 w-3.5 rounded border-[#D0D5DD] accent-[#111111]"
+                />
+                <p className="text-[11px] font-bold text-[#101828]">
+                  요청 대기 중인 항목 ({requestableEvents.length}) · 전체 선택
+                </p>
+              </label>
               {requestCheckedIds.size > 0 && (
                 <button
                   onClick={handleBulkRequest}
@@ -478,9 +496,19 @@ function RightPanel({
               >
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-bold text-[#0D0D0D]">{r.event}</p>
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#16A34A] text-white">
-                    {r.result}
-                  </span>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {(r.occurrenceCount ?? 1) > 1 && (
+                      <span
+                        className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#FEF0C7] text-[#B54708]"
+                        title="같은 종류로 반복된 조치를 최신 1건으로 합쳐서 보여주고 있어요"
+                      >
+                        {r.occurrenceCount}건
+                      </span>
+                    )}
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#16A34A] text-white">
+                      {r.result}
+                    </span>
+                  </div>
                 </div>
                 <p className="text-[10px] text-[#6B6B6B] mt-1">{r.asset}</p>
                 <div className="flex flex-wrap gap-1 mt-1.5">

@@ -274,6 +274,7 @@ def _remediation_to_history(row):
         "approver": row.get("approver") or "-",
         "result": row.get("result") or row.get("status") or "-",
         "completedAt": _format_datetime(completed, "%H:%M:%S"),
+        "occurrenceCount": int(row.get("occurrence_count") or 1),
     }
 
 
@@ -473,15 +474,26 @@ def _read_dashboard_data():
 
             cursor.execute(
                 """
-                SELECT
-                    rh.*,
-                    se.title AS event_title,
-                    se.asset AS asset,
-                    se.attacker_ip AS attacker_ip
-                FROM remediation_history rh
-                LEFT JOIN security_events se ON se.id = rh.event_id
-                WHERE se.scenario_type IN ('sqli', 'dir', 'brute', 'cred', 'vuln', 'xss', 'port')
-                ORDER BY COALESCE(rh.completed_at, rh.requested_at) DESC
+                SELECT * FROM (
+                    SELECT
+                        rh.*,
+                        se.title AS event_title,
+                        se.asset AS asset,
+                        se.attacker_ip AS attacker_ip,
+                        se.scenario_type AS scenario_type,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY se.scenario_type, COALESCE(se.attacker_ip, se.title)
+                            ORDER BY COALESCE(rh.completed_at, rh.requested_at) DESC
+                        ) AS rn,
+                        COUNT(*) OVER (
+                            PARTITION BY se.scenario_type, COALESCE(se.attacker_ip, se.title)
+                        ) AS occurrence_count
+                    FROM remediation_history rh
+                    LEFT JOIN security_events se ON se.id = rh.event_id
+                    WHERE se.scenario_type IN ('sqli', 'dir', 'brute', 'cred', 'vuln', 'xss', 'port')
+                ) grouped
+                WHERE rn = 1
+                ORDER BY COALESCE(completed_at, requested_at) DESC
                 LIMIT 200
                 """
             )
