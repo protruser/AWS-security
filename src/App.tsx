@@ -30,7 +30,7 @@ import { eventDisplayTitle } from "./services/eventAnalysis"
 function canRemediate(event: ActionEvent) {
   // 백엔드 REMEDIATION_ACTIONS와 반드시 같은 목록이어야 한다(안 그러면 "자동 조치
   // 가능" 배지는 뜨는데 승인 버튼은 "수동 조치 필요"로 나오는 불일치가 생김).
-  return ["sqli", "dir", "brute", "xss", "cred", "port"].includes(event.scenarioType ?? "")
+  return ["sqli", "dir", "brute", "xss", "cred", "port", "flood"].includes(event.scenarioType ?? "")
     && !["조치 완료", "자동 완료", "완료", "예외 처리"].includes(event.status)
 }
 

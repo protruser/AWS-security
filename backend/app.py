@@ -71,6 +71,7 @@ VALID_SEVERITIES = {"Critical", "High", "Medium", "Low", "Info"}
 REMEDIATION_ACTIONS = {
     "sqli": "block_ip", "dir": "block_ip", "brute": "block_ip",
     "xss": "block_ip", "cred": "disable_access_key", "port": "block_ip",
+    "flood": "block_ip",
 }
 REMEDIATION_CLOSED_STATUSES = {"조치 완료", "자동 완료", "완료", "예외 처리"}
 LOG_RANGE_DELTAS = {
@@ -358,8 +359,8 @@ def _read_security_logs(args):
 
     normalized_scenario = "LOWER(COALESCE(scenario_type, ''))"
     if source == "waf":
-        conditions.append(f"{normalized_scenario} IN (%s, %s, %s, %s)")
-        params.extend(["sqli", "xss", "dir", "brute"])
+        conditions.append(f"{normalized_scenario} IN (%s, %s, %s, %s, %s)")
+        params.extend(["sqli", "xss", "dir", "brute", "flood"])
     elif source == "guardduty":
         conditions.append(f"{normalized_scenario} IN (%s, %s)")
         params.extend(["port", "cred"])
@@ -384,10 +385,11 @@ def _read_security_logs(args):
         "brute": (f"{normalized_scenario} = %s", ["brute"]),
         "port": (f"{normalized_scenario} = %s", ["port"]),
         "cred": (f"{normalized_scenario} = %s", ["cred"]),
+        "flood": (f"{normalized_scenario} = %s", ["flood"]),
     }
     if scenario_type:
         allowed_for_source = {
-            "waf": {"sqli", "xss", "dir", "brute"},
+            "waf": {"sqli", "xss", "dir", "brute", "flood"},
             "guardduty": {"port", "cred"},
             "inspector": set(),
         }
@@ -457,7 +459,7 @@ def _read_dashboard_data():
                         ) AS occurrence_count
                     FROM security_events
                     WHERE status NOT IN ('조치 완료', '자동 완료', '예외 처리', '완료')
-                      AND scenario_type IN ('sqli', 'dir', 'brute', 'cred', 'vuln', 'xss', 'port')
+                      AND scenario_type IN ('sqli', 'dir', 'brute', 'cred', 'vuln', 'xss', 'port', 'flood')
                 ) grouped
                 WHERE rn = 1
                 ORDER BY detected_at DESC
@@ -469,7 +471,7 @@ def _read_dashboard_data():
                 """
                 SELECT *
                 FROM security_events
-                WHERE scenario_type IN ('sqli', 'dir', 'brute', 'cred', 'vuln', 'xss', 'port')
+                WHERE scenario_type IN ('sqli', 'dir', 'brute', 'cred', 'vuln', 'xss', 'port', 'flood')
                 ORDER BY detected_at DESC
                 LIMIT 200
                 """
@@ -494,7 +496,7 @@ def _read_dashboard_data():
                         ) AS occurrence_count
                     FROM remediation_history rh
                     LEFT JOIN security_events se ON se.id = rh.event_id
-                    WHERE se.scenario_type IN ('sqli', 'dir', 'brute', 'cred', 'vuln', 'xss', 'port')
+                    WHERE se.scenario_type IN ('sqli', 'dir', 'brute', 'cred', 'vuln', 'xss', 'port', 'flood')
                 ) grouped
                 WHERE rn = 1
                 ORDER BY COALESCE(completed_at, requested_at) DESC

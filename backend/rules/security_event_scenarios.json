@@ -19,6 +19,11 @@
     "focus": ["공격 IP", "로그인 URI", "로그인 요청 횟수", "실패 횟수", "발생 시간 범위", "대상 계정", "로그인 성공 여부"],
     "evidence_candidates": ["clientIp", "uri", "count", "failureCount", "timestamp", "username", "loginSuccess"]
   },
+  "flood": {
+    "display_name": "대량 요청 과부하 (Rate Limit)", "source": "WAF",
+    "focus": ["공격 IP", "5분간 요청 수(Rate Limit 카운트)", "Rate Limit 임계치", "WAF Action(BLOCK 비율)", "대상 경로", "발생 시간 범위"],
+    "evidence_candidates": ["clientIp", "uri", "count", "limit", "action", "timestamp"]
+  },
   "port": {
     "display_name": "Port Scan", "source": "GuardDuty",
     "focus": ["Source IP", "대상 리소스", "대상 Port 목록", "Protocol", "접근 시도 횟수", "발생 시간 범위", "GuardDuty Finding"],

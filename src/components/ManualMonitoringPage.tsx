@@ -85,6 +85,7 @@ const SCENARIO_LABELS: Record<string, string> = {
   xss: "XSS",
   dir: "Directory Scan",
   brute: "Brute Force",
+  flood: "Rate Limit Flood",
   port: "Port Scan",
   cred: "Credential",
   vuln: "Vulnerability",
@@ -762,6 +763,7 @@ function SecurityDataMonitoringContent({
                     ["xss", "XSS"],
                     ["dir", "Directory Scan"],
                     ["brute", "Brute Force"],
+                    ["flood", "Rate Limit Flood"],
                   ]}
                 />
                 <InputField
