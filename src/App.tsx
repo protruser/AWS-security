@@ -317,6 +317,17 @@ function RightPanel({
     setCheckedIds(new Set())
   }
 
+  // 승인자는 탐지이력/조치필요/조치이력을 볼 필요가 없다 - 책임은 승인/반려뿐이라
+  // 탭 자체를 없애고 요청 목록만 바로 보여준다.
+  if (role === "승인자") {
+    return (
+      <div className="flex flex-col min-h-full p-3">
+        <p className="text-[11px] font-bold text-[#101828] mb-2">승인 대기 목록</p>
+        <ApprovalRequestList role={role} onUnauthorized={onUnauthorized} />
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col min-h-full">
       {/* Tabs — segmented control */}
