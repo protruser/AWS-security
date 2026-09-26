@@ -45,6 +45,22 @@ jobs:
       - name: Build frontend (also catches Vite/build-only errors)
         run: npm run build
 
+      # 운영 이미지(python:3.12-slim)와 같은 버전. 테스트는 DB/.env 없이 돈다.
+      # AWS 자격증명 단계보다 앞에 둬서, 백엔드 테스트가 깨지면 배포 자체를 시작하지 않는다.
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Backend unit tests
+        working-directory: backend
+        run: python -m unittest discover -s tests
+
       - name: Validate deployment variables
         shell: bash
         run: |

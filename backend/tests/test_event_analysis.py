@@ -18,6 +18,9 @@ LOGS = {
     "xss": {"httpRequest": {"uri": "/search", "args": "q=sample"}, "matchedData": ["<script>sample</script>"], "action": "BLOCK"},
     "dir": {"uri": "/.env", "httpMethod": "GET", "action": "ALLOW", "count": 1},
     "brute": {"uri": "/login", "failureCount": 32, "username": "sample-user", "loginSuccess": False},
+    # Lambda B(waf.py)가 Rate Limit 차단을 저장하는 형식: 5분 구간 요청 수 + 샘플 요청
+    "flood": {"source": "waf-logs", "waf": "shop", "count": 240, "blocked": 240,
+              "samples": [{"action": "BLOCK", "httpRequest": {"clientIp": "195.63.28.83", "uri": "/", "httpMethod": "GET"}}]},
     "port": {"type": "Recon:EC2/PortProbeUnprotectedPort", "port": [22, 3389], "protocol": "TCP"},
     "cred": {"userName": "sample-user", "api": "ListBuckets", "region": "ap-northeast-2", "accessKeyId": "sample-key-id"},
     "vuln": {"packageVulnerabilityDetails": {"vulnerabilityId": "CVE-2025-44168", "vulnerablePackages": [{"name": "mariadb", "version": "1.0", "fixedInVersion": "1.1"}]}, "severity": "HIGH"},
@@ -84,7 +87,8 @@ class FakeDB:
 
 
 class EventAnalysisTest(unittest.TestCase):
-    def test_all_seven_scenarios_use_rules_and_existing_policy(self):
+    def test_all_scenarios_use_rules_and_existing_policy(self):
+        # 규칙 파일에 시나리오를 추가하면 위 LOGS 에도 샘플을 추가해야 이 테스트가 통과한다.
         self.assertEqual(set(service.RULES), set(LOGS))
         for scenario in LOGS:
             with self.subTest(scenario=scenario):
