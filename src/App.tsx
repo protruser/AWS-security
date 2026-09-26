@@ -5,6 +5,7 @@ import type {
   ActionEvent,
   ScenarioCard,
   DetectHistoryItem,
+  EventReach,
   RemediationHistoryItem,
   DashboardApiResponse,
   NumericOverviewMetric,
@@ -20,12 +21,33 @@ import { ScenarioPage } from "./components/ScenarioPage"
 import { ManualMonitoringPage } from "./components/ManualMonitoringPage"
 import { AIDiagnosisPage } from "./components/AIDiagnosisPage"
 import { ApprovalQueuePage, ApprovalRequestList } from "./components/ApprovalQueuePage"
-import { AttackerTrackingPage } from "./components/AttackerTrackingPage"
+import { AttackerTrackingPage, StageBadge } from "./components/AttackerTrackingPage"
 import { ApprovalModal, DonutGauge, SeverityBadge } from "./components/common"
 import { LoginPage } from "./components/LoginPage"
 import { fetchOverviewMetrics } from "./services/dashboardApi"
 import { EventDetailModal } from "./components/EventDetailModal"
 import { eventDisplayTitle } from "./services/eventAnalysis"
+
+// 이벤트의 highlightAssets 중 유형별 고정 경로를 뺀 관련 서비스(CloudWatch, GuardDuty 등).
+// 실제 도달(reach)로 칠할 때도 이 강조는 그대로 둔다.
+function contextAssets(event: ActionEvent) {
+  return event.highlightAssets.filter((assetId) => !event.attackPath.includes(assetId))
+}
+
+function reachSummaryText(reach: EventReach) {
+  const parts = [
+    reach.requests !== null
+      ? `요청 ${reach.requests.toLocaleString("ko-KR")}건 중 ${(reach.passed ?? 0).toLocaleString("ko-KR")}건 WAF 통과`
+      : reach.stage === "S1"
+        ? `대상 ${reach.target ?? "미확인"}`
+        : reach.stage === "C"
+          ? "AWS API 호출 (네트워크 경로 아님)"
+          : "요청 수 정보 없음",
+  ]
+  if (reach.grouped > 1) parts.push(`반복 ${reach.grouped}건 기준`)
+  if (reach.estimated.length > 0) parts.push("점선 = 추정 도달")
+  return parts.join(" · ")
+}
 
 // ─── Action card ──────────────────────────────────────────────────────────────
 function canRemediate(event: ActionEvent) {
@@ -203,6 +225,7 @@ function RightPanel({
     autoRemediation: false,
     highlightAssets: [],
     attackPath: [],
+    reach: d.reach ?? null,
     details: {
       attackerIP: d.ip && d.ip !== "-" ? d.ip : undefined,
       blocked: d.blocked === "차단" ? true : d.blocked === "-" ? undefined : undefined,
@@ -1972,16 +1995,28 @@ export default function App() {
   // 아무것도 클릭하지 않았을 때는 지도를 완전히 평범한 상태로 둔다.
   // (예전에는 미해결 이벤트를 전부 자동으로 강조해서, 아무것도 안 눌러도
   //  뭔가 선택된 것처럼 보였다. 작은 경보 점(alerts)은 아래에서 별도로 계속 표시한다.)
+  // 이벤트에 실제 도달 판정(reach)이 있으면 유형별 고정 경로(attackPath) 대신 그것으로 칠한다.
+  // 예: WAF 가 전부 막은 SQLi 는 WAF 까지만, ALB 이후는 추정(점선)으로. 시나리오 카드는 설명용이라 그대로 둔다.
+  const selectedReach = selectedEvent?.reach ?? null
   const highlightedAssets = selection
-    ? uniqueAssetIds([...selection.highlightAssets, ...selection.attackPath])
+    ? selectedEvent && selectedReach
+      ? uniqueAssetIds([
+          ...contextAssets(selectedEvent),
+          ...selectedReach.confirmed,
+          ...selectedReach.estimated,
+        ])
+      : uniqueAssetIds([...selection.highlightAssets, ...selection.attackPath])
     : selectedAsset
       ? [selectedAsset]
       : []
   const attackPathAssets = selection
-    ? uniqueAssetIds(selection.attackPath)
+    ? selectedReach
+      ? selectedReach.confirmed
+      : uniqueAssetIds(selection.attackPath)
     : selectedAsset
       ? []
       : []
+  const estimatedAssets = selectedReach ? selectedReach.estimated : []
   const connectionAssetGroups = selection
     ? [highlightedAssets]
     : selectedAsset
@@ -2008,19 +2043,27 @@ export default function App() {
     reason: string
   }> = {}
   if (!hasExplicitSelection) {
+    const addAlert = (assetId: string, level: "critical" | "warning", reason: string) => {
+      const existing = alerts[assetId]
+      if (!existing || (level === "critical" && existing.level !== "critical")) {
+        alerts[assetId] = { level, reason }
+      }
+    }
     activeEvents.forEach((event) => {
       const level = event.severity === "Critical" ? "critical" : "warning"
       const reason = `${event.title} · ${event.severity}`
+      if (event.reach) {
+        // 실제로 도달한 자산에만 경보를 찍고, 추정 도달은 "주의"까지만 올린다.
+        uniqueAssetIds([...contextAssets(event), ...event.reach.confirmed]).forEach(
+          (assetId) => addAlert(assetId, level, reason),
+        )
+        event.reach.estimated.forEach((assetId) =>
+          addAlert(assetId, "warning", `${reason} (추정 도달)`),
+        )
+        return
+      }
       uniqueAssetIds([...event.highlightAssets, ...event.attackPath]).forEach(
-        (assetId) => {
-          const existing = alerts[assetId]
-          if (
-            !existing ||
-            (level === "critical" && existing.level !== "critical")
-          ) {
-            alerts[assetId] = { level, reason }
-          }
-        },
+        (assetId) => addAlert(assetId, level, reason),
       )
     })
   }
@@ -2651,12 +2694,19 @@ export default function App() {
                   assetStatuses={statuses}
                   highlightedAssets={highlightedAssets}
                   attackPathAssets={attackPathAssets}
+                  estimatedAssets={estimatedAssets}
                   connectionAssetGroups={connectionAssetGroups}
                   alerts={alerts}
                   onAssetClick={handleAssetClick}
                   onBackgroundClick={clearSelection}
                   hasScenario={hasScenario}
                 />
+                {selectedReach && (
+                  <div className="absolute left-3 bottom-3 z-10 flex flex-wrap items-center gap-2 rounded-lg bg-white/95 px-3 py-1.5 shadow-sm ring-1 ring-[#E4E7EC]">
+                    <StageBadge stage={selectedReach.stage} confidence={selectedReach.confidence} />
+                    <span className="text-[11px] text-[#475467]">{reachSummaryText(selectedReach)}</span>
+                  </div>
+                )}
               </div>
 
               {/* 운영 지표는 기존 6개 카드 위치와 크기를 그대로 사용한다. */}

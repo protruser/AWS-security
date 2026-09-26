@@ -163,6 +163,15 @@ export function ArchitectureMap({
                 {l.label}
               </div>
             ))}
+            {estimatedAssets.length > 0 && (
+              <div className="flex items-center gap-1 py-0.5 text-[10px] text-[#667085]">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-sm"
+                  style={{ outline: "1.5px dashed #F79009", outlineOffset: 1 }}
+                />
+                추정 도달
+              </div>
+            )}
             <div className="mt-1 flex items-center gap-1 border-t border-[#F2F4F7] pt-1.5 text-[10px] font-semibold text-[#B42318]">
               <span className="inline-block h-2 w-2 rounded-full bg-[#D92D20]" />
               비상

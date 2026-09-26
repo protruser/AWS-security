@@ -41,7 +41,13 @@ from services.ai_diagnosis_service import (
     load_rule_meta,
 )
 from services.aws_collector import collect_aws_state
-from services.attack_reach import build_attacker_list, build_ip_detail, load_instance_map
+from services.attack_reach import (
+    build_attacker_list,
+    build_ip_detail,
+    classify_event,
+    load_instance_map,
+    merge_verdicts,
+)
 
 load_dotenv()
 
@@ -212,7 +218,7 @@ def _severity(value):
     return text if text in VALID_SEVERITIES else "Info"
 
 
-def _event_to_action_event(row):
+def _event_to_action_event(row, reach=None):
     return {
         "id": str(row["id"]),
         "severity": _severity(row.get("severity")),
@@ -232,6 +238,8 @@ def _event_to_action_event(row):
         "remediationType": "AUTO" if row.get("scenario_type") in REMEDIATION_ACTIONS else "MANUAL",
         "highlightAssets": _json_list(row.get("highlight_assets")),
         "attackPath": _json_list(row.get("attack_path")),
+        # 실제 도달 판정(services/attack_reach). 있으면 맵은 attackPath 대신 이것을 쓴다.
+        "reach": reach,
         "details": {
             "attackerIP": row.get("attacker_ip") or "",
             "requestURL": row.get("request_url") or "",
@@ -244,7 +252,12 @@ def _event_to_action_event(row):
     }
 
 
-def _event_to_detect_history(row):
+def _event_reach(row, instance_map=None):
+    """이벤트 1건의 도달 판정(맵 표시용). 판정 대상이 아니면 None."""
+    return merge_verdicts([classify_event(row, instance_map)])
+
+
+def _event_to_detect_history(row, instance_map=None):
     if row.get("block_result"):
         blocked_text = row["block_result"]
     elif row.get("blocked") is True or row.get("blocked") == 1:
@@ -264,6 +277,7 @@ def _event_to_detect_history(row):
         "ip": row.get("attacker_ip") or "-",
         "blocked": blocked_text,
         "status": row.get("status") or "-",
+        "reach": _event_reach(row, instance_map),
     }
 
 
@@ -469,6 +483,23 @@ def _read_dashboard_data():
             )
             action_rows = cursor.fetchall()
 
+            # 조치 목록은 (유형, IP) 묶음의 최신 1건만 보여주므로, 맵의 도달 표시는
+            # 같은 묶음의 미해결 이벤트 전체로 판정한다(앞서 WAF 를 통과한 구간이 가려지지 않게).
+            group_rows = []
+            action_ips = sorted({row["attacker_ip"] for row in action_rows if row.get("attacker_ip")})
+            if action_ips:
+                placeholders = ", ".join(["%s"] * len(action_ips))
+                cursor.execute(
+                    f"""
+                    SELECT id, scenario_type, asset, attacker_ip, blocked, block_result, logs
+                    FROM security_events
+                    WHERE status NOT IN ('조치 완료', '자동 완료', '예외 처리', '완료')
+                      AND attacker_ip IN ({placeholders})
+                    """,
+                    action_ips,
+                )
+                group_rows = cursor.fetchall()
+
             cursor.execute(
                 """
                 SELECT *
@@ -507,9 +538,21 @@ def _read_dashboard_data():
             )
             remediation_rows = cursor.fetchall()
 
+    instance_map = load_instance_map(os.getenv("INSTANCE_ASSET_MAP"))
+    group_verdicts = {}
+    for row in group_rows:
+        key = (row.get("scenario_type"), row.get("attacker_ip"))
+        group_verdicts.setdefault(key, []).append(classify_event(row, instance_map))
+
+    def action_reach(row):
+        if not row.get("attacker_ip"):
+            return _event_reach(row, instance_map)
+        key = (row.get("scenario_type"), row.get("attacker_ip"))
+        return merge_verdicts(group_verdicts.get(key) or [classify_event(row, instance_map)])
+
     return {
-        "events": [_event_to_action_event(row) for row in action_rows],
-        "detectHistory": [_event_to_detect_history(row) for row in detect_rows],
+        "events": [_event_to_action_event(row, action_reach(row)) for row in action_rows],
+        "detectHistory": [_event_to_detect_history(row, instance_map) for row in detect_rows],
         "remediationHistory": [
             _remediation_to_history(row) for row in remediation_rows
         ],
