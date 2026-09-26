@@ -88,6 +88,13 @@ ROLE_CRED_RECOMMENDATION = (
     "해당 역할의 활성 세션 폐기(IAM 역할 → Revoke active sessions), CloudTrail 에서 이 자격증명의 "
     "호출 내역 확인, 자격증명을 발급한 EC2 의 침해 여부 점검, 역할이 읽을 수 있는 Secret 교체"
 )
+# 관리자 ALB 는 admin_cidrs 에서만 열려 있어서, 관리자 WAF 에 찍힌 공격 IP 는 항상 허용된
+# 관리자 IP 다. Remediation Lambda 는 이 대역(PROTECTED_CIDRS)을 차단하지 않으므로 IP 차단은
+# 반드시 실패한다. 공격자를 막을 일이 아니라 그 관리자 PC·계정을 사람이 확인할 일이다.
+ADMIN_SOURCE_RECOMMENDATION = (
+    "허용된 관리자 IP 에서 발생한 탐지입니다. 해당 관리자 PC 의 악성코드 감염 여부 점검, "
+    "관리자 계정 비밀번호 변경, 실제 작업·테스트에 의한 오탐인지 확인"
+)
 LOG_RANGE_DELTAS = {
     "15m": timedelta(minutes=15),
     "1h": timedelta(hours=1),
@@ -224,14 +231,23 @@ def _severity(value):
     return text if text in VALID_SEVERITIES else "Info"
 
 
-def _extracted_params(event):
-    """Lambda A 가 logs.extracted 에 남긴 조치용 값(userName, accessKeyId, ip)."""
+def _event_logs(event):
     try:
         logs = json.loads(event.get("logs") or "{}")
     except (TypeError, ValueError):
         return {}
-    extracted = logs.get("extracted") if isinstance(logs, dict) else None
+    return logs if isinstance(logs, dict) else {}
+
+
+def _extracted_params(event):
+    """Lambda A 가 logs.extracted 에 남긴 조치용 값(userName, accessKeyId, ip)."""
+    extracted = _event_logs(event).get("extracted")
     return extracted if isinstance(extracted, dict) else {}
+
+
+def _from_admin_waf(event):
+    """Lambda B 가 관리자 WAF 로그에서 만든 이벤트인지(logs.waf == "admin")."""
+    return _event_logs(event).get("waf") == "admin"
 
 
 def _auto_action(event):
@@ -244,12 +260,17 @@ def _auto_action(event):
     action = REMEDIATION_ACTIONS.get(event.get("scenario_type"))
     if action == "block_ip" and not str(event.get("attacker_ip") or "").strip():
         return None
+    # 관리자 WAF 이벤트의 IP 는 항상 보호 대역이라 IP 차단이 반드시 거부된다(ADMIN_SOURCE_RECOMMENDATION 참고).
+    if action == "block_ip" and _from_admin_waf(event):
+        return None
     if action == "disable_access_key" and not _extracted_params(event).get("userName"):
         return None
     return action
 
 
 def _recommendation(row):
+    if _from_admin_waf(row):
+        return ADMIN_SOURCE_RECOMMENDATION
     if row.get("scenario_type") == "cred" and not _extracted_params(row).get("userName"):
         return ROLE_CRED_RECOMMENDATION
     return row.get("recommendation") or ""
