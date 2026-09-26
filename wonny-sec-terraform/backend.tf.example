@@ -1,0 +1,12 @@
+# 팀 작업/실제 운영 시 로컬 tfstate 대신 원격 backend 사용을 권장합니다.
+# 먼저 별도의 bootstrap 단계에서 state bucket을 만든 뒤 아래를 backend.tf로 변경하세요.
+#
+# terraform {
+#   backend "s3" {
+#     bucket       = "REPLACE_ME"
+#     key          = "wonny-sec/terraform.tfstate"
+#     region       = "ap-northeast-2"
+#     encrypt      = true
+#     use_lockfile = true
+#   }
+# }

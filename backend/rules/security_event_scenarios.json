@@ -1,0 +1,42 @@
+{
+  "sqli": {
+    "display_name": "SQL Injection", "source": "WAF",
+    "focus": ["공격 IP", "요청 URI와 HTTP Method", "Query String 또는 Body", "실제 matchedData", "SQL Injection WAF Rule", "WAF Action", "반복 요청 여부"],
+    "evidence_candidates": ["clientIp", "uri", "httpMethod", "args", "body", "matchedData", "terminatingRuleId", "action", "count"]
+  },
+  "xss": {
+    "display_name": "XSS", "source": "WAF",
+    "focus": ["공격 IP", "요청 URI", "Parameter", "실제 XSS Payload 또는 matchedData", "WAF Rule", "Action"],
+    "evidence_candidates": ["clientIp", "uri", "args", "body", "matchedData", "terminatingRuleId", "action"]
+  },
+  "dir": {
+    "display_name": "디렉터리 서치", "source": "WAF",
+    "focus": ["공격 IP", "HTTP Method", "접근 URI와 민감 경로", "HTTP Status", "요청 횟수", "발생 시간 범위", "WAF Action"],
+    "evidence_candidates": ["clientIp", "httpMethod", "uri", "status", "count", "timestamp", "action"]
+  },
+  "brute": {
+    "display_name": "로그인 무차별대입", "source": "WAF",
+    "focus": ["공격 IP", "로그인 URI", "로그인 요청 횟수", "실패 횟수", "발생 시간 범위", "대상 계정", "로그인 성공 여부"],
+    "evidence_candidates": ["clientIp", "uri", "count", "failureCount", "timestamp", "username", "loginSuccess"]
+  },
+  "flood": {
+    "display_name": "대량 요청 과부하 (Rate Limit)", "source": "WAF",
+    "focus": ["공격 IP", "5분간 요청 수(Rate Limit 카운트)", "Rate Limit 임계치", "WAF Action(BLOCK 비율)", "대상 경로", "발생 시간 범위"],
+    "evidence_candidates": ["clientIp", "uri", "count", "limit", "action", "timestamp"]
+  },
+  "port": {
+    "display_name": "Port Scan", "source": "GuardDuty",
+    "focus": ["Source IP", "대상 리소스", "대상 Port 목록", "Protocol", "접근 시도 횟수", "발생 시간 범위", "GuardDuty Finding"],
+    "evidence_candidates": ["ipAddressV4", "resource", "port", "protocol", "count", "eventFirstSeen", "eventLastSeen", "type"]
+  },
+  "cred": {
+    "display_name": "탈취 자격증명 비정상 API 호출", "source": "GuardDuty / CloudTrail",
+    "focus": ["IAM User 또는 Role", "Access Key 관련 정보", "호출된 AWS API", "Source IP", "Region", "GuardDuty Finding", "CloudTrail 정보", "평소와 다른 API 호출 여부"],
+    "evidence_candidates": ["userName", "principalId", "accessKeyId", "api", "eventName", "sourceIPAddress", "region", "type", "userIdentity"]
+  },
+  "vuln": {
+    "display_name": "취약 컨테이너 이미지", "source": "Inspector",
+    "focus": ["ECR Repository", "Image", "Tag", "CVE", "Package", "Installed Version", "Fixed Version", "CVSS", "Inspector Severity"],
+    "evidence_candidates": ["repositoryName", "imageHash", "imageTags", "vulnerabilityId", "name", "version", "fixedInVersion", "cvss", "severity"]
+  }
+}

@@ -1,0 +1,29 @@
+region  = "ap-northeast-2"
+project = "wonny-sec"
+
+# 관리자 화면 접속을 허용할 실제 공인 IP/32로 변경
+admin_cidrs = ["203.0.113.10/32"]
+
+notification_email = "you@example.com"
+
+# 현재 도메인이 없으면 false 유지.
+# 이 경우 shop/admin ALB 기본 DNS 주소를 output으로 사용합니다.
+enable_custom_domain = false
+route53_zone_id      = ""
+shop_domain          = ""
+admin_domain         = ""
+
+enable_security_services = true
+
+# Interface Endpoint는 비용이 발생하므로 처음에는 false 권장
+enable_vpc_endpoints = false
+
+force_destroy_buckets = false
+
+# 운영 지표 수집 주기와 CloudWatch 집계 구간. 두 값을 함께 변경하세요.
+monitoring_schedule_expression = "rate(1 minute)"
+monitoring_period_seconds      = 60
+
+# GitHub Actions OIDC를 이미 AWS 계정에 만들어 둔 경우에만 채움
+github_repository        = ""
+github_oidc_provider_arn = ""

@@ -1,0 +1,28 @@
+wonny-sec Terraform 빠른 실행 (Windows CMD)
+
+1) 프로젝트 폴더 이동
+   cd /d C:\...\wonny-sec-terraform
+
+2) 설정 파일 생성
+   copy terraform.tfvars.example terraform.tfvars
+   notepad terraform.tfvars
+
+3) 반드시 수정
+   - admin_cidrs
+   - notification_email (필요 시)
+   - 도메인 없으면 enable_custom_domain = false 유지
+
+4) 실행
+   terraform init
+   terraform fmt
+   terraform validate
+   terraform plan -out=review.tfplan
+   terraform apply review.tfplan
+   terraform output
+
+5) 삭제
+   terraform plan -destroy -out=destroy.tfplan
+   terraform apply destroy.tfplan
+   terraform state list
+
+상세 설명은 00_실행방법_설명서.md 참고.
