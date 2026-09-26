@@ -36,6 +36,9 @@ export interface ActionEvent {
 
   attackPath: string[]
 
+  // 실제 도달 판정(백엔드 services/attack_reach). 있으면 맵은 attackPath 대신 이것을 쓴다.
+  reach?: EventReach | null
+
   details: {
     attackerIP?: string
 
@@ -66,6 +69,19 @@ export interface ScenarioCard {
 }
 
 
+export interface EventReach {
+  stage: "S1" | "S2" | "S3" | "S4" | "C"
+  confidence: "confirmed" | "fallback" | "uncertain"
+  requests: number | null
+  passed: number | null
+  target: string | null
+  // 로그로 확인된 도달 자산 / ALB 이후 추정 도달 자산
+  confirmed: string[]
+  estimated: string[]
+  // 같은 (유형, IP) 묶음에서 판정에 쓴 이벤트 수
+  grouped: number
+}
+
 export interface DetectHistoryItem {
   id: string | number
   time: string
@@ -77,6 +93,7 @@ export interface DetectHistoryItem {
   ip: string
   blocked: string
   status: string
+  reach?: EventReach | null
 }
 
 export interface RemediationHistoryItem {

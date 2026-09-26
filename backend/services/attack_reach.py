@@ -160,6 +160,40 @@ def classify_event(row, instance_map=None, remediated=False):
     return None
 
 
+def merge_verdicts(verdicts):
+    """같은 (유형, IP) 로 묶인 이벤트들의 판정 → 대시보드 맵에 쓸 하나의 도달 정보.
+
+    대시보드 조치 목록은 반복 탐지를 최신 1건으로 묶어 보여주고 승인도 묶음 단위로 하므로,
+    최신 5분 구간만 보면 앞서 WAF 를 통과했던 공격이 가려진다. 묶음 전체의 최대 도달로 본다.
+    판정 대상이 하나도 없으면 None (프론트는 기존 attack_path 를 그대로 쓴다).
+    """
+    verdicts = [v for v in verdicts if v]
+    if not verdicts:
+        return None
+    staged = [v for v in verdicts if v["stage"] in STAGE_RANK]
+    top = max(staged, key=lambda v: STAGE_RANK[v["stage"]]) if staged else verdicts[0]
+    at_top = [v for v in verdicts if v["stage"] == top["stage"]]
+    confirmed, estimated = [], []
+    for v in verdicts:
+        for asset_id in v["reach"]["confirmed"]:
+            if asset_id not in confirmed:
+                confirmed.append(asset_id)
+    for v in verdicts:
+        for asset_id in v["reach"]["estimated"]:
+            if asset_id not in confirmed and asset_id not in estimated:
+                estimated.append(asset_id)
+    return {
+        "stage": top["stage"],
+        "confidence": "confirmed" if any(v["confidence"] == "confirmed" for v in at_top) else top["confidence"],
+        "requests": _sum_known(v["requests"] for v in verdicts),
+        "passed": _sum_known(v["passed"] for v in verdicts),
+        "target": next((v["target"] for v in verdicts if v["target"]), None),
+        "confirmed": confirmed,
+        "estimated": estimated,
+        "grouped": len(verdicts),
+    }
+
+
 def _iso(value):
     if value is None:
         return None

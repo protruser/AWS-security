@@ -76,7 +76,7 @@ interface AttackerDetail {
   truncated: boolean
 }
 
-const STAGE_META: Record<Stage, { label: string; className: string }> = {
+export const STAGE_META: Record<Stage, { label: string; className: string }> = {
   S1: { label: "정찰", className: "bg-[#EFF8FF] text-[#175CD3]" },
   S2: { label: "경계 차단", className: "bg-[#ECFDF3] text-[#067647]" },
   S3: { label: "일부 통과", className: "bg-[#FFFAEB] text-[#B54708]" },
@@ -135,7 +135,7 @@ async function fetchJson<T>(url: string, onUnauthorized: () => void): Promise<T>
   return body as T
 }
 
-function StageBadge({ stage, confidence }: { stage: Stage | null; confidence?: Confidence | null }) {
+export function StageBadge({ stage, confidence }: { stage: Stage | null; confidence?: Confidence | null }) {
   if (!stage) return <span className="text-[11px] text-[#98A2B3]">-</span>
   const meta = STAGE_META[stage]
   return (
