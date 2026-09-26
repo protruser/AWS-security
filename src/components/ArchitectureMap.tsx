@@ -9,6 +9,8 @@ interface MapProps {
   assetStatuses: Record<string, AssetStatus>
   highlightedAssets: string[]
   attackPathAssets: string[]
+  // 로그로 확인되지 않고 추정만 되는 도달 자산 (공격 IP 추적 화면). 점선 테두리로 구분한다.
+  estimatedAssets?: string[]
   connectionAssetGroups: string[][]
   alerts: Record<string, { level: "critical" | "warning"; reason: string }>
   onAssetClick: (assetId: string) => void
@@ -49,6 +51,7 @@ export function ArchitectureMap({
   assetStatuses,
   highlightedAssets,
   attackPathAssets,
+  estimatedAssets = [],
   connectionAssetGroups,
   alerts,
   onAssetClick,
@@ -173,6 +176,7 @@ export function ArchitectureMap({
               status={assetStatuses[asset.id] || asset.defaultStatus}
               isHighlighted={highlightedAssets.includes(asset.id)}
               isAttackPath={attackPathAssets.includes(asset.id)}
+              isEstimated={estimatedAssets.includes(asset.id)}
               alert={alerts[asset.id]}
               onClick={() => onAssetClick(asset.id)}
               isMuted={hasScenario && !highlightedAssets.includes(asset.id)}
