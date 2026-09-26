@@ -41,7 +41,10 @@ class DirectRemediationTest(unittest.TestCase):
         self.login()
         for scenario, action in app.REMEDIATION_ACTIONS.items():
             with self.subTest(scenario=scenario):
-                event = self.event(scenario)
+                # cred 자동 조치(disable_access_key)는 Lambda A 가 뽑아 둔 IAM 사용자 이름이 있어야 한다.
+                extra = ({"logs": '{"extracted": {"userName": "ci-deployer"}}'}
+                         if action == "disable_access_key" else {})
+                event = self.event(scenario, **extra)
                 with patch.object(app, "get_connection", return_value=self.connection(event)), \
                      patch.object(app, "_execute_remediation_action", return_value=(True, None)) as execute:
                     response = self.client.post("/api/remediate", json={"event_id": "event-1"})
@@ -54,7 +57,8 @@ class DirectRemediationTest(unittest.TestCase):
             (self.event("vuln"), "MANUAL_REMEDIATION"),
             (self.event(status="조치 완료"), "EVENT_NOT_ACTIONABLE"),
             (self.event(status=app.PENDING_APPROVAL_STATUS), "EVENT_NOT_ACTIONABLE"),
-            (self.event(attacker_ip=""), "REMEDIATION_DATA_MISSING"),
+            # 조치에 필요한 IP 가 없으면 자동 조치가 아니라 수동 조치(승인 요청)로 보낸다.
+            (self.event(attacker_ip=""), "MANUAL_REMEDIATION"),
         ]
         for event, error in cases:
             with self.subTest(error=error), \
