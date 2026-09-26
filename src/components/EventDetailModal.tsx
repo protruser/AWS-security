@@ -120,7 +120,18 @@ export function EventDetailModal({
             {facts.map(([label, value]) => (
               <div key={label} className="min-w-0">
                 <dt className="text-[10px] font-semibold text-[#667085]">{label}</dt>
-                <dd className="break-all text-[#344054]">{value}</dd>
+                <dd className="break-all text-[#344054]">
+                  {value}
+                  {label === "공격 IP" && (
+                    <a
+                      href={`#/attackers/${encodeURIComponent(value)}`}
+                      onClick={onClose}
+                      className="ml-2 whitespace-nowrap text-[11px] font-semibold text-[#175CD3] hover:underline"
+                    >
+                      이 IP 추적 →
+                    </a>
+                  )}
+                </dd>
               </div>
             ))}
           </dl>

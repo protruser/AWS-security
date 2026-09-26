@@ -18,6 +18,7 @@ export function AssetCard({
   status,
   isHighlighted,
   isAttackPath,
+  isEstimated = false,
   onClick,
   isMuted,
   alert,
@@ -30,6 +31,8 @@ export function AssetCard({
 
   isAttackPath: boolean
 
+  isEstimated?: boolean
+
   onClick: () => void
 
   isMuted: boolean
@@ -41,7 +44,9 @@ export function AssetCard({
 
   const ring = isAttackPath
     ? "#D92D20"
-    : isHighlighted
+    : isEstimated
+      ? "transparent"
+      : isHighlighted
       ? "#101828"
       : STATUS_RING[status]
 
@@ -88,6 +93,9 @@ export function AssetCard({
               ring !== "transparent" && !alert
                 ? `0 0 0 3px white, 0 0 0 5px ${ring}`
                 : undefined,
+            // 추정 도달은 확인된 도달(빨간 실선 테두리)과 구분되게 주황 점선으로 그린다.
+            outline: isEstimated && !isAttackPath && !alert ? "2px dashed #F79009" : undefined,
+            outlineOffset: isEstimated && !isAttackPath && !alert ? 3 : undefined,
           }}
         >
           <AwsIcon name={asset.icon} size={ICON} />

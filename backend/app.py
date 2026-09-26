@@ -1,5 +1,6 @@
 import hmac
 import io
+import ipaddress
 import json
 import os
 import threading
@@ -40,6 +41,7 @@ from services.ai_diagnosis_service import (
     load_rule_meta,
 )
 from services.aws_collector import collect_aws_state
+from services.attack_reach import build_attacker_list, build_ip_detail, load_instance_map
 
 load_dotenv()
 
@@ -1744,6 +1746,115 @@ def monitoring_metrics():
         return jsonify({"error": "INVALID_QUERY", "message": str(exc)}), 400
     except Exception as exc:
         app.logger.exception("Failed to read monitoring metrics")
+        return jsonify({"error": "DATABASE_READ_FAILED", "message": str(exc)}), 500
+
+
+# IP별 공격 도달 추적. 판정 규칙은 services/attack_reach.py 에 있다.
+ATTACKER_RANGES = {"24h", "7d"}
+ATTACKER_EVENT_LIMIT = 5000
+ATTACKER_STAGES = {"S1", "S2", "S3", "S4", "C"}
+
+
+def _attacker_window(args):
+    range_key = str(args.get("range") or "7d").strip().lower()
+    if range_key not in ATTACKER_RANGES:
+        raise ValueError("지원하지 않는 조회 기간입니다.")
+    # detected_at 은 UTC 로 저장되므로 서버 로컬 시간이 아니라 UTC 기준으로 자른다.
+    end_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    return range_key, end_at - LOG_RANGE_DELTAS[range_key], end_at
+
+
+def _read_attacker_data(start_at, end_at, ip=None):
+    conditions = ["attacker_ip IS NOT NULL", "attacker_ip <> ''", "detected_at >= %s", "detected_at <= %s"]
+    params = [start_at, end_at]
+    if ip:
+        conditions.append("attacker_ip = %s")
+        params.append(ip)
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT id, scenario_type, severity, title, asset, detected_at, status,
+                       attacker_ip, blocked, block_result, logs
+                FROM security_events
+                WHERE {' AND '.join(conditions)}
+                ORDER BY detected_at DESC
+                LIMIT %s
+                """,
+                (*params, ATTACKER_EVENT_LIMIT + 1),
+            )
+            rows = cursor.fetchall()
+            truncated = len(rows) > ATTACKER_EVENT_LIMIT
+            rows = sorted(rows[:ATTACKER_EVENT_LIMIT], key=lambda row: row["detected_at"])
+
+            ips = sorted({row["attacker_ip"] for row in rows})
+            remediations = []
+            if ips:
+                # 차단은 조회 기간 전에 했을 수도 있으므로 조치 이력은 기간으로 자르지 않는다.
+                placeholders = ", ".join(["%s"] * len(ips))
+                cursor.execute(
+                    f"""
+                    SELECT rh.event_id, rh.action_type, rh.method, rh.result, rh.result_detail,
+                           rh.requested_at, rh.completed_at, se.attacker_ip
+                    FROM remediation_history rh
+                    JOIN security_events se ON se.id = rh.event_id
+                    WHERE se.attacker_ip IN ({placeholders})
+                    """,
+                    ips,
+                )
+                remediations = cursor.fetchall()
+    return rows, remediations, truncated
+
+
+@app.get("/api/attackers")
+@login_required
+def attackers():
+    try:
+        range_key, start_at, end_at = _attacker_window(request.args)
+        stage = str(request.args.get("stage") or "").strip().upper()
+        if stage and stage not in ATTACKER_STAGES:
+            raise ValueError("지원하지 않는 단계입니다.")
+        query = str(request.args.get("q") or "").strip()[:45]
+
+        rows, remediations, truncated = _read_attacker_data(start_at, end_at)
+        result = build_attacker_list(
+            rows, remediations, load_instance_map(os.getenv("INSTANCE_ASSET_MAP"))
+        )
+        items = result["items"]
+        if stage == "C":
+            items = [item for item in items if item["cloudAccess"]]
+        elif stage:
+            items = [item for item in items if item["maxStage"] == stage]
+        if query:
+            items = [item for item in items if query in item["ip"]]
+        return jsonify({**result, "items": items, "range": range_key, "truncated": truncated})
+    except ValueError as exc:
+        return jsonify({"error": "INVALID_QUERY", "message": str(exc)}), 400
+    except Exception as exc:
+        app.logger.exception("Failed to read attackers")
+        return jsonify({"error": "DATABASE_READ_FAILED", "message": str(exc)}), 500
+
+
+@app.get("/api/attackers/<ip>")
+@login_required
+def attacker_detail(ip):
+    try:
+        ip = str(ipaddress.ip_address(ip.strip()))
+    except ValueError:
+        return jsonify({"error": "INVALID_IP", "message": "올바른 IP 주소가 아닙니다."}), 400
+    try:
+        range_key, start_at, end_at = _attacker_window(request.args)
+        rows, remediations, truncated = _read_attacker_data(start_at, end_at, ip)
+        detail = build_ip_detail(
+            ip, rows, remediations, load_instance_map(os.getenv("INSTANCE_ASSET_MAP"))
+        )
+        if detail is None:
+            return jsonify({"error": "NOT_FOUND", "message": "조회 기간에 이 IP의 탐지 기록이 없습니다."}), 404
+        return jsonify({**detail, "range": range_key, "truncated": truncated})
+    except ValueError as exc:
+        return jsonify({"error": "INVALID_QUERY", "message": str(exc)}), 400
+    except Exception as exc:
+        app.logger.exception("Failed to read attacker detail")
         return jsonify({"error": "DATABASE_READ_FAILED", "message": str(exc)}), 500
 
 

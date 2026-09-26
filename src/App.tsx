@@ -20,6 +20,7 @@ import { ScenarioPage } from "./components/ScenarioPage"
 import { ManualMonitoringPage } from "./components/ManualMonitoringPage"
 import { AIDiagnosisPage } from "./components/AIDiagnosisPage"
 import { ApprovalQueuePage, ApprovalRequestList } from "./components/ApprovalQueuePage"
+import { AttackerTrackingPage } from "./components/AttackerTrackingPage"
 import { ApprovalModal, DonutGauge, SeverityBadge } from "./components/common"
 import { LoginPage } from "./components/LoginPage"
 import { fetchOverviewMetrics } from "./services/dashboardApi"
@@ -1202,7 +1203,7 @@ export function ScenarioCardWrapper({
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
-type MainSection = "dashboard" | "events" | "monitoring" | "ai-actions" | "ai-diagnosis" | "approvals"
+type MainSection = "dashboard" | "events" | "attackers" | "monitoring" | "ai-actions" | "ai-diagnosis" | "approvals"
 type DashboardDataState = "loading" | "success" | "error"
 
 interface SecurityNotification {
@@ -1462,6 +1463,7 @@ function parseRoute(): string | null {
 
 const SECTION_KEYS: MainSection[] = [
   "events",
+  "attackers",
   "monitoring",
   "ai-diagnosis",
   "ai-actions",
@@ -1470,9 +1472,21 @@ const SECTION_KEYS: MainSection[] = [
 
 // 새로고침해도 보고 있던 탭(대시보드 제외)이 유지되도록, 현재 섹션을 해시에 남긴다.
 function parseSectionRoute(): MainSection {
-  const m = window.location.hash.match(/^#\/(events|monitoring|ai-diagnosis|ai-actions|approvals)$/)
+  if (parseAttackerRoute() !== null) return "attackers"
+  const m = window.location.hash.match(/^#\/(events|attackers|monitoring|ai-diagnosis|ai-actions|approvals)$/)
   const key = m?.[1] as MainSection | undefined
   return key && SECTION_KEYS.includes(key) ? key : "dashboard"
+}
+
+// 공격 IP 추적 상세(#/attackers/<ip>)를 새로고침·링크로 바로 열 수 있게 IP 를 해시에 둔다.
+function parseAttackerRoute(): string | null {
+  const m = window.location.hash.match(/^#\/attackers\/([^/]+)$/)
+  if (!m) return null
+  try {
+    return decodeURIComponent(m[1])
+  } catch {
+    return null
+  }
 }
 
 export default function App() {
@@ -1484,6 +1498,7 @@ export default function App() {
   const [autoRefresh, setAutoRefresh] = useState(true)
 
   const [activeSection, setActiveSection] = useState<MainSection>(parseSectionRoute)
+  const [attackerIp, setAttackerIp] = useState<string | null>(parseAttackerRoute)
   const [chatOpen, setChatOpen] = useState(false)
 
   const [rightTab, setRightTab] = useState<RightTab>("action")
@@ -1655,6 +1670,7 @@ export default function App() {
     const onHash = () => {
       setPageId(parseRoute())
       setActiveSection(parseSectionRoute())
+      setAttackerIp(parseAttackerRoute())
     }
     window.addEventListener("hashchange", onHash)
     return () => window.removeEventListener("hashchange", onHash)
@@ -2361,6 +2377,24 @@ export default function App() {
               ),
             },
             {
+              key: "attackers",
+              label: "공격 IP 추적",
+              icon: (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="17"
+                  height="17"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <circle cx="12" cy="12" r="8" />
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                </svg>
+              ),
+            },
+            {
               key: "monitoring",
               label: "수동 모니터링",
               icon: (
@@ -2553,6 +2587,17 @@ export default function App() {
                 />
               </div>
             </div>
+          ) : activeSection === "attackers" ? (
+            <AttackerTrackingPage
+              selectedIp={attackerIp}
+              onSelectIp={(ip) => {
+                window.location.hash = ip ? `#/attackers/${encodeURIComponent(ip)}` : "#/attackers"
+              }}
+              onUnauthorized={() => {
+                setAuthUser(null)
+                setAuthState("unauthenticated")
+              }}
+            />
           ) : activeSection === "monitoring" ? (
             <ManualMonitoringPage
               onUnauthorized={() => {
