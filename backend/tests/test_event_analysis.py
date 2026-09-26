@@ -244,7 +244,7 @@ class EventAnalysisRouteTest(unittest.TestCase):
             with patch.object(app, "analyze_event", return_value={"test": True}) as analyze:
                 response = self.client.post("/api/events/ai-analysis", json={"event_id": 123, "logs": "forged"})
                 self.assertEqual(response.status_code, 200)
-                analyze.assert_called_once_with("123", app.get_connection, app.REMEDIATION_ACTIONS)
+                analyze.assert_called_once_with("123", app.get_connection, app._auto_action)
 
     def test_invalid_ids(self):
         self.login()

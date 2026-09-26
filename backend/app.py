@@ -82,6 +82,12 @@ REMEDIATION_ACTIONS = {
     "flood": "block_ip",
 }
 REMEDIATION_CLOSED_STATUSES = {"조치 완료", "자동 완료", "완료", "예외 처리"}
+# 역할·임시 자격증명(IAM 사용자 없음) 탈취에 대한 권고. Lambda A 가 예전에 넣던
+# "IAM 사용자의 Access Key 비활성화"는 역할 키에는 비활성화할 키가 없어 맞지 않는다.
+ROLE_CRED_RECOMMENDATION = (
+    "해당 역할의 활성 세션 폐기(IAM 역할 → Revoke active sessions), CloudTrail 에서 이 자격증명의 "
+    "호출 내역 확인, 자격증명을 발급한 EC2 의 침해 여부 점검, 역할이 읽을 수 있는 Secret 교체"
+)
 LOG_RANGE_DELTAS = {
     "15m": timedelta(minutes=15),
     "1h": timedelta(hours=1),
@@ -218,6 +224,37 @@ def _severity(value):
     return text if text in VALID_SEVERITIES else "Info"
 
 
+def _extracted_params(event):
+    """Lambda A 가 logs.extracted 에 남긴 조치용 값(userName, accessKeyId, ip)."""
+    try:
+        logs = json.loads(event.get("logs") or "{}")
+    except (TypeError, ValueError):
+        return {}
+    extracted = logs.get("extracted") if isinstance(logs, dict) else None
+    return extracted if isinstance(extracted, dict) else {}
+
+
+def _auto_action(event):
+    """자동 조치(Remediation Lambda)로 처리할 수 있으면 그 조치 이름, 아니면 None(수동 조치).
+
+    유형만 보지 않고 Lambda 가 실제로 쓰는 값이 있는지까지 본다. 역할 키 탈취(cred)는
+    userName 이 없어 disable_access_key 가 반드시 실패하는데, 유형만 보고 자동으로 분류하면
+    자동 조치는 실패하고 수동 요청은 "자동 조치 이벤트"라며 거부돼 닫을 방법이 없었다.
+    """
+    action = REMEDIATION_ACTIONS.get(event.get("scenario_type"))
+    if action == "block_ip" and not str(event.get("attacker_ip") or "").strip():
+        return None
+    if action == "disable_access_key" and not _extracted_params(event).get("userName"):
+        return None
+    return action
+
+
+def _recommendation(row):
+    if row.get("scenario_type") == "cred" and not _extracted_params(row).get("userName"):
+        return ROLE_CRED_RECOMMENDATION
+    return row.get("recommendation") or ""
+
+
 def _event_to_action_event(row, reach=None):
     return {
         "id": str(row["id"]),
@@ -233,9 +270,9 @@ def _event_to_action_event(row, reach=None):
         # 감지됨"이라는 뜻 - 실제로 그만큼의 별도 행이 DB에 있다.
         "occurrenceCount": int(row.get("occurrence_count") or 1),
         "status": row.get("status") or "검토 필요",
-        "recommendation": row.get("recommendation") or "",
+        "recommendation": _recommendation(row),
         "autoRemediation": bool(row.get("auto_remediation")),
-        "remediationType": "AUTO" if row.get("scenario_type") in REMEDIATION_ACTIONS else "MANUAL",
+        "remediationType": "AUTO" if _auto_action(row) else "MANUAL",
         "highlightAssets": _json_list(row.get("highlight_assets")),
         "attackPath": _json_list(row.get("attack_path")),
         # 실제 도달 판정(services/attack_reach). 있으면 맵은 attackPath 대신 이것을 쓴다.
@@ -1407,8 +1444,7 @@ def create_approval_request():
                 if event.get("status") == PENDING_APPROVAL_STATUS:
                     return jsonify(error="ALREADY_REQUESTED", message="이미 승인자에게 보낸 요청이 있습니다."), 409
 
-                action = REMEDIATION_ACTIONS.get(event.get("scenario_type"))
-                if action:
+                if _auto_action(event):
                     return jsonify(error="AUTO_REMEDIATION", message="자동 조치 이벤트는 조치 실행을 이용해 주세요."), 409
 
                 cursor.execute(
@@ -1459,11 +1495,9 @@ def remediate_event():
         return jsonify(error="EVENT_NOT_FOUND", message="보안 이벤트를 찾을 수 없습니다."), 404
     if event.get("status") in REMEDIATION_CLOSED_STATUSES or event.get("status") == PENDING_APPROVAL_STATUS:
         return jsonify(error="EVENT_NOT_ACTIONABLE", message="조치할 수 없는 상태의 이벤트입니다."), 409
-    action = REMEDIATION_ACTIONS.get(event.get("scenario_type"))
+    action = _auto_action(event)
     if not action:
         return jsonify(error="MANUAL_REMEDIATION", message="수동 조치는 승인 요청이 필요합니다."), 409
-    if action == "block_ip" and not str(event.get("attacker_ip") or "").strip():
-        return jsonify(error="REMEDIATION_DATA_MISSING", message="차단할 공격 IP 정보가 없습니다."), 400
 
     success, error_message = _execute_remediation_action(
         event, action, session.get("username") or "admin"
@@ -1910,7 +1944,7 @@ def event_ai_analysis():
             or not str(event_id).strip() or len(str(event_id)) > 255):
         return jsonify({"error": "INVALID_EVENT_ID"}), 400
     try:
-        return jsonify(analyze_event(str(event_id), get_connection, REMEDIATION_ACTIONS))
+        return jsonify(analyze_event(str(event_id), get_connection, _auto_action))
     except EventNotFound:
         return jsonify({"error": "EVENT_NOT_FOUND"}), 404
     except AnalysisBusy:

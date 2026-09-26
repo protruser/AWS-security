@@ -76,7 +76,9 @@ def build_context(event, actions):
             raw = json.loads(raw)
         except ValueError:
             pass
-    action = actions.get(scenario)
+    # actions: 유형 → 조치 dict, 또는 이벤트를 받아 조치를 돌려주는 함수(app._auto_action).
+    # 함수면 역할 키 cred 처럼 조치에 필요한 데이터가 없는 이벤트를 수동으로 판단할 수 있다.
+    action = actions(event) if callable(actions) else actions.get(scenario)
     if action and action not in ACTION_DESCRIPTIONS:
         raise AnalysisUnavailable("Unknown configured action")
     facts = {key: event.get(key) for key in (

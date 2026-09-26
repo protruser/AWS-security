@@ -51,10 +51,13 @@ function reachSummaryText(reach: EventReach) {
 
 // ─── Action card ──────────────────────────────────────────────────────────────
 function canRemediate(event: ActionEvent) {
-  // 백엔드 REMEDIATION_ACTIONS와 반드시 같은 목록이어야 한다(안 그러면 "자동 조치
-  // 가능" 배지는 뜨는데 승인 버튼은 "수동 조치 필요"로 나오는 불일치가 생김).
-  return ["sqli", "dir", "brute", "xss", "cred", "port", "flood"].includes(event.scenarioType ?? "")
-    && !["조치 완료", "자동 완료", "완료", "예외 처리"].includes(event.status)
+  // 자동 조치 가능 여부는 백엔드(_auto_action)가 유형과 조치에 필요한 데이터로 판단한
+  // remediationType 을 따른다. 예: IAM 사용자가 없는 역할 키 탈취(cred)는 Access Key 를
+  // 비활성화할 수 없어 수동 조치로 분류된다. remediationType 이 없는 옛 응답만 유형으로 판단한다.
+  const auto = event.remediationType
+    ? event.remediationType === "AUTO"
+    : ["sqli", "dir", "brute", "xss", "cred", "port", "flood"].includes(event.scenarioType ?? "")
+  return auto && !["조치 완료", "자동 완료", "완료", "예외 처리"].includes(event.status)
 }
 
 const SEVERITY_RANK: Record<string, number> = {
