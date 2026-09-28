@@ -77,6 +77,11 @@ class AIActionRouteTest(unittest.TestCase):
         app.app.config.update(TESTING=True, SECRET_KEY="test-only")
         self.client = app.app.test_client()
         self.repo = MemoryRepository()
+        for finding in self.repo.results['results'][:2]:
+            finding['resource_ids'] = ['bucket-1']
+            finding['expected_value'] = 'encrypted' if finding['rule_id'] == '4.3' else 'false'
+            finding['evidence'] = [{'resource': 'bucket-1', 'path': 'bucket.force_destroy',
+                                    'value': 'encrypted' if finding['rule_id'] == '4.3' else 'true'}]
         self.source = Mock()
         self.source.terraform_paths.return_value = ("a" * 40, [
             "modules/security/kms_secrets_storage.tf", "modules/security/a.tf",
@@ -86,10 +91,27 @@ class AIActionRouteTest(unittest.TestCase):
             "files": [{"file_path": p, "original_content": ORIGINAL, "blob_sha": "b" * 40}
                       for p in sorted(set(paths))]}
         self.gen = Mock(return_value={"proposed_content": PROPOSED, "diff": "UNTRUSTED AI DIFF"})
+        self.plan = Mock(return_value={'items': [
+            {'rule_id': '3.7', 'resource_id': 'bucket-1', 'status': 'modify',
+             'evidence': [self.repo.results['results'][0]['evidence'][0]],
+             'terraform_address': 'module.security.aws_s3_bucket.example',
+             'file_path': 'modules/security/kms_secrets_storage.tf',
+             'violation': 'force_destroy is enabled', 'expected_setting': 'force_destroy disabled',
+             'preserve': ['bucket identity'],
+             'required_information': [], 'changes': [
+                 {'before': '  force_destroy = true', 'after': '  force_destroy = false'}]},
+            {'rule_id': '4.3', 'resource_id': 'bucket-1', 'status': 'no_change',
+             'evidence': [self.repo.results['results'][1]['evidence'][0]],
+             'reason': 'already encrypted', 'changes': []}]})
+        state = {'bucket-1': {(('aws_s3_bucket', 'example', 'module.security'),
+                              'module.security.aws_s3_bucket.example')}}
+        state_mock = patch('services.terraform_patch_service.state_index', return_value=state)
+        state_mock.start(); self.addCleanup(state_mock.stop)
         self.report = Mock(side_effect=report_for)
         self.service = app.app.extensions["terraform_patches"]
         self.mocks = [patch.object(self.service, key, value) for key, value in {
-            "repo": self.repo, "source_factory": lambda: self.source, "generate": self.gen, "report": self.report,
+            "repo": self.repo, "source_factory": lambda: self.source, "generate": self.gen,
+            "plan": self.plan, "report": self.report,
             "submit": lambda work: work()}.items()]
         for mock in self.mocks:
             mock.start()
@@ -268,8 +290,31 @@ class AIActionRouteTest(unittest.TestCase):
         self.report.assert_not_called()
 
     def test_multiple_files_are_each_generated_once(self):
-        row = self.create(mapping={"3.7": ["modules/security/a.tf", "modules/security/b.tf"], "4.3": ["modules/security/a.tf"]}).get_json()
-        result = self.client.post("/api/ai-actions/terraform-fix", json={"patch_id": row["id"]}).get_json()
+        self.plan.return_value['items'][0]['file_path'] = 'modules/security/a.tf'
+        self.repo.results['results'][0]['resource_ids'].append('bucket-2')
+        self.repo.results['results'][0]['evidence'].append(
+            {'resource': 'bucket-2', 'path': 'bucket.force_destroy', 'value': 'true'})
+        second = copy.deepcopy(self.plan.return_value['items'][0])
+        second.update(resource_id='bucket-2', evidence=[self.repo.results['results'][0]['evidence'][1]],
+                      terraform_address='module.security.aws_s3_bucket.second',
+                      file_path='modules/security/b.tf')
+        self.plan.return_value['items'].append(second)
+        state = {'bucket-1': {(('aws_s3_bucket', 'example', 'module.security'),
+                              'module.security.aws_s3_bucket.example')},
+                 'bucket-2': {(('aws_s3_bucket', 'second', 'module.security'),
+                              'module.security.aws_s3_bucket.second')}}
+        with patch('services.terraform_patch_service.state_index', return_value=state):
+            original_snapshot = self.source.snapshot.side_effect
+            def snapshot(paths, check_secrets=True):
+                result = original_snapshot(paths, check_secrets)
+                for file in result['files']:
+                    if file['file_path'].endswith('/b.tf'):
+                        file['original_content'] = ORIGINAL.replace('"example"', '"second"')
+                return result
+            self.source.snapshot.side_effect = snapshot
+            self.gen.side_effect = lambda **kw: {'proposed_content': kw['file_content'].replace('true', 'false')}
+            row = self.create(mapping={"3.7": ["modules/security/a.tf", "modules/security/b.tf"], "4.3": ["modules/security/a.tf"]}).get_json()
+            result = self.client.post("/api/ai-actions/terraform-fix", json={"patch_id": row["id"]}).get_json()
         self.assertEqual(result["status"], "AWAITING_FIRST_APPROVAL")
         self.assertEqual(self.gen.call_count, 2)
         self.assertEqual(len(result["payload"]["report"]["changes"]), 2)

@@ -30,6 +30,51 @@ class RemediationError(RuntimeError):
     """Terraform 수정안 생성/재검증을 신뢰할 수 없을 때 발생시킨다."""
 
 
+def generate_remediation_plan(*, findings, files, state_resources, rules,
+                              api_key: Optional[str] = None, model: Optional[str] = None):
+    """Ask the first model for resource-by-resource edits before source generation."""
+    key = (api_key or os.getenv("OPENAI_API_KEY", "")).strip()
+    if not key:
+        raise RemediationError("OPENAI_API_KEY is required")
+    client = OpenAI(api_key=key, timeout=90, max_retries=0)
+    prompt = {
+        "findings": findings, "rules": rules, "state_resources": state_resources,
+        "files": [{"file_path": f["file_path"], "content": f["original_content"]} for f in files],
+    }
+    try:
+        response = client.responses.create(
+            model=model or os.getenv("OPENAI_MODEL", "gpt-5.6-sol"), store=False,
+            instructions=(
+                "Produce only a JSON object with items, one item for every (rule_id, resource_id) "
+                "in the FAIL findings. Each item has rule_id, resource_id, status (modify, "
+                "no_change, or blocked), evidence (exact diagnosis evidence objects for this "
+                "resource), violation, expected_setting, preserve (list of settings), "
+                "required_information (list), reason, and targets (list of "
+                "{terraform_address, file_path, changes}, where changes are exact single "
+                "Terraform source line {before, after} edits). Include every Terraform "
+                "declaration needed for one AWS resource, including separate rule resources. "
+                "Identify actual violations separately from resources already compliant. "
+                "Use blocked with a reason when state ownership, evidence, or necessary operating "
+                "conditions are unknown. Never invent resource IDs, ports, CIDRs, or operating "
+                "requirements. Preserve existing resources and references. Do not assume "
+                "egress = [] is a safe security group fix. An item with no verified violation "
+                "must not be marked modify. Use empty changes for no_change or blocked."
+            ),
+            input=json.dumps(prompt, ensure_ascii=False), max_output_tokens=10000,
+        )
+    except Exception as exc:
+        raise RemediationError("Terraform remediation plan request failed") from exc
+    if getattr(response, "status", "completed") != "completed":
+        raise RemediationError("Terraform remediation plan response was truncated")
+    try:
+        result = json.loads(response.output_text)
+    except (TypeError, ValueError):
+        raise RemediationError("Terraform remediation plan is not valid JSON") from None
+    if not isinstance(result, dict):
+        raise RemediationError("Terraform remediation plan is not a JSON object")
+    return result
+
+
 def _unified_diff(original_content: str, proposed_content: str, path: str) -> str:
     lines = difflib.unified_diff(
             original_content.splitlines(keepends=True),
@@ -47,6 +92,7 @@ def generate_terraform_fix(
     file_content: str,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
+    plan: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, str]:
     """진단 결과 하나(finding)와 그 원인이 있는 .tf 파일 하나를 받아,
     AI가 제안하는 수정된 파일 전체 내용을 돌려준다.
@@ -67,6 +113,14 @@ def generate_terraform_fix(
         response = client.responses.create(
             model=resolved_model,
             instructions=(
+                "Apply only the validated remediation plan. Change every planned violating "
+                "setting and no unplanned resource or unrelated setting. Preserve all existing "
+                "resources, references, and operating settings. If an operating condition is "
+                "unknown, do not guess. Never claim complete remediation for a partial edit. "
+                "Do not use egress = [] as a default security group fix; unknown outbound "
+                "requirements do not justify blanket denial. Return complete file text without "
+                "markdown. Preserve the source's final newline and all text outside changed "
+                "resource settings. The server rejects truncated or unplanned output.\n"
                 "당신은 Terraform 코드를 수정하는 AI입니다. 주어진 .tf 파일 내용과 "
                 "보안 진단 결과를 보고, 그 문제를 해결하기 위해 정확히 무엇을 바꿔야 "
                 "하는지 판단하세요.\n"
@@ -84,6 +138,8 @@ def generate_terraform_fix(
                 "(설명 텍스트, 코드 블록 마크다운 없이 파일 내용 그 자체만)."
             ),
             input=[
+                {"role": "user", "content": "Validated remediation plan for this file: " +
+                 json.dumps(plan, ensure_ascii=False)},
                 {
                     "role": "user",
                     "content": (
@@ -93,15 +149,15 @@ def generate_terraform_fix(
                 }
             ],
             store=False,
-            max_output_tokens=4000,
+            max_output_tokens=16000,
         )
     except Exception as exc:
         raise RemediationError(f"OpenAI Terraform 수정안 생성 실패: {exc}") from exc
 
     if getattr(response, "status", "completed") != "completed":
         raise RemediationError("Terraform 수정안 생성이 완료되지 않았습니다.")
-    proposed = (getattr(response, "output_text", None) or "").strip()
-    if not proposed:
+    proposed = getattr(response, "output_text", None) or ""
+    if not proposed.strip():
         raise RemediationError("OpenAI가 빈 Terraform 수정안을 반환했습니다.")
 
     return {

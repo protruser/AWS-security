@@ -63,7 +63,7 @@ NOT_TERRAFORM_RULES = {
 }
 
 
-def state_index():
+def state_index(detailed=False):
     """Read only Terraform state IDs; return no values or credentials to callers."""
     bucket, key = os.getenv("TF_STATE_BUCKET"), os.getenv("TF_STATE_KEY")
     if not bucket or not key:
@@ -85,10 +85,18 @@ def state_index():
             identity = (resource.get("type"), resource.get("name"), resource.get("module", ""))
             for instance in resource.get("instances", []):
                 attributes = instance.get("attributes") or {}
-                for field in ("id", "arn", "name"):
+                address = ".".join(part for part in (*identity[2:3], identity[0], identity[1]) if part)
+                key = instance.get("index_key")
+                if key is not None:
+                    address += f"[{json.dumps(key)}]"
+                # Child resources can own a setting diagnosed against a parent AWS ID.
+                # Keep only the address, never expose state attribute values to the model.
+                for field in ("id", "arn", "name", "security_group_id", "bucket",
+                              "db_instance_identifier", "load_balancer_arn", "trail_name"):
                     value = attributes.get(field)
                     if isinstance(value, str) and value:
-                        index.setdefault(value.lower(), set()).add(identity)
+                        item = (identity, address) if detailed else identity
+                        index.setdefault(value.lower(), set()).add(item)
         return index
     except Exception:
         raise PatchError("STATE_UNAVAILABLE", "Terraform state could not be read for resource mapping.", 502) from None

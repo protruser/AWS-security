@@ -1,10 +1,13 @@
 import sys
+import io
+import json
+import os
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from services.terraform_mapping import preview
+from services.terraform_mapping import preview, state_index
 
 
 def source_with(files):
@@ -21,6 +24,25 @@ def log_group(name):
 
 
 class MappingTest(unittest.TestCase):
+    def test_state_index_retains_exact_instance_address(self):
+        state = {'resources': [{'mode': 'managed', 'module': 'module.network',
+                 'type': 'aws_security_group', 'name': 'web', 'instances': [
+                     {'index_key': 'primary', 'attributes': {'id': 'sg-abc123'}}]},
+                 {'mode': 'managed', 'module': 'module.network',
+                  'type': 'aws_vpc_security_group_egress_rule', 'name': 'outbound',
+                  'instances': [{'attributes': {'id': 'sgr-123',
+                                                'security_group_id': 'sg-abc123'}}]}]}
+        raw = json.dumps(state).encode()
+        with patch.dict(os.environ, {'TF_STATE_BUCKET': 'bucket', 'TF_STATE_KEY': 'state'}), \
+             patch('boto3.client') as client:
+            client.return_value.get_object.return_value = {
+                'ContentLength': len(raw), 'Body': io.BytesIO(raw)}
+            self.assertEqual(state_index(detailed=True)['sg-abc123'], {
+                (('aws_security_group', 'web', 'module.network'),
+                 'module.network.aws_security_group.web["primary"]'),
+                (('aws_vpc_security_group_egress_rule', 'outbound', 'module.network'),
+                 'module.network.aws_vpc_security_group_egress_rule.outbound')})
+
     def test_real_declarations_suggest_only_matching_files(self):
         source = source_with({
             "modules/network/security_groups.tf": 'resource "aws_security_group" "dashboard" {\n name = "dashboard"\n}\n',

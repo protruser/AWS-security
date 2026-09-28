@@ -192,6 +192,19 @@ class PersistenceAdapterTest(unittest.TestCase):
 
 
 class ModelAdapterTest(unittest.TestCase):
+    def test_code_generation_receives_validated_plan_and_full_file_budget(self):
+        plan = {'items': [{'rule_id': '3.1', 'resource_id': 'sg-123'}]}
+        with patch('services.terraform_remediation_service.OpenAI') as client:
+            response = client.return_value.responses.create.return_value
+            response.status = 'completed'
+            response.output_text = 'resource "aws_security_group" "web" {}\n'
+            result = generate_terraform_fix(finding={'rule_id': '3.1'}, file_path='a.tf',
+                                            file_content='original', plan=plan, api_key='test')
+            arguments = client.return_value.responses.create.call_args.kwargs
+            self.assertIn('sg-123', arguments['input'][0]['content'])
+            self.assertGreaterEqual(arguments['max_output_tokens'], 16000)
+            self.assertTrue(result['proposed_content'].endswith('}\n'))
+
     def test_report_receives_actual_diff_and_disables_provider_storage(self):
         report = {"summary": "changed", "changes": [{"file_path": "a.tf", "evidence": "+safe",
                   "explanation": "change"}], "risks": [], "checks": [],
