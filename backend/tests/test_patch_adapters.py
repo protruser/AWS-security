@@ -107,6 +107,14 @@ class GitHubAdapterTest(unittest.TestCase):
                 GitHubSource().snapshot(["infra/main.tf"])
         self.assertEqual(error.exception.code, "SENSITIVE_CONTENT")
 
+    def test_mapping_snapshot_skips_secret_check_but_keeps_integrity_checks(self):
+        with patch.object(GitHubSource, "_get", side_effect=[{"sha": "a" * 40}, github_file('password = "secret"')]):
+            result = GitHubSource().snapshot(["infra/main.tf"], check_secrets=False)
+        self.assertEqual(len(result["files"]), 1)
+        with patch.object(GitHubSource, "_get", side_effect=[{"sha": "a" * 40}, {**github_file(), "sha": "b" * 40}]):
+            with self.assertRaises(PatchError):
+                GitHubSource().snapshot(["infra/main.tf"], check_secrets=False)
+
     def test_size_symlink_wrong_path_and_integrity_are_rejected(self):
         for override in ({"size": 50_001}, {"type": "symlink"}, {"target": "secret.tf"},
                          {"encoding": "none"}, {"sha": "b" * 40}, {"path": "other.tf"}):

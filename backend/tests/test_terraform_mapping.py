@@ -30,6 +30,9 @@ class MappingTest(unittest.TestCase):
         self.assertEqual(result["mapping"]["3.7"]["status"], "MATCHED")
         self.assertEqual(result["mapping"]["3.8"]["status"], "MANUAL_REVIEW")
         self.assertEqual(result["mapping"]["1.1"]["status"], "MANUAL_REVIEW")
+        # 매핑은 리소스 이름만 쓰므로 선택과 무관한 파일의 비밀값 검사로 막히지 않는다.
+        source.snapshot.assert_called_once_with(
+            ["modules/network/security_groups.tf", "modules/compute/iam_permissions.tf"], check_secrets=False)
 
     def test_source_change_rejected(self):
         source = Mock()
