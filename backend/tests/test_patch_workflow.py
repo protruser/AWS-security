@@ -155,15 +155,6 @@ class PatchWorkflowTest(unittest.TestCase):
         row["status"] = "AWAITING_FIRST_APPROVAL"; self.repo._store(row)
         with self.assertRaises(PatchError): self.flow.start_review(self.patch_id, "operator")
 
-    def test_needs_human_review_has_distinct_stopped_status(self):
-        self.reviewer.return_value = {"verdict": "NEEDS_HUMAN_REVIEW", "summary": "추가 검토", "concerns": []}
-        self.flow.start_review(self.patch_id, "operator")
-        row = self.repo.get(self.patch_id)
-        self.assertEqual(row["status"], "AI_NEEDS_HUMAN_REVIEW")
-        self.assertEqual(row["payload"]["audit"][-1]["event"], "AI_NEEDS_HUMAN_REVIEW")
-        self.assertEqual(self.github.writes, 0)
-        with self.assertRaises(PatchError): self.flow.publish(self.patch_id, "operator")
-
     def test_changed_code_invalidates_review(self):
         row = self.repo.get(self.patch_id)
         row["payload"]["files"][0]["proposed_content"] += "# altered"

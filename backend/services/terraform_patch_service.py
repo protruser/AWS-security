@@ -53,10 +53,7 @@ class TerraformPatches:
         failures = {item["rule_id"]: item for item in diagnosis["results"] if item.get("status") == "FAIL"}
         if not set(rule_ids).issubset(failures):
             raise PatchError("NOT_FAIL", "Only FAIL items can be mapped.")
-        result = mapping_preview(self.source_factory(), [failures[rule] for rule in rule_ids])
-        result["mapping"] = {rule: item for rule, item in result["mapping"].items()
-                             if item["status"] == "MATCHED"}
-        return result
+        return mapping_preview(self.source_factory(), [failures[rule] for rule in rule_ids])
 
     def create(self, body, actor):
         cipher()  # Fail before reading any source if storage is not configured.
@@ -90,18 +87,6 @@ class TerraformPatches:
         if not set(paths).issubset(valid_paths):
             raise PatchError("INVALID_FILE_PATH", "A selected file is absent from the gyu Terraform modules.")
         findings = [failures[rule] for rule in sorted(mapping)]
-        # Re-read the current State and Terraform declarations. Client previews and
-        # file inputs cannot establish ownership, even at an unchanged Git commit.
-        verified = mapping_preview(source, findings)
-        if verified["commit_sha"] != current_sha:
-            raise PatchError("BASE_CHANGED", "The gyu branch changed during mapping. Preview again.", 409)
-        for rule, selected_paths in mapping.items():
-            item = verified["mapping"][rule]
-            matched_paths = {candidate["file_path"] for candidate in item["candidates"]
-                             if candidate["identity_match"]}
-            if item["status"] != "MATCHED" or not set(selected_paths).issubset(matched_paths):
-                raise PatchError("AUTO_ACTION_UNAVAILABLE",
-                                 f"{rule} 항목의 Terraform State와 파일 연결을 확인할 수 없습니다. 다시 매핑하세요.")
         check_sensitive(json.dumps(findings, ensure_ascii=False))
         payload = {"findings": findings, "mapping": mapping, "source_commit_sha": current_sha,
                    "audit": [], "files": [], "source": None,

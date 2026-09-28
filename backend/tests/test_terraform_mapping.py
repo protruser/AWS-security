@@ -1,12 +1,10 @@
 import sys
 import unittest
-import os
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from services.terraform_mapping import preview, state_index
-from services.patch_security import PatchError
+from services.terraform_mapping import preview
 
 
 def source_with(files):
@@ -51,14 +49,13 @@ class MappingTest(unittest.TestCase):
         })
         item = preview(source, [{"rule_id": "4.11", "resource_ids": ["aws-waf-logs-wonny-sec-shop"],
                                  "reason": "waf 로그 그룹 보존기간 30일"}], index={})["mapping"]["4.11"]
-        self.assertEqual(item["suggested"], [])
-        self.assertEqual(item["status"], "MANUAL_REVIEW")
+        self.assertEqual(item["suggested"], ["modules/security/waf_log_groups.tf", "modules/security/logging.tf"])
         self.assertNotIn("modules/edge/alb_waf.tf", [c["file_path"] for c in item["candidates"]])
 
     def test_suggestions_are_capped_at_patch_file_limit(self):
         files = {f"modules/lambda_{i}/main.tf": log_group(f"l{i}") for i in range(6)}
         item = preview(source_with(files), [{"rule_id": "4.11"}], index={})["mapping"]["4.11"]
-        self.assertEqual(len(item["suggested"]), 0)
+        self.assertEqual(len(item["suggested"]), 5)
         self.assertEqual(item["total_candidates"], 6)
 
     def test_account_level_rules_are_not_terraform(self):
@@ -71,26 +68,12 @@ class MappingTest(unittest.TestCase):
         item = preview(source, [{"rule_id": "4.2"}], index={})["mapping"]["4.2"]
         self.assertEqual((item["status"], item["suggested"]), ("NO_CANDIDATE", []))
 
-    def test_state_identity_must_match_target_declaration(self):
-        source = source_with({"modules/security/main.tf":
-            'resource "aws_s3_bucket" "bucket" {}\nresource "aws_cloudwatch_log_group" "logs" {}\n'})
-        item = preview(source, [{"rule_id": "3.7", "resource_ids": ["bucket-id"]}],
-            index={"bucket-id": {("aws_cloudwatch_log_group", "logs", "module.security")}})["mapping"]["3.7"]
-        self.assertEqual(item["status"], "MANUAL_REVIEW")
-        self.assertEqual(item["suggested"], [])
-
     def test_source_change_rejected(self):
         source = Mock()
         source.terraform_paths.return_value = ("a" * 40, ["modules/network/main.tf"])
         source.snapshot.return_value = {"commit_sha": "b" * 40, "files": []}
         with self.assertRaises(Exception):
             preview(source, [{"rule_id": "3.7"}])
-
-    def test_missing_state_configuration_is_an_error(self):
-        with patch.dict(os.environ, {"TF_STATE_BUCKET": "", "TF_STATE_KEY": ""}):
-            with self.assertRaises(PatchError) as raised:
-                state_index()
-        self.assertEqual(raised.exception.code, "STATE_UNAVAILABLE")
 
 
 if __name__ == "__main__":

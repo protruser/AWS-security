@@ -164,7 +164,6 @@ const PATCH_STATUS: Record<string, string> = {
   FAILED: "실패",
   AI_REVIEWING: "2차 AI 검증 중",
   AI_REJECTED: "2차 AI 검증 반려",
-  AI_NEEDS_HUMAN_REVIEW: "2차 AI 사람 검토 필요",
   AI_REVIEW_FAILED: "2차 AI 검증 오류",
   READY_FOR_PR: "PR 생성 대기",
   CHECKS_RUNNING: "GitHub 검사 중",
@@ -241,9 +240,7 @@ export function AIActionsPage({
   )
   const [paths, setPaths] = useState<Record<string, string>>({})
   const [mappingPreview, setMappingPreview] = useState<MappingPreview | null>(null)
-  const [mappingLoading, setMappingLoading] = useState(false)
-  const [mappingError, setMappingError] = useState<string | null>(null)
-  const [mappingAttempt, setMappingAttempt] = useState(0)
+  const [previewRules, setPreviewRules] = useState("")
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [history, setHistory] = useState<HistoryResponse | null>(null)
@@ -307,33 +304,6 @@ export function AIActionsPage({
     [diagnosis],
   )
   useEffect(() => {
-    if (!history?.can_create || !diagnosis?.id || !diagnosis.result || !fails.length) return
-    let cancelled = false
-    setMappingLoading(true)
-    setMappingError(null)
-    setMappingPreview(null)
-    fetchJson<MappingPreview>("/api/ai-actions/mapping-preview", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ diagnosis_run_id: diagnosis.id, rule_ids: fails.map((r) => r.rule_id) }),
-    }, onUnauthorized)
-      .then((result) => {
-        if (cancelled) return
-        const matched = fails.filter((r) => result.mapping[r.rule_id]?.status === "MATCHED")
-        setMappingPreview(result)
-        setSelectedRuleIds((ids) => ids.filter((id) => matched.some((r) => r.rule_id === id)))
-        setPaths(Object.fromEntries(matched.map((r) => [r.rule_id,
-          (result.mapping[r.rule_id].suggested ?? []).join(", ")])))
-      })
-      .catch((e: Error) => {
-        if (!cancelled) setMappingError(e.message)
-      })
-      .finally(() => {
-        if (!cancelled) setMappingLoading(false)
-      })
-    return () => { cancelled = true }
-  }, [diagnosis, fails, history?.can_create, onUnauthorized, mappingAttempt])
-  useEffect(() => {
     const active = [
       "FETCHING",
       "GENERATING",
@@ -380,15 +350,10 @@ export function AIActionsPage({
       window.clearInterval(timer)
     }
   }, [fix?.id, fix?.status])
-  const actionableFails = mappingPreview
-    ? fails.filter((r) => mappingPreview.mapping[r.rule_id]?.status === "MATCHED") : []
-  const mappingPending = mappingLoading || (!!diagnosis?.result && fails.length > 0 && !mappingPreview && !mappingError)
-  const selected = actionableFails.filter((r) => selectedRuleIds.includes(r.rule_id))
-  const invalidPaths = selected.some((r) => {
-    const matched = new Set(mappingPreview?.mapping[r.rule_id]?.candidates
-      .filter((candidate) => candidate.identity_match).map((candidate) => candidate.file_path) ?? [])
-    return splitPaths(paths[r.rule_id]).some((path) => !matched.has(path))
-  })
+  const selected = fails.filter((r) => selectedRuleIds.includes(r.rule_id))
+  const selectionKey = selected.map((r) => r.rule_id).sort().join(",")
+  const notTerraformSelected = !!mappingPreview && previewRules === selectionKey &&
+    selected.some((r) => mappingPreview.mapping[r.rule_id]?.status === "NOT_TERRAFORM")
   // 같은 파일을 여러 항목이 쓰면 한 파일로 통합되므로 중복을 빼고 센다.
   const selectedFileCount = new Set(selected.flatMap((r) => splitPaths(paths[r.rule_id]))).size
   const selectDetail = (data: PatchDetail) => {
@@ -407,6 +372,20 @@ export function AIActionsPage({
       setRunning(false)
     }
   }
+  const previewFiles = () =>
+    perform(async () => {
+      const result = await api<MappingPreview>("/api/ai-actions/mapping-preview", {
+        diagnosis_run_id: initialSelection?.runId ?? diagnosis?.id,
+        rule_ids: selected.map((r) => r.rule_id),
+      })
+      setMappingPreview(result)
+      setPreviewRules(selectionKey)
+      setPaths(Object.fromEntries(selected.map((r) => {
+        const item = result.mapping[r.rule_id]
+        const files = item?.suggested ?? (item?.candidates[0] ? [item.candidates[0].file_path] : [])
+        return [r.rule_id, files.join(", ")]
+      })))
+    })
   const toggleCandidate = (ruleId: string, filePath: string) =>
     setPaths((p) => {
       const current = splitPaths(p[ruleId])
@@ -506,7 +485,7 @@ export function AIActionsPage({
         <div className="grid gap-3 lg:grid-cols-[minmax(280px,340px)_1fr]">
           <section className={panel}>
             <h2 className="text-sm font-semibold">
-              자동 조치 가능 FAIL {actionableFails.length}개 · 선택 {selected.length}개
+              실패 항목 {fails.length}개 · 선택 {selected.length}개
             </h2>
             {!diagnosis?.result && (
               <p className="text-xs">먼저 AI 진단을 완료하세요.</p>
@@ -517,16 +496,8 @@ export function AIActionsPage({
                 선택하세요.
               </p>
             )}
-            {mappingPending && <p role="status" className="text-xs text-gray-600">Terraform State와 파일 자동 매핑 중…</p>}
-            {mappingError && <div role="alert" className="space-y-2 text-xs text-red-700">
-              <p>자동 매핑 오류: {mappingError}</p>
-              <button type="button" className="underline" onClick={() => setMappingAttempt((attempt) => attempt + 1)}>다시 시도</button>
-            </div>}
-            {!mappingPending && !mappingError && diagnosis?.result && actionableFails.length === 0 && (
-              <p className="text-xs text-gray-600">현재 Terraform으로 자동 조치할 수 있는 FAIL이 없습니다</p>
-            )}
             <ul className="max-h-[460px] overflow-auto divide-y divide-gray-100">
-              {actionableFails.map((r) => (
+              {fails.map((r) => (
                 <li key={r.rule_id}>
                   <label className="flex cursor-pointer gap-2 py-3 text-xs">
                     <input
@@ -559,7 +530,11 @@ export function AIActionsPage({
               저장소 기준 상대 경로를 입력하세요. 여러 파일은 쉼표로
               구분합니다(최대 5개). 같은 파일의 선택 항목은 통합합니다.
             </p>
-            {mappingPreview && (
+            <button className={button} onClick={previewFiles}
+              disabled={running || !selected.length || !!(initialSelection && initialSelection.runId !== diagnosis?.id)}>
+              Terraform 파일 자동 추천
+            </button>
+            {mappingPreview && previewRules === selectionKey && (
               <p className="text-xs text-gray-600">
                 {mappingPreview.repository} · {mappingPreview.ref} · {mappingPreview.commit_sha.slice(0, 12)}
               </p>
@@ -577,22 +552,32 @@ export function AIActionsPage({
                   placeholder="예: modules/network/security_groups.tf"
                   className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono"
                 />
-                {mappingPreview && (() => {
+                {mappingPreview && previewRules === selectionKey && (() => {
                   const item = mappingPreview.mapping[r.rule_id]
                   if (!item) return null
+                  if (item.status === "NOT_TERRAFORM") {
+                    return (
+                      <span className="mt-1 block text-amber-700">
+                        Terraform 조치 대상 아님: {item.reason} 선택을 해제하세요.
+                      </span>
+                    )
+                  }
                   const chosen = splitPaths(paths[r.rule_id])
-                  const candidates = item.candidates.filter((candidate) => candidate.identity_match)
-                  const total = candidates.length
+                  const total = item.total_candidates ?? item.candidates.length
                   return (
                     <span className="mt-1 block text-gray-600">
-                      Terraform State에서 리소스 연결을 확인했습니다. 자동 입력된 파일을 검토하세요. 실제 조치는 AI 검증과 Terraform Plan 결과에 따릅니다.
+                      {item.status === "NO_CANDIDATE"
+                        ? "대상 리소스가 선언된 Terraform 파일을 찾지 못했습니다. 경로를 직접 입력하세요."
+                        : item.status === "MATCHED"
+                          ? "Terraform State에서 리소스 연결을 확인했습니다. 자동 입력된 파일을 검토하세요."
+                          : "자동 입력된 파일을 검토하세요(State 연결은 확인하지 못함). 파일을 눌러 추가·제외할 수 있습니다."}
                       {total > (item.suggested?.length ?? total) && (
                         <span className="block text-amber-700">
                           후보 {total}개 중 {item.suggested?.length}개만 자동 입력했습니다(한 패치 최대 {MAX_PATCH_FILES}개).
                           나머지는 다음 패치로 처리하세요.
                         </span>
                       )}
-                      {candidates.map((candidate) => (
+                      {item.candidates.map((candidate) => (
                         <button key={candidate.file_path} type="button"
                           className={`ml-2 underline ${chosen.includes(candidate.file_path) ? "font-semibold text-[#101828]" : ""}`}
                           onClick={() => toggleCandidate(r.rule_id, candidate.file_path)}>
@@ -611,9 +596,9 @@ export function AIActionsPage({
               disabled={
                 running ||
                 !selected.length ||
-                !mappingPreview || mappingLoading ||
+                !mappingPreview || previewRules !== selectionKey ||
                 selected.some((r) => !paths[r.rule_id]?.trim()) ||
-                invalidPaths ||
+                notTerraformSelected ||
                 selectedFileCount > MAX_PATCH_FILES ||
                 !!(initialSelection && initialSelection.runId !== diagnosis?.id)
               }
@@ -902,9 +887,6 @@ export function AIActionsPage({
                   수정이 필요하면 새 패치에서 코드·보고서를 다시 생성하고 1차
                   승인을 받으세요.
                 </p>
-              )}
-              {fix.status === "AI_NEEDS_HUMAN_REVIEW" && (
-                <p>사람의 검토가 필요하여 PR 생성과 배포를 중단했습니다. 검토 후 새 패치로 다시 진행하세요.</p>
               )}
             </section>
           )}

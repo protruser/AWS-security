@@ -19,14 +19,12 @@ Branches use `ai-patch/<patch UUID>`; PRs target `gyu`. No code directly pushes
 to `gyu`. Patch PRs start as drafts and can only be marked ready by the signed
 deployment workflow after final approval and revalidation.
 
-`POST /api/ai-actions/mapping-preview` reads the live file tree, resource
-declarations, and Terraform State to confirm AWS resource identity. State
-configuration or read failures stop mapping. State values are never returned or
-stored by mapping. The AI action list returns only `MATCHED` FAIL items; file
-type matches without State ownership remain in diagnosis history but cannot
-create patches. Patch creation reads State and declarations again and accepts
-only files linked to the selected resource. The preview commit SHA is required
-when creating a patch, so stale mappings fail.
+`POST /api/ai-actions/mapping-preview` reads the live file tree and resource
+declarations. When `TF_STATE_BUCKET` and `TF_STATE_KEY` are configured, it also
+reads Terraform State to confirm AWS resource identity. State values are never
+returned or stored by mapping. A file-type match without State ownership is
+marked `MANUAL_REVIEW`; the operator must confirm or change the file. The
+preview commit SHA is required when creating a patch, so stale mappings fail.
 
 The sequence is source snapshot → integrated proposal and first report → first
 approval → second AI review → patch branch and PR → GitHub checks and saved Plan
