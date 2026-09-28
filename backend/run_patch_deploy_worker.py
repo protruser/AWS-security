@@ -34,6 +34,12 @@ def run_once(service=None):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     while True:
-        run_once()
+        # DB나 GitHub가 잠깐 안 될 때 프로세스가 죽지 않고 다음 주기에 다시 시도한다.
+        # 배포 중복은 patch 상태 전이와 deploy lock이 막는다.
+        try:
+            run_once()
+        except Exception:
+            logging.exception("patch worker cycle failed")
         time.sleep(10)

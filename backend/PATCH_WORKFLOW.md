@@ -61,47 +61,56 @@ an apply failure remains a recorded partial deployment and is never retried.
 
 There is no public deploy button or deploy API.
 
-## Installation required before enabling writes
+## Infra repository setup (installed)
 
-The files under `integrations/AWS-Security-Infra/` are prepared artifacts only.
-They have **not** been pushed to the operational repository. After separate
-authorization, install validation workflow and its CI script on `gyu` through
-a reviewed PR. Install the deployment workflow and authorization verifier on
-both `gyu` and the repository default branch (`main`): GitHub requires a
-`workflow_dispatch` workflow on the default branch, while dispatch targets
-`gyu`. Keep branch protection preventing merges without required checks. The
-validation workflow has no `terraform apply` command. The dashboard Docker
-pipeline has Trivy before ECR push; the Terraform PR uses Checkov.
+The workflows live in `protruser/AWS-Security-Infra` itself (the former
+`integrations/` drafts were adapted to the S3 backend in `versions.tf`, Terraform
+1.16.4, deterministic Lambda builds and `TERRAFORM_TFVARS`, then removed here):
 
-Dashboard environment:
+- `.github/workflows/terraform-patch.yml`: runs only for `ai-patch/<UUID>` PRs to
+  `gyu`. fmt / validate / TFLint (error level) / Checkov (only findings that the
+  patch adds compared with `gyu`) / plan. The saved Plan is KMS-encrypted under
+  `terraform-patches/` in the State bucket; only `manifest.json` is uploaded.
+- `.github/workflows/terraform-patch-deploy.yml`: dispatched by the worker. Verifies
+  the signed approval, PR/branch/base/check run, Plan SHA/version and State
+  lineage/serial, merges the PR with `GITHUB_TOKEN`, then applies the saved Plan.
+- `scripts/terraform_patch_ci.py`, `scripts/verify_patch_authorization.py`.
+- Human PRs keep using `terraform-pr.yml` / `terraform-apply.yml` (GitHub
+  `production` approval). Both deploy paths share the `terraform-production`
+  concurrency group.
 
-- `PATCH_GITHUB_REPOSITORY=protruser/AWS-Security-Infra`
-- `PATCH_GITHUB_REF=gyu`
-- `GITHUB_TOKEN`: scoped GitHub App/PAT with Contents and Pull requests write,
-  Actions read/write for run inspection and dispatch. A token other than the default `GITHUB_TOKEN` may be
-  needed to trigger PR Actions from API-created branches.
-- `PATCH_ENCRYPTION_KEY`: shared Fernet key for all backend workers.
-- `PATCH_APPROVAL_SIGNING_KEY`: at least 32 bytes, same value in the infra
-  repository's protected Actions secret.
-- `OPENAI_API_KEY`, existing DB/session/role configuration.
+Infra repository settings:
+
+- Default branch: `gyu` (`workflow_dispatch` requires the workflow on the default branch).
+- Environment `terraform-production`: no reviewers (the dashboard's signed final
+  approval is the approval), deployment branches `gyu` only.
+- Variables: `AWS_REGION`, `TF_PLAN_ROLE_ARN`, `TF_APPLY_ROLE_ARN`,
+  `TF_PLAN_BUCKET` (the State bucket), `TF_PLAN_KMS_KEY_ARN`
+  (`terraform output terraform_plan_kms_key_arn`).
+- Secrets: `TERRAFORM_TFVARS`, `PATCH_APPROVAL_SIGNING_KEY` (same value as the dashboard).
+- Branch protection on `gyu` must not require an approving review, or the deploy
+  workflow's `GITHUB_TOKEN` merge fails.
+
+## Dashboard setup
+
+`deploy/dashboard/deploy.sh` applies the `terraform_patches` migration and runs
+`run_patch_deploy_worker.py` as the `dashboard-patch-worker` container (same image
+and `/opt/dashboard/app.env`).
+
+`/opt/dashboard/app.env`:
+
+- `GITHUB_TOKEN`: fine-grained PAT for `protruser/AWS-Security-Infra` only, with
+  Contents read/write, Pull requests read/write and Actions read/write. The default
+  Actions `GITHUB_TOKEN` cannot be used: PRs it creates do not trigger workflows.
+- `PATCH_ENCRYPTION_KEY`: Fernet key shared by the dashboard and the worker.
+- `PATCH_APPROVAL_SIGNING_KEY`: at least 32 bytes, same as the infra repository secret.
+- `PATCH_GITHUB_REPOSITORY` / `PATCH_GITHUB_REF`: default to
+  `protruser/AWS-Security-Infra` / `gyu`; other values are rejected.
 - `TF_STATE_BUCKET`, `TF_STATE_KEY`, `TF_STATE_REGION`: optional read-only State
   access for confident resource mapping. With these unset, mapping is manual.
 - `PATCH_ENABLE_GITHUB_WRITES=true` and `PATCH_ENABLE_TERRAFORM_APPLY=true` only
-  after workflows, credentials, protected environment, and worker are ready.
-  Both remain disabled by default.
-
-Infra repository Actions variables:
-
-- `TF_STATE_REGION`, `TF_STATE_BUCKET`, `TF_STATE_KEY` for existing remote State.
-- `TF_PLAN_BUCKET` with versioning and `TF_PLAN_KMS_KEY_ARN` for encrypted Plans.
-- `TF_PLAN_ROLE_ARN`: OIDC role with provider read/list/describe, State read and
-  lock permissions, and Plan object write/KMS encryption. No AWS mutation rights.
-- `TF_APPLY_ROLE_ARN`: separate protected OIDC role for approved deployment.
-- `PATCH_APPROVAL_SIGNING_KEY`: protected Actions secret.
+  after the settings above are ready. Both remain disabled by default.
 
 Dashboard Actions variable `TRIVY_BLOCK_DEPLOY` defaults to false/unset. Setting
 it to `true` makes HIGH or CRITICAL image findings block the ECR push. Existing
 Amazon Inspector remains unchanged.
-
-No GitHub write, PR, merge, migration execution, or Terraform apply is part of
-this local code update.

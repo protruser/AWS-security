@@ -8,6 +8,9 @@
 set -Eeuo pipefail
 
 readonly CONTAINER_NAME="dashboard"
+# AI Terraform 패치의 CI 결과 수집, 배포 dispatch, 배포 결과 기록을 하는 별도 프로세스
+# (backend/run_patch_deploy_worker.py). 브라우저가 열려 있지 않아도 진행되어야 해서 Flask와 분리한다.
+readonly WORKER_CONTAINER_NAME="dashboard-patch-worker"
 readonly ENV_FILE="/opt/dashboard/app.env"
 readonly HEALTH_URL="http://127.0.0.1:8443/api/health"
 
@@ -50,6 +53,17 @@ docker run --rm \
   --entrypoint python \
   "$IMAGE_URI" -m migrate_event_ai
 
+log "Applying Terraform patch migration."
+docker run --rm   --env-file "$ENV_FILE"   --entrypoint python   "$IMAGE_URI" -m migrate_terraform_patches
+
+# worker는 dashboard와 같은 이미지를 쓴다. 새 버전 확인 전까지 멈춰 두어
+# 이전/새 코드가 동시에 패치 상태를 바꾸지 않게 한다.
+if docker container inspect "$WORKER_CONTAINER_NAME" >/dev/null 2>&1; then
+  log "Stopping the existing patch worker."
+  docker stop --time 30 "$WORKER_CONTAINER_NAME" >/dev/null
+  docker rm "$WORKER_CONTAINER_NAME" >/dev/null
+fi
+
 previous_image=""
 if docker container inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
   previous_image="$(docker container inspect --format '{{.Config.Image}}' "$CONTAINER_NAME")"
@@ -68,6 +82,11 @@ run_container() {
     "$image" >/dev/null
 }
 
+run_worker() {
+  local image="$1"
+  docker run --detach     --name "$WORKER_CONTAINER_NAME"     --restart unless-stopped     --env-file "$ENV_FILE"     --entrypoint python     "$image" run_patch_deploy_worker.py >/dev/null
+}
+
 wait_until_healthy() {
   local attempt
   for attempt in $(seq 1 30); do
@@ -82,6 +101,8 @@ wait_until_healthy() {
 log "Starting the new dashboard container."
 if run_container "$IMAGE_URI" && wait_until_healthy; then
   log "Deployment passed the health check."
+  log "Starting the patch worker."
+  run_worker "$IMAGE_URI" || fail "dashboard is healthy but the patch worker failed to start"
   exit 0
 fi
 
@@ -91,6 +112,7 @@ docker rm --force "$CONTAINER_NAME" >/dev/null 2>&1 || true
 if [[ -n "$previous_image" ]]; then
   log "Attempting rollback to the previous image."
   if run_container "$previous_image" && wait_until_healthy; then
+    run_worker "$previous_image" || true
     fail "deployment failed; rollback to the previous image succeeded"
   fi
   docker rm --force "$CONTAINER_NAME" >/dev/null 2>&1 || true
