@@ -10,17 +10,15 @@ from datetime import datetime, timezone
 from services.github_terraform_source import GitHubSource
 from services.patch_repository import PatchRepository
 from services.patch_security import PatchError, check_sensitive, cipher, safe_path
-from services.terraform_mapping import NOT_TERRAFORM_RULES, RULES, preview as mapping_preview, state_index
-from services.terraform_proposal_validation import validate_plan, validate_generated_files
+from services.terraform_mapping import NOT_TERRAFORM_RULES, preview as mapping_preview
 from services.terraform_remediation_service import (
-    _unified_diff, generate_change_report, generate_remediation_plan,
-    generate_terraform_fix, validate_change_report, RemediationError,
+    _unified_diff, generate_change_report, generate_terraform_fix, validate_change_report,
 )
 
 
 def digest(payload):
     # Bind approval to exact findings, GitHub commit, source, proposal and report.
-    value = {key: payload.get(key) for key in ("findings", "source", "files", "report", "mapping", "plan")}
+    value = {key: payload.get(key) for key in ("findings", "source", "files", "report", "mapping")}
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -41,11 +39,9 @@ def dispatch(work):
 
 class TerraformPatches:
     def __init__(self, repository=None, source_factory=GitHubSource,
-                 generate=generate_terraform_fix, report=generate_change_report, submit=dispatch,
-                 plan=generate_remediation_plan):
+                 generate=generate_terraform_fix, report=generate_change_report, submit=dispatch):
         self.repo = repository or PatchRepository()
         self.source_factory, self.generate, self.report = source_factory, generate, report
-        self.plan = plan
         self.submit = submit
 
     def preview_mapping(self, body):
@@ -141,23 +137,6 @@ class TerraformPatches:
     def _build_proposal(self, patch, actor):
         payload = patch["payload"]
         try:
-            state = state_index(detailed=True)
-            if state is None:
-                raise PatchError("STATE_UNAVAILABLE", "Terraform state is required to verify resource ownership")
-            ids = {rid.lower() for finding in payload["findings"] for rid in finding.get("resource_ids", [])
-                   if isinstance(rid, str)}
-            if any(not finding.get("resource_ids") for finding in payload["findings"]):
-                raise PatchError("INSUFFICIENT_EVIDENCE", "Each FAIL rule needs resource IDs before planning")
-            state_resources = {rid: sorted(address for _, address in state.get(rid, set())) for rid in ids}
-            try:
-                plan = self.plan(findings=payload["findings"], files=payload["files"],
-                                 state_resources=state_resources,
-                                 rules={str(f["rule_id"]): RULES[str(f["rule_id"])] for f in payload["findings"]})
-            except RemediationError as exc:
-                raise PatchError("PLAN_GENERATION_FAILED", str(exc)) from None
-            validate_plan(plan, payload["findings"], payload["files"], state, payload["mapping"])
-            check_sensitive(json.dumps(plan, ensure_ascii=False))
-            payload["plan"] = plan
             for file in payload["files"]:
                 context = {"findings": payload["findings"], "target_rule_ids": [
                     rule for rule, paths in payload["mapping"].items() if file["file_path"] in paths],
@@ -165,8 +144,7 @@ class TerraformPatches:
                                        "content": f.get("proposed_content", f["original_content"])}
                                       for f in payload["files"] if f is not file]}
                 # One integrated generation for each unique file, never competing per-rule diffs.
-                fix = self.generate(finding=context, file_path=file["file_path"],
-                                    file_content=file["original_content"], plan=plan)
+                fix = self.generate(finding=context, file_path=file["file_path"], file_content=file["original_content"])
                 proposed = fix.get("proposed_content")
                 if not isinstance(proposed, str) or not proposed.strip() or len(proposed.encode()) > 50_000 or "```" in proposed:
                     raise PatchError("INVALID_PROPOSAL", "수정안이 비어 있거나 파일 형식/크기 제한을 위반했습니다.")
@@ -175,7 +153,6 @@ class TerraformPatches:
                 file["diff"] = _unified_diff(file["original_content"], proposed, file["file_path"])
             if not any(file["diff"] for file in payload["files"]):
                 raise PatchError("NO_CHANGES", "생성된 코드에 변경사항이 없어 승인할 수 없습니다.")
-            validate_generated_files(plan, payload["files"])
             report = self.report(findings=payload["findings"], files=payload["files"])
             validate_change_report(report, payload["files"])
             check_sensitive(json.dumps(report, ensure_ascii=False))
