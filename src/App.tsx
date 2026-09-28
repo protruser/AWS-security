@@ -22,6 +22,7 @@ import { ManualMonitoringPage } from "./components/ManualMonitoringPage"
 import { AIDiagnosisPage } from "./components/AIDiagnosisPage"
 import { ApprovalQueuePage, ApprovalRequestList } from "./components/ApprovalQueuePage"
 import { AttackerTrackingPage, StageBadge } from "./components/AttackerTrackingPage"
+import { AIActionsPage } from "./components/AIActionsPage"
 import { ApprovalModal, DonutGauge, SeverityBadge } from "./components/common"
 import { LoginPage } from "./components/LoginPage"
 import { fetchOverviewMetrics } from "./services/dashboardApi"
@@ -1236,62 +1237,6 @@ interface SecurityNotification {
   id: string
   event: ActionEvent
   read: boolean
-}
-
-function ComingSoonSection({
-  title,
-  description,
-  items,
-}: {
-  title: string
-  description: string
-  items: string[]
-}) {
-  return (
-    <div className="min-h-full p-4">
-      <div className="mb-3">
-        <p className="text-[18px] font-bold text-[#101828]">{title}</p>
-        <p className="text-[11px] text-[#667085] mt-0.5">{description}</p>
-      </div>
-
-      <div className="bg-white border border-[#EAECF0] rounded-2xl p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-8 h-8 rounded-lg bg-[#F2F4F7] text-[#475467] flex items-center justify-center">
-            <svg
-              viewBox="0 0 24 24"
-              width="17"
-              height="17"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-            >
-              <path d="M4 19V9M10 19V5M16 19v-7M22 19H2" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-xs font-bold text-[#101828]">화면 준비 중</p>
-            <p className="text-[10px] text-[#98A2B3]">
-              현재는 메뉴와 기본 레이아웃만 제공됩니다.
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-          {items.map((item) => (
-            <div
-              key={item}
-              className="min-h-[72px] rounded-xl border border-[#EAECF0] bg-[#FAFAFA] px-3.5 py-3 flex items-center"
-            >
-              <span className="w-2 h-2 rounded-full bg-[#D0D5DD] mr-2.5 flex-shrink-0" />
-              <span className="text-[11px] font-semibold text-[#475467]">
-                {item}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
 }
 
 function DashboardDataStatus({
@@ -2652,17 +2597,11 @@ export default function App() {
               }}
             />
           ) : activeSection === "ai-actions" ? (
-            <ComingSoonSection
-              title="AI 조치"
-              description="탐지 이벤트 분석과 조치 검토를 위한 화면입니다."
-              items={[
-                "위험 원인",
-                "공격 경로",
-                "권장 조치",
-                "조치 근거",
-                "예상 영향",
-                "승인 · 보류 · 예외 처리",
-              ]}
+            <AIActionsPage
+              onUnauthorized={() => {
+                setAuthUser(null)
+                setAuthState("unauthenticated")
+              }}
             />
           ) : activeSection === "ai-diagnosis" ? (
             <AIDiagnosisPage
