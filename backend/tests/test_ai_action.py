@@ -23,8 +23,8 @@ class MemoryRepository:
     def __init__(self):
         self.rows = {}
         self.results = {"results": [
-            {"rule_id": "3.7", "status": "FAIL", "reason": "public"},
-            {"rule_id": "4.3", "status": "FAIL", "reason": "encryption"},
+            {"rule_id": "3.7", "status": "FAIL", "reason": "public", "resource_ids": ["bucket-example"]},
+            {"rule_id": "4.3", "status": "FAIL", "reason": "encryption", "resource_ids": ["bucket-example"]},
             {"rule_id": "1.1", "status": "PASS"},
         ]}
 
@@ -94,6 +94,10 @@ class AIActionRouteTest(unittest.TestCase):
         for mock in self.mocks:
             mock.start()
             self.addCleanup(mock.stop)
+        self.state = patch("services.terraform_mapping.state_index", return_value={
+            "bucket-example": {("aws_s3_bucket", "example", "module.security")}})
+        self.state.start()
+        self.addCleanup(self.state.stop)
         self.reviewer = patch("services.terraform_remediation_service.review_terraform_fix")
         self.rev = self.reviewer.start()
         self.addCleanup(self.reviewer.stop)
@@ -138,17 +142,78 @@ class AIActionRouteTest(unittest.TestCase):
         self.assertEqual(self.create(source_commit_sha="b" * 40).status_code, 409)
         self.assertEqual(self.create(mapping={"3.7": ["modules/unknown.tf"]}).status_code, 400)
 
+    def test_mapping_preview_hides_non_matched_fail_items(self):
+        self.repo.results = {"results": [
+            {"rule_id": "3.7", "status": "FAIL", "reason": "public", "resource_ids": ["bucket-example"]},
+            {"rule_id": "4.3", "status": "FAIL", "reason": "encryption"},
+            {"rule_id": "1.6", "status": "FAIL", "reason": "root usage"},
+            {"rule_id": "1.1", "status": "PASS"},
+        ]}
+        preview = self.client.post("/api/ai-actions/mapping-preview",
+                                   json={"diagnosis_run_id": 7, "rule_ids": ["3.7", "4.3", "1.6"]})
+        self.assertEqual(preview.status_code, 200)
+        mapping = preview.get_json()["mapping"]
+        self.assertEqual(list(mapping.keys()), ["3.7"])
+        self.assertEqual(mapping["3.7"]["status"], "MATCHED")
+
+    def test_only_matched_fail_items_can_create_patch(self):
+        self.repo.results = {"results": [
+            {"rule_id": "3.7", "status": "FAIL", "reason": "public", "resource_ids": ["bucket-example"]},
+            {"rule_id": "4.3", "status": "FAIL", "reason": "encryption"},
+            {"rule_id": "1.6", "status": "FAIL", "reason": "root usage"},
+            {"rule_id": "1.1", "status": "PASS"},
+        ]}
+        response = self.client.post("/api/ai-actions/patches", json={
+            "diagnosis_run_id": 7,
+            "source_commit_sha": "a" * 40,
+            "mapping": {
+                "3.7": ["modules/security/kms_secrets_storage.tf"],
+                "4.3": ["modules/security/kms_secrets_storage.tf"],
+            },
+        })
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "AUTO_ACTION_UNAVAILABLE")
+
     def test_not_terraform_rule_cannot_create_patch(self):
         response = self.create(mapping={"1.6": ["modules/compute/iam.tf"]})
         self.assertEqual((response.status_code, response.get_json()["error"]), (400, "NOT_TERRAFORM_FIXABLE"))
         self.source.snapshot.assert_not_called()
+
+    def test_unmatched_fail_and_unverified_file_cannot_create_patch(self):
+        self.repo.results["results"].append({"rule_id": "4.2", "status": "FAIL", "resource_ids": ["db-1"]})
+        response = self.create(mapping={"4.2": ["modules/security/a.tf"]})
+        self.assertEqual((response.status_code, response.get_json()["error"]), (400, "AUTO_ACTION_UNAVAILABLE"))
+        with patch("services.terraform_mapping.state_index", return_value={}):
+            response = self.create(mapping={"3.7": ["modules/security/a.tf"]})
+        self.assertEqual((response.status_code, response.get_json()["error"]), (400, "AUTO_ACTION_UNAVAILABLE"))
+        self.assertEqual(self.repo.rows, {})
+
+    def test_matched_rule_cannot_use_a_different_unmatched_file(self):
+        def snapshot(paths, check_secrets=True):
+            return {"repository": "org/repo", "ref": "main", "commit_sha": "a" * 40,
+                    "files": [{"file_path": path, "original_content":
+                               ORIGINAL if path.endswith("kms_secrets_storage.tf") else
+                               'resource "aws_s3_bucket" "other" {}\n'} for path in paths]}
+        self.source.snapshot.side_effect = snapshot
+        response = self.create(mapping={"3.7": ["modules/security/a.tf"]})
+        self.assertEqual((response.status_code, response.get_json()["error"]), (400, "AUTO_ACTION_UNAVAILABLE"))
+        self.assertEqual(self.repo.rows, {})
+
+    def test_state_lookup_failure_is_not_an_empty_mapping(self):
+        with patch("services.terraform_mapping.state_index", side_effect=PatchError(
+                "STATE_UNAVAILABLE", "State 조회 실패", 502)):
+            response = self.client.post("/api/ai-actions/mapping-preview",
+                json={"diagnosis_run_id": 7, "rule_ids": ["3.7"]})
+            self.assertEqual((response.status_code, response.get_json()["error"]), (502, "STATE_UNAVAILABLE"))
+            response = self.create(mapping={"3.7": ["modules/security/a.tf"]})
+            self.assertEqual((response.status_code, response.get_json()["error"]), (502, "STATE_UNAVAILABLE"))
 
     def test_background_work_returns_before_ai_and_can_be_polled(self):
         tasks = []
         with patch.object(self.service, "submit", side_effect=tasks.append):
             row = self.create().get_json()
             self.assertEqual(row["status"], "FETCHING")
-            self.source.snapshot.assert_not_called()
+            self.source.snapshot.assert_called_once()
             tasks.pop()()
             response = self.client.post("/api/ai-actions/terraform-fix", json={"patch_id": row["id"]})
             self.assertEqual(response.get_json()["status"], "GENERATING")
@@ -255,7 +320,15 @@ class AIActionRouteTest(unittest.TestCase):
         self.assertEqual(self.generated()["status"], "FAILED")
 
     def test_github_error_is_retained(self):
-        self.source.snapshot.side_effect = PatchError("GITHUB_READ_FAILED", "조회 실패", 502)
+        original_snapshot = self.source.snapshot.side_effect
+        calls = 0
+        def snapshot_then_error(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls > 1:
+                raise PatchError("GITHUB_READ_FAILED", "조회 실패", 502)
+            return original_snapshot(*args, **kwargs)
+        self.source.snapshot.side_effect = snapshot_then_error
         row = self.create().get_json()
         self.assertEqual(row["status"], "FAILED")
         self.assertEqual(row["payload"]["error"]["code"], "GITHUB_READ_FAILED")

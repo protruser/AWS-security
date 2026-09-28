@@ -67,7 +67,7 @@ def state_index():
     """Read only Terraform state IDs; return no values or credentials to callers."""
     bucket, key = os.getenv("TF_STATE_BUCKET"), os.getenv("TF_STATE_KEY")
     if not bucket or not key:
-        return None
+        raise PatchError("STATE_UNAVAILABLE", "Terraform State 설정을 확인할 수 없습니다. 매핑을 다시 시도하거나 서버 설정을 확인하세요.", 503)
     import boto3
     try:
         response = boto3.client("s3", region_name=os.getenv("TF_STATE_REGION") or None).get_object(
@@ -78,8 +78,10 @@ def state_index():
         if len(raw) > 20_000_000:
             raise ValueError("state too large")
         state = json.loads(raw)
+        if not isinstance(state, dict) or not isinstance(state.get("resources"), list):
+            raise ValueError("invalid state structure")
         index = {}
-        for resource in state.get("resources", []):
+        for resource in state["resources"]:
             if resource.get("mode") != "managed":
                 continue
             identity = (resource.get("type"), resource.get("name"), resource.get("module", ""))
@@ -91,7 +93,7 @@ def state_index():
                         index.setdefault(value.lower(), set()).add(identity)
         return index
     except Exception:
-        raise PatchError("STATE_UNAVAILABLE", "Terraform state could not be read for resource mapping.", 502) from None
+        raise PatchError("STATE_UNAVAILABLE", "Terraform State 조회에 실패했습니다. 매핑을 다시 시도하세요.", 502) from None
 
 
 def resource_prefixes(finding):
@@ -159,25 +161,26 @@ def preview(source, findings, index=None):
             if not matches:
                 continue
             exact = bool(state_matches) and all(any(
-                (kind, name, module) in matches
-                for kind, name in file["resources"]
+                (resource["type"], resource["name"], module) in state_identities
+                for resource in matches
                 for module in ("module." + path.split("/")[1], ""))
-                for matches in state_matches)
+                for state_identities in state_matches)
             # A literal ID in code is useful context but is not proof of state ownership.
             candidates.append({"file_path": path, "resources": matches,
                                "identity_match": exact})
         # State 로 확인된 파일, 대상 리소스가 많은 파일 순. 자동 입력은 한 패치 한도(5개)까지.
         candidates.sort(key=lambda item: (not item["identity_match"], -len(item["resources"]), item["file_path"]))
+        matched = [item for item in candidates if item["identity_match"]]
         if not candidates:
             status, reason = "NO_CANDIDATE", "이 항목의 대상 리소스가 선언된 Terraform 파일이 없습니다."
-        elif any(item["identity_match"] for item in candidates):
+        elif matched:
             status, reason = "MATCHED", "Terraform state links an AWS resource to this declaration. Confirm before patching."
         else:
             status, reason = "MANUAL_REVIEW", "State ownership was not established; manual confirmation is required."
         results[rule_id] = {
             "status": status,
             "candidates": candidates[:10],
-            "suggested": [item["file_path"] for item in candidates[:MAX_PATCH_FILES]],
+            "suggested": [item["file_path"] for item in matched[:MAX_PATCH_FILES]],
             "total_candidates": len(candidates),
             "reason": reason,
         }

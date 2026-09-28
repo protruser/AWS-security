@@ -64,8 +64,10 @@ class PatchWorkflow(TerraformPatches):
                 raise ValueError("invalid verdict")
             check_sensitive(json.dumps(review, ensure_ascii=False))
             payload["ai_review"] = review
-            patch["status"] = "READY_FOR_PR" if review["verdict"] == "APPROVE" else "AI_REJECTED"
-            audit(payload, "AI_APPROVED" if review["verdict"] == "APPROVE" else "AI_REJECTED", actor)
+            patch["status"] = {"APPROVE": "READY_FOR_PR", "REJECT": "AI_REJECTED",
+                               "NEEDS_HUMAN_REVIEW": "AI_NEEDS_HUMAN_REVIEW"}[review["verdict"]]
+            audit(payload, {"APPROVE": "AI_APPROVED", "REJECT": "AI_REJECTED",
+                            "NEEDS_HUMAN_REVIEW": "AI_NEEDS_HUMAN_REVIEW"}[review["verdict"]], actor)
         except Exception:
             patch["status"] = "AI_REVIEW_FAILED"
             payload["error"] = {"code": "AI_REVIEW_FAILED", "message": "2차 AI 검증에 실패했습니다. 새 패치로 다시 요청하세요."}
