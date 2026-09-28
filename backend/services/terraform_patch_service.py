@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from services.github_terraform_source import GitHubSource
 from services.patch_repository import PatchRepository
 from services.patch_security import PatchError, check_sensitive, cipher, safe_path
-from services.terraform_mapping import preview as mapping_preview
+from services.terraform_mapping import NOT_TERRAFORM_RULES, preview as mapping_preview
 from services.terraform_remediation_service import (
     _unified_diff, generate_change_report, generate_terraform_fix, validate_change_report,
 )
@@ -61,6 +61,10 @@ class TerraformPatches:
         source_commit_sha = body.get("source_commit_sha")
         if type(run_id) is not int or run_id < 1 or not isinstance(mapping, dict) or not 1 <= len(mapping) <= 33:
             raise PatchError("INVALID_SELECTION", "완료된 진단과 FAIL 항목별 Terraform 파일 경로를 선택하세요.")
+        blocked = sorted(rule for rule in mapping if rule in NOT_TERRAFORM_RULES)
+        if blocked:
+            raise PatchError("NOT_TERRAFORM_FIXABLE",
+                             f"Terraform으로 조치할 수 없는 항목입니다: {', '.join(blocked)}. 선택에서 제외하세요.")
         paths = []
         for rule, selected_paths in mapping.items():
             if not isinstance(rule, str) or not isinstance(selected_paths, list) or not 1 <= len(selected_paths) <= 5:
