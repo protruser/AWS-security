@@ -187,7 +187,9 @@ class GitHubSource:
         except Exception:
             raise PatchError("MISSING_CHECKS", "검증 결과 artifact 다운로드에 실패했습니다.", 502) from None
 
-    def snapshot(self, paths):
+    def snapshot(self, paths, check_secrets=True):
+        """check_secrets=False 는 파일 매핑 전용: 리소스 이름만 뽑고 내용은 AI 전송/저장/응답에 쓰지 않는다.
+        AI 에 보내는 파일은 패치 생성 때 기본값(True)으로 다시 읽어 검사한다."""
         sha = self.base_sha()
         if not re.fullmatch(r"[0-9a-f]{40}", sha):
             raise PatchError("INVALID_SOURCE", "GitHub commit 확인에 실패했습니다.", 502)
@@ -209,6 +211,7 @@ class GitHubSource:
             blob_sha = hashlib.sha1(f"blob {len(raw_content)}\0".encode() + raw_content).hexdigest()
             if item.get("sha") != blob_sha:
                 raise PatchError("INVALID_SOURCE", "GitHub 파일 무결성 확인에 실패했습니다.")
-            check_sensitive(content)
+            if check_secrets:
+                check_sensitive(content)
             files.append({"file_path": path, "original_content": content, "blob_sha": item["sha"]})
         return {"repository": self.repository, "ref": self.ref, "commit_sha": sha, "files": files}

@@ -79,7 +79,9 @@ def preview(source, findings, index=None):
     commit_sha, paths = source.terraform_paths()
     if not paths:
         raise PatchError("INVALID_SOURCE", "No Terraform module files were found.", 502)
-    snapshot = source.snapshot(paths)
+    # 후보를 찾으려고 modules/ 전체를 읽지만 리소스 이름만 쓴다. 여기서 비밀값 검사를 하면
+    # 선택과 무관한 파일 하나 때문에 매핑 전체가 막힌다. 선택된 파일은 패치 생성 때 검사한다.
+    snapshot = source.snapshot(paths, check_secrets=False)
     if snapshot["commit_sha"] != commit_sha:
         raise PatchError("BASE_CHANGED", "The gyu branch changed during mapping. Retry.", 409)
     catalog = {}

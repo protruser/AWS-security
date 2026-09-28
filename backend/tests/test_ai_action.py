@@ -81,7 +81,7 @@ class AIActionRouteTest(unittest.TestCase):
         self.source.terraform_paths.return_value = ("a" * 40, [
             "modules/security/kms_secrets_storage.tf", "modules/security/a.tf",
             "modules/security/b.tf"])
-        self.source.snapshot.side_effect = lambda paths: {
+        self.source.snapshot.side_effect = lambda paths, check_secrets=True: {
             "repository": "org/repo", "ref": "main", "commit_sha": "a" * 40,
             "files": [{"file_path": p, "original_content": ORIGINAL, "blob_sha": "b" * 40}
                       for p in sorted(set(paths))]}
@@ -313,6 +313,15 @@ class SensitiveInputTest(unittest.TestCase):
                       'variable "x" { sensitive = true\n default = "value" }',
                       "AKIA" + "A" * 16, "-----BEGIN RSA PRIVATE KEY-----",
                       "https://user:password@example.com"):
+            with self.subTest(value=value), self.assertRaises(PatchError):
+                check_sensitive(value)
+
+    def test_allows_imdsv2_http_tokens_but_not_other_token_literals(self):
+        # AWS-Security-Infra modules/compute/compute.tf 의 metadata_options 블록
+        check_sensitive('metadata_options {\n  http_endpoint = "enabled"\n  http_tokens   = "required"\n}')
+        check_sensitive('{"http_tokens": "optional"}')
+        for value in ('http_tokens = "s3cr3t-value"', 'api_token = "example"', 'db_password = "example"',
+                      'access_token: "example"', 'http_tokens = "required"\npassword = "example"'):
             with self.subTest(value=value), self.assertRaises(PatchError):
                 check_sensitive(value)
 
