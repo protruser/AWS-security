@@ -20,8 +20,14 @@ import { ArchitectureMap } from "./components/ArchitectureMap"
 import { ScenarioPage } from "./components/ScenarioPage"
 import { ManualMonitoringPage } from "./components/ManualMonitoringPage"
 import { AIDiagnosisPage } from "./components/AIDiagnosisPage"
-import { ApprovalQueuePage, ApprovalRequestList } from "./components/ApprovalQueuePage"
-import { AttackerTrackingPage, StageBadge } from "./components/AttackerTrackingPage"
+import {
+  ApprovalQueuePage,
+  ApprovalRequestList,
+} from "./components/ApprovalQueuePage"
+import {
+  AttackerTrackingPage,
+  StageBadge,
+} from "./components/AttackerTrackingPage"
 import { AIActionsPage } from "./components/AIActionsPage"
 import { ApprovalModal, DonutGauge, SeverityBadge } from "./components/common"
 import { LoginPage } from "./components/LoginPage"
@@ -32,7 +38,9 @@ import { eventDisplayTitle } from "./services/eventAnalysis"
 // 이벤트의 highlightAssets 중 유형별 고정 경로를 뺀 관련 서비스(CloudWatch, GuardDuty 등).
 // 실제 도달(reach)로 칠할 때도 이 강조는 그대로 둔다.
 function contextAssets(event: ActionEvent) {
-  return event.highlightAssets.filter((assetId) => !event.attackPath.includes(assetId))
+  return event.highlightAssets.filter(
+    (assetId) => !event.attackPath.includes(assetId),
+  )
 }
 
 function reachSummaryText(reach: EventReach) {
@@ -57,8 +65,13 @@ function canRemediate(event: ActionEvent) {
   // 비활성화할 수 없어 수동 조치로 분류된다. remediationType 이 없는 옛 응답만 유형으로 판단한다.
   const auto = event.remediationType
     ? event.remediationType === "AUTO"
-    : ["sqli", "dir", "brute", "xss", "cred", "port", "flood"].includes(event.scenarioType ?? "")
-  return auto && !["조치 완료", "자동 완료", "완료", "예외 처리"].includes(event.status)
+    : ["sqli", "dir", "brute", "xss", "cred", "port", "flood"].includes(
+        event.scenarioType ?? "",
+      )
+  return (
+    auto &&
+    !["조치 완료", "자동 완료", "완료", "예외 처리"].includes(event.status)
+  )
 }
 
 const SEVERITY_RANK: Record<string, number> = {
@@ -71,10 +84,14 @@ const SEVERITY_RANK: Record<string, number> = {
 
 type ActionSortKey = "time" | "severity"
 
-function sortActionEvents(items: ActionEvent[], sortKey: ActionSortKey): ActionEvent[] {
+function sortActionEvents(
+  items: ActionEvent[],
+  sortKey: ActionSortKey,
+): ActionEvent[] {
   if (sortKey === "time") return items
   return [...items].sort(
-    (a, b) => (SEVERITY_RANK[a.severity] ?? 99) - (SEVERITY_RANK[b.severity] ?? 99),
+    (a, b) =>
+      (SEVERITY_RANK[a.severity] ?? 99) - (SEVERITY_RANK[b.severity] ?? 99),
   )
 }
 
@@ -109,7 +126,10 @@ function ActionCard({
         onSelect()
       }}
       onKeyDown={(event) => {
-        if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
+        if (
+          event.target === event.currentTarget &&
+          (event.key === "Enter" || event.key === " ")
+        ) {
           event.preventDefault()
           onSelect()
         }
@@ -153,7 +173,9 @@ function ActionCard({
             미조치 {ev.elapsed}
           </span>
         </div>
-        <p className="text-xs font-bold text-[#0D0D0D] mb-1">{eventDisplayTitle(ev)}</p>
+        <p className="text-xs font-bold text-[#0D0D0D] mb-1">
+          {eventDisplayTitle(ev)}
+        </p>
         <div className="flex items-center gap-2 mb-1 flex-wrap">
           <span className="text-[10px] text-[#111111] font-medium">
             {ev.service}
@@ -204,7 +226,9 @@ function RightPanel({
 }) {
   const [detectFilter, setDetectFilter] = useState("전체")
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
-  const [requestCheckedIds, setRequestCheckedIds] = useState<Set<string>>(new Set())
+  const [requestCheckedIds, setRequestCheckedIds] = useState<Set<string>>(
+    new Set(),
+  )
   const [autoSortKey, setAutoSortKey] = useState<ActionSortKey>("time")
   const [manualSortKey, setManualSortKey] = useState<ActionSortKey>("time")
   const [detailEventId, setDetailEventId] = useState<string | null>(null)
@@ -232,7 +256,8 @@ function RightPanel({
     reach: d.reach ?? null,
     details: {
       attackerIP: d.ip && d.ip !== "-" ? d.ip : undefined,
-      blocked: d.blocked === "차단" ? true : d.blocked === "-" ? undefined : undefined,
+      blocked:
+        d.blocked === "차단" ? true : d.blocked === "-" ? undefined : undefined,
       logs: "",
     },
   })
@@ -261,7 +286,8 @@ function RightPanel({
   const detectFilters = ["전체", "Critical", "High", "Medium", "Low"]
 
   const activeEvents = events
-  const detailEvent = activeEvents.find((event) => event.id === detailEventId) ?? null
+  const detailEvent =
+    activeEvents.find((event) => event.id === detailEventId) ?? null
   const autoEvents = activeEvents.filter(canRemediate)
   const manualEvents = activeEvents.filter((ev) => !canRemediate(ev))
 
@@ -285,11 +311,14 @@ function RightPanel({
 
   // "승인요청"에는 자동 조치 정책이 없는 수동 이벤트만 표시한다.
   const requestableEvents = activeEvents.filter(
-    (ev) => !canRemediate(ev) && !isPendingApproval(ev) && ev.status !== "예외 처리",
+    (ev) =>
+      !canRemediate(ev) && !isPendingApproval(ev) && ev.status !== "예외 처리",
   )
 
   const handleBulkRequest = () => {
-    const eventIds = requestableEvents.filter((event) => requestCheckedIds.has(event.id)).map((event) => event.id)
+    const eventIds = requestableEvents
+      .filter((event) => requestCheckedIds.has(event.id))
+      .map((event) => event.id)
     if (eventIds.length === 0) return
     onBulkRequest(eventIds)
     setRequestCheckedIds(new Set())
@@ -306,7 +335,9 @@ function RightPanel({
   if (role === "승인자") {
     return (
       <div className="flex flex-col min-h-full p-3">
-        <p className="text-[11px] font-bold text-[#101828] mb-2">승인 대기 목록</p>
+        <p className="text-[11px] font-bold text-[#101828] mb-2">
+          승인 대기 목록
+        </p>
         <ApprovalRequestList role={role} onUnauthorized={onUnauthorized} />
       </div>
     )
@@ -386,8 +417,18 @@ function RightPanel({
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               {[
-                { label: "자동 조치", items: autoEvents, sortKey: autoSortKey, setSortKey: setAutoSortKey },
-                { label: "수동 조치", items: manualEvents, sortKey: manualSortKey, setSortKey: setManualSortKey },
+                {
+                  label: "자동 조치",
+                  items: autoEvents,
+                  sortKey: autoSortKey,
+                  setSortKey: setAutoSortKey,
+                },
+                {
+                  label: "수동 조치",
+                  items: manualEvents,
+                  sortKey: manualSortKey,
+                  setSortKey: setManualSortKey,
+                },
               ].map(({ label, items, sortKey, setSortKey }) => (
                 <div key={label}>
                   <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -421,19 +462,21 @@ function RightPanel({
                       tabIndex={0}
                       className="space-y-2.5 max-h-[min(520px,55vh)] overflow-y-auto overscroll-y-contain [scrollbar-gutter:stable]"
                     >
-                      {sortActionEvents(items, sortKey).map((ev: ActionEvent) => (
-                        <ActionCard
-                          key={ev.id}
-                          ev={ev}
-                          selected={selectedEvent?.id === ev.id}
-                          onSelect={() => {
-                            if (selectedEvent?.id !== ev.id) onSelectEvent(ev)
-                            setDetailEventId(ev.id)
-                          }}
-                          checked={checkedIds.has(ev.id)}
-                          onToggleCheck={() => toggleChecked(ev.id)}
-                        />
-                      ))}
+                      {sortActionEvents(items, sortKey).map(
+                        (ev: ActionEvent) => (
+                          <ActionCard
+                            key={ev.id}
+                            ev={ev}
+                            selected={selectedEvent?.id === ev.id}
+                            onSelect={() => {
+                              if (selectedEvent?.id !== ev.id) onSelectEvent(ev)
+                              setDetailEventId(ev.id)
+                            }}
+                            checked={checkedIds.has(ev.id)}
+                            onToggleCheck={() => toggleChecked(ev.id)}
+                          />
+                        ),
+                      )}
                     </div>
                   )}
                 </div>
@@ -453,7 +496,9 @@ function RightPanel({
                   type="checkbox"
                   checked={
                     requestableEvents.length > 0 &&
-                    requestableEvents.every((ev) => requestCheckedIds.has(ev.id))
+                    requestableEvents.every((ev) =>
+                      requestCheckedIds.has(ev.id),
+                    )
                   }
                   onChange={(e) =>
                     setRequestCheckedIds(
@@ -480,7 +525,9 @@ function RightPanel({
             </div>
             {requestableEvents.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-20 text-[#98A2B3]">
-                <p className="text-xs font-medium">요청 보낼 수 있는 항목이 없습니다.</p>
+                <p className="text-xs font-medium">
+                  요청 보낼 수 있는 항목이 없습니다.
+                </p>
               </div>
             ) : (
               <div className="space-y-1.5 max-h-64 overflow-auto">
@@ -516,8 +563,14 @@ function RightPanel({
           </div>
 
           <div className="pt-3 border-t border-[#EAECF0]">
-            <p className="text-[11px] font-bold text-[#101828] mb-2">보낸 요청 현황</p>
-            <ApprovalRequestList role={role} onUnauthorized={onUnauthorized} compact />
+            <p className="text-[11px] font-bold text-[#101828] mb-2">
+              보낸 요청 현황
+            </p>
+            <ApprovalRequestList
+              role={role}
+              onUnauthorized={onUnauthorized}
+              compact
+            />
           </div>
         </div>
       )}
@@ -533,7 +586,12 @@ function RightPanel({
                 className="rounded-xl border border-[#EAECF0] bg-white p-3 cursor-pointer hover:bg-[#FAFAFA] transition-colors"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-bold text-[#0D0D0D]">{eventDisplayTitle({ title: r.event, scenarioType: r.scenarioType })}</p>
+                  <p className="text-xs font-bold text-[#0D0D0D]">
+                    {eventDisplayTitle({
+                      title: r.event,
+                      scenarioType: r.scenarioType,
+                    })}
+                  </p>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     {(r.occurrenceCount ?? 1) > 1 && (
                       <span
@@ -621,7 +679,10 @@ function RightPanel({
                         <SeverityBadge sev={d.sev} small />
                       </td>
                       <td className="py-1.5 px-2 text-[10px] text-[#0D0D0D] max-w-[100px] truncate">
-                        {eventDisplayTitle({ title: d.event, scenarioType: d.scenarioType })}
+                        {eventDisplayTitle({
+                          title: d.event,
+                          scenarioType: d.scenarioType,
+                        })}
                       </td>
                       <td className="py-1.5 px-2 text-[10px] font-mono text-[#475467] whitespace-nowrap">
                         {d.ip}
@@ -1444,7 +1505,9 @@ const SECTION_KEYS: MainSection[] = [
 // 새로고침해도 보고 있던 탭(대시보드 제외)이 유지되도록, 현재 섹션을 해시에 남긴다.
 function parseSectionRoute(): MainSection {
   if (parseAttackerRoute() !== null) return "attackers"
-  const m = window.location.hash.match(/^#\/(events|attackers|monitoring|ai-diagnosis|ai-actions|approvals)$/)
+  const m = window.location.hash.match(
+    /^#\/(events|attackers|monitoring|ai-diagnosis|ai-actions|approvals)$/,
+  )
   const key = m?.[1] as MainSection | undefined
   return key && SECTION_KEYS.includes(key) ? key : "dashboard"
 }
@@ -1468,8 +1531,16 @@ export default function App() {
 
   const [autoRefresh, setAutoRefresh] = useState(true)
 
-  const [activeSection, setActiveSection] = useState<MainSection>(parseSectionRoute)
-  const [attackerIp, setAttackerIp] = useState<string | null>(parseAttackerRoute)
+  const [activeSection, setActiveSection] =
+    useState<MainSection>(parseSectionRoute)
+  const [patchSelection, setPatchSelection] = useState<{
+    runId: number
+    ruleIds: string[]
+  } | null>(null)
+  const [patchDetailId, setPatchDetailId] = useState<string | null>(null)
+  const [attackerIp, setAttackerIp] = useState<string | null>(
+    parseAttackerRoute,
+  )
   const [chatOpen, setChatOpen] = useState(false)
 
   const [rightTab, setRightTab] = useState<RightTab>("action")
@@ -1531,7 +1602,10 @@ export default function App() {
     }
   }
 
-  const loadDashboardData = async (showLoading = true, preserveOnError = false) => {
+  const loadDashboardData = async (
+    showLoading = true,
+    preserveOnError = false,
+  ) => {
     if (showLoading) setDashboardDataState("loading")
 
     try {
@@ -1572,14 +1646,16 @@ export default function App() {
         newEvents.forEach((event) => notifiedEventIdsRef.current.add(event.id))
 
         if (newEvents.length > 0) {
-          setNotifications((previous) => [
-            ...newEvents.map((event) => ({
-              id: event.id,
-              event,
-              read: false,
-            })),
-            ...previous,
-          ].slice(0, 30))
+          setNotifications((previous) =>
+            [
+              ...newEvents.map((event) => ({
+                id: event.id,
+                event,
+                read: false,
+              })),
+              ...previous,
+            ].slice(0, 30),
+          )
         }
       }
 
@@ -1797,11 +1873,17 @@ export default function App() {
       }
       clearSelection()
       const refreshed = await loadDashboardData(false, true)
-      setToast(refreshed
-        ? `자동 조치가 완료되었습니다 — ${eventDisplayTitle(event)}`
-        : "자동 조치는 완료됐지만 최신 목록을 조회하지 못했습니다. 새로고침해 주세요.")
+      setToast(
+        refreshed
+          ? `자동 조치가 완료되었습니다 — ${eventDisplayTitle(event)}`
+          : "자동 조치는 완료됐지만 최신 목록을 조회하지 못했습니다. 새로고침해 주세요.",
+      )
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "자동 조치 실행에 실패했습니다.")
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "자동 조치 실행에 실패했습니다.",
+      )
     } finally {
       remediationPendingRef.current = false
     }
@@ -1818,7 +1900,10 @@ export default function App() {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ event_id: approvalTarget.id, note: requestNote }),
+          body: JSON.stringify({
+            event_id: approvalTarget.id,
+            note: requestNote,
+          }),
         })
         const result = await response.json()
         if (!response.ok || result.success !== true) {
@@ -1827,14 +1912,20 @@ export default function App() {
         setRemediationSucceeded(true)
       }
       if (!(await loadDashboardData(false, true))) {
-        throw new Error("요청은 전송됐지만 최신 데이터를 조회하지 못했습니다. 다시 확인하면 데이터만 재조회합니다.")
+        throw new Error(
+          "요청은 전송됐지만 최신 데이터를 조회하지 못했습니다. 다시 확인하면 데이터만 재조회합니다.",
+        )
       }
       setApprovalTarget(null)
       setRequestNote("")
       clearSelection()
       setToast(`승인자에게 조치 요청을 보냈습니다 — ${approvalTarget.title}`)
     } catch (error) {
-      setRemediationError(error instanceof Error ? error.message : "승인 요청 전송에 실패했습니다.")
+      setRemediationError(
+        error instanceof Error
+          ? error.message
+          : "승인 요청 전송에 실패했습니다.",
+      )
     } finally {
       remediationPendingRef.current = false
       setIsRemediating(false)
@@ -1863,7 +1954,9 @@ export default function App() {
           : `${eventIds.length}건이 예외 처리되었습니다.`,
       )
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "예외 처리에 실패했습니다.")
+      setToast(
+        error instanceof Error ? error.message : "예외 처리에 실패했습니다.",
+      )
     } finally {
       exceptPendingRef.current = false
     }
@@ -1930,12 +2023,14 @@ export default function App() {
   const unreadNotificationCount = notifications.filter(
     (notification) => !notification.read,
   ).length
-  const displayedActionEvents = selectedEvent && !activeEvents.some((event) => event.id === selectedEvent.id)
-    ? [
-        selectedEvent,
-        ...activeEvents.filter((event) => event.id !== selectedEvent.id),
-      ]
-    : activeEvents
+  const displayedActionEvents =
+    selectedEvent &&
+    !activeEvents.some((event) => event.id === selectedEvent.id)
+      ? [
+          selectedEvent,
+          ...activeEvents.filter((event) => event.id !== selectedEvent.id),
+        ]
+      : activeEvents
 
   const selection = selectedEvent ?? selectedScenario
   const hasExplicitSelection = selection !== null || selectedAsset !== null
@@ -1991,9 +2086,16 @@ export default function App() {
     reason: string
   }> = {}
   if (!hasExplicitSelection) {
-    const addAlert = (assetId: string, level: "critical" | "warning", reason: string) => {
+    const addAlert = (
+      assetId: string,
+      level: "critical" | "warning",
+      reason: string,
+    ) => {
       const existing = alerts[assetId]
-      if (!existing || (level === "critical" && existing.level !== "critical")) {
+      if (
+        !existing ||
+        (level === "critical" && existing.level !== "critical")
+      ) {
         alerts[assetId] = { level, reason }
       }
     }
@@ -2002,9 +2104,10 @@ export default function App() {
       const reason = `${event.title} · ${event.severity}`
       if (event.reach) {
         // 실제로 도달한 자산에만 경보를 찍고, 추정 도달은 "주의"까지만 올린다.
-        uniqueAssetIds([...contextAssets(event), ...event.reach.confirmed]).forEach(
-          (assetId) => addAlert(assetId, level, reason),
-        )
+        uniqueAssetIds([
+          ...contextAssets(event),
+          ...event.reach.confirmed,
+        ]).forEach((assetId) => addAlert(assetId, level, reason))
         event.reach.estimated.forEach((assetId) =>
           addAlert(assetId, "warning", `${reason} (추정 도달)`),
         )
@@ -2504,7 +2607,10 @@ export default function App() {
         </nav>
 
         {/* ── Main content ───────────────────────────────────────────── */}
-        <section data-app-scroll-container className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-[#FAFAFA]">
+        <section
+          data-app-scroll-container
+          className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-[#FAFAFA]"
+        >
           {pageId ? (
             <ScenarioPage
               id={pageId}
@@ -2559,7 +2665,11 @@ export default function App() {
                   selectedEvent={selectedEvent}
                   onSelectEvent={handleSelectEvent}
                   onApprove={(event) => {
-                    if (remediationPendingRef.current || isPendingApproval(event)) return
+                    if (
+                      remediationPendingRef.current ||
+                      isPendingApproval(event)
+                    )
+                      return
                     if (canRemediate(event)) {
                       void handleDirectRemediation(event)
                       return
@@ -2582,7 +2692,9 @@ export default function App() {
             <AttackerTrackingPage
               selectedIp={attackerIp}
               onSelectIp={(ip) => {
-                window.location.hash = ip ? `#/attackers/${encodeURIComponent(ip)}` : "#/attackers"
+                window.location.hash = ip
+                  ? `#/attackers/${encodeURIComponent(ip)}`
+                  : "#/attackers"
               }}
               onUnauthorized={() => {
                 setAuthUser(null)
@@ -2598,6 +2710,8 @@ export default function App() {
             />
           ) : activeSection === "ai-actions" ? (
             <AIActionsPage
+              initialSelection={patchSelection}
+              initialPatchId={patchDetailId}
               onUnauthorized={() => {
                 setAuthUser(null)
                 setAuthState("unauthenticated")
@@ -2605,6 +2719,14 @@ export default function App() {
             />
           ) : activeSection === "ai-diagnosis" ? (
             <AIDiagnosisPage
+              onRemediate={
+                authUser?.role === "관리자"
+                  ? (selection) => {
+                      setPatchSelection(selection)
+                      goSection("ai-actions")
+                    }
+                  : undefined
+              }
               onUnauthorized={() => {
                 setAuthUser(null)
                 setAuthState("unauthenticated")
@@ -2613,6 +2735,10 @@ export default function App() {
           ) : activeSection === "approvals" ? (
             <ApprovalQueuePage
               role={authUser?.role ?? ""}
+              onOpenPatch={(id) => {
+                setPatchDetailId(id)
+                goSection("ai-actions")
+              }}
               onUnauthorized={() => {
                 setAuthUser(null)
                 setAuthState("unauthenticated")
@@ -2645,8 +2771,13 @@ export default function App() {
                 />
                 {selectedReach && (
                   <div className="absolute left-3 bottom-3 z-10 flex flex-wrap items-center gap-2 rounded-lg bg-white/95 px-3 py-1.5 shadow-sm ring-1 ring-[#E4E7EC]">
-                    <StageBadge stage={selectedReach.stage} confidence={selectedReach.confidence} />
-                    <span className="text-[11px] text-[#475467]">{reachSummaryText(selectedReach)}</span>
+                    <StageBadge
+                      stage={selectedReach.stage}
+                      confidence={selectedReach.confidence}
+                    />
+                    <span className="text-[11px] text-[#475467]">
+                      {reachSummaryText(selectedReach)}
+                    </span>
                   </div>
                 )}
               </div>
@@ -2754,14 +2885,20 @@ export default function App() {
       {/* ── Approval Modal ─────────────────────────────────────────────── */}
       {approvalTarget && (
         <ApprovalModal
-          ev={{ ...approvalTarget, executor: "Remediation Lambda", rollback: "조치별 별도 확인 필요" }}
+          ev={{
+            ...approvalTarget,
+            executor: "Remediation Lambda",
+            rollback: "조치별 별도 확인 필요",
+          }}
           isExecuting={isRemediating}
           error={remediationError}
           title="조치 요청 보내기"
           description="아래 내용으로 승인자에게 조치 요청을 보냅니다. 승인자가 승인해야 실제로 조치가 실행됩니다."
           agreementText="위 내용을 확인했으며 이 조치 요청을 승인자에게 보냅니다."
           executingLabel="요청 보내는 중..."
-          confirmLabel={remediationSucceeded ? "최신 상태 다시 조회" : "승인 요청 보내기"}
+          confirmLabel={
+            remediationSucceeded ? "최신 상태 다시 조회" : "승인 요청 보내기"
+          }
           onClose={() => {
             if (!remediationPendingRef.current) {
               setApprovalTarget(null)

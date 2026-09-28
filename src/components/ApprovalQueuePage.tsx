@@ -32,7 +32,9 @@ export function ApprovalEventTitle({
 }) {
   return (
     <p className="text-[12px] font-bold text-[#101828]">
-      {title ? eventDisplayTitle({ title, scenarioType: scenarioType ?? undefined }) : eventId}
+      {title
+        ? eventDisplayTitle({ title, scenarioType: scenarioType ?? undefined })
+        : eventId}
     </p>
   )
 }
@@ -123,7 +125,9 @@ export function ApprovalRequestList({
         setLoadError("승인 요청 목록을 불러오지 못했습니다.")
         return
       }
-      const data = (await response.json()) as { requests: ApprovalRequestItem[] }
+      const data = (await response.json()) as {
+        requests: ApprovalRequestItem[]
+      }
       setLoadError(null)
       setRequests(data.requests ?? [])
     } catch {
@@ -157,7 +161,9 @@ export function ApprovalRequestList({
       await postApprove(id)
       await load()
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "승인 처리에 실패했습니다.")
+      setLoadError(
+        error instanceof Error ? error.message : "승인 처리에 실패했습니다.",
+      )
     } finally {
       setBusyId(null)
     }
@@ -172,7 +178,9 @@ export function ApprovalRequestList({
       setRejectReason("")
       await load()
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "반려 처리에 실패했습니다.")
+      setLoadError(
+        error instanceof Error ? error.message : "반려 처리에 실패했습니다.",
+      )
     } finally {
       setBusyId(null)
     }
@@ -185,7 +193,9 @@ export function ApprovalRequestList({
       await postComplete(id)
       await load()
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "완료 처리에 실패했습니다.")
+      setLoadError(
+        error instanceof Error ? error.message : "완료 처리에 실패했습니다.",
+      )
     } finally {
       setBusyId(null)
     }
@@ -201,7 +211,9 @@ export function ApprovalRequestList({
       setCheckedIds(new Set())
       await load()
       if (failed > 0) {
-        setLoadError(`${ids.length - failed}건 승인 완료, ${failed}건 실패했습니다.`)
+        setLoadError(
+          `${ids.length - failed}건 승인 완료, ${failed}건 실패했습니다.`,
+        )
       }
     } finally {
       setBulkBusy(false)
@@ -213,14 +225,18 @@ export function ApprovalRequestList({
     setBulkBusy(true)
     try {
       const ids = [...checkedIds]
-      const results = await Promise.allSettled(ids.map((id) => postReject(id, bulkRejectReason)))
+      const results = await Promise.allSettled(
+        ids.map((id) => postReject(id, bulkRejectReason)),
+      )
       const failed = results.filter((r) => r.status === "rejected").length
       setCheckedIds(new Set())
       setBulkRejectOpen(false)
       setBulkRejectReason("")
       await load()
       if (failed > 0) {
-        setLoadError(`${ids.length - failed}건 반려 완료, ${failed}건 실패했습니다.`)
+        setLoadError(
+          `${ids.length - failed}건 반려 완료, ${failed}건 실패했습니다.`,
+        )
       }
     } finally {
       setBulkBusy(false)
@@ -267,7 +283,9 @@ export function ApprovalRequestList({
               checked={pendingRequests.every((r) => checkedIds.has(r.id))}
               onChange={(e) =>
                 setCheckedIds(
-                  e.target.checked ? new Set(pendingRequests.map((r) => r.id)) : new Set(),
+                  e.target.checked
+                    ? new Set(pendingRequests.map((r) => r.id))
+                    : new Set(),
                 )
               }
               className="h-3.5 w-3.5 rounded border-[#D0D5DD] accent-[#111111]"
@@ -338,7 +356,9 @@ export function ApprovalRequestList({
       ) : requests.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-24 text-[#98A2B3]">
           <p className="text-xs font-medium">
-            {showHistory ? "요청 이력이 없습니다." : "대기 중인 승인 요청이 없습니다."}
+            {showHistory
+              ? "요청 이력이 없습니다."
+              : "대기 중인 승인 요청이 없습니다."}
           </p>
         </div>
       ) : (
@@ -363,7 +383,8 @@ export function ApprovalRequestList({
                       {req.eventSeverity && (
                         <span
                           className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                            SEVERITY_STYLE[req.eventSeverity] ?? "bg-[#F2F4F7] text-[#667085]"
+                            SEVERITY_STYLE[req.eventSeverity] ??
+                            "bg-[#F2F4F7] text-[#667085]"
                           }`}
                         >
                           {req.eventSeverity}
@@ -390,11 +411,14 @@ export function ApprovalRequestList({
                       eventId={req.eventId}
                     />
                     <p className="text-[10px] text-[#667085] mt-0.5">
-                      {req.eventAsset ?? "-"} · 요청자 {req.requestedBy ?? "-"} · {req.requestedAt}
+                      {req.eventAsset ?? "-"} · 요청자 {req.requestedBy ?? "-"}{" "}
+                      · {req.requestedAt}
                     </p>
                     {req.note && (
                       <p className="text-[10px] text-[#344054] mt-1 bg-[#F9FAFB] rounded-lg px-2 py-1.5 whitespace-pre-wrap">
-                        <span className="font-semibold text-[#667085]">수동 조치 계획</span>{" "}
+                        <span className="font-semibold text-[#667085]">
+                          수동 조치 계획
+                        </span>{" "}
                         {req.note}
                       </p>
                     )}
@@ -475,16 +499,68 @@ export function ApprovalRequestList({
 export function ApprovalQueuePage({
   role,
   onUnauthorized,
+  onOpenPatch,
 }: {
   role: string
   onUnauthorized: () => void
+  onOpenPatch?: (id: string) => void
 }) {
+  const [patches, setPatches] = useState<{
+    id: string
+    status: string
+    rule_ids: string[]
+  }[]>([])
+  useEffect(() => {
+    let mounted = true
+    fetch("/api/ai-actions/patches", { credentials: "include" })
+      .then(async (response) => {
+        if (response.status === 401) {
+          onUnauthorized()
+          return null
+        }
+        return response.ok ? response.json() : null
+      })
+      .then((data) => {
+        if (mounted && data) setPatches(data.patches ?? [])
+      })
+      .catch(() => {})
+    return () => {
+      mounted = false
+    }
+  }, [onUnauthorized])
+  const pending = patches.filter(
+    (p) =>
+      p.status === "AWAITING_FIRST_APPROVAL" ||
+      p.status === "AWAITING_FINAL_APPROVAL",
+  )
   return (
     <div className="min-h-full p-4 space-y-3">
       <div>
         <p className="text-[18px] font-bold text-[#101828]">승인 관리</p>
       </div>
       <ApprovalRequestList role={role} onUnauthorized={onUnauthorized} />
+      <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 text-xs space-y-2">
+        <h2 className="font-bold">
+          Terraform AI 패치 승인 요청 {pending.length}건
+        </h2>
+        {pending.length === 0 && (
+          <p className="text-[#667085]">대기 중인 패치가 없습니다.</p>
+        )}
+        {pending.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => onOpenPatch?.(p.id)}
+            className="block text-left text-[#175CD3] underline"
+          >
+            {p.status === "AWAITING_FIRST_APPROVAL" ? "1차 승인" : "최종 승인"}{" "}
+            · {p.id} · FAIL {p.rule_ids?.join(", ")}
+          </button>
+        ))}
+        <p className="text-[#667085]">
+          패치 상세에서 코드·Diff·검증 결과를 확인한 후 결정하세요.
+        </p>
+      </section>
     </div>
   )
 }

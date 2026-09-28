@@ -1,0 +1,163 @@
+name: Terraform patch deployment
+run-name: Terraform patch ${{ inputs.patch_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      patch_id:
+        description: Exact approved patch ID
+        required: true
+        type: string
+      authorization:
+        description: Server-signed approval for an exact commit and saved plan
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+
+concurrency:
+  group: terraform-production
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    environment: terraform-production
+    timeout-minutes: 60
+    env:
+      PATCH_AUTHORIZATION: ${{ inputs.authorization }}
+      PATCH_ID: ${{ inputs.patch_id }}
+      PATCH_APPROVAL_SIGNING_KEY: ${{ secrets.PATCH_APPROVAL_SIGNING_KEY }}
+      TF_IN_AUTOMATION: "true"
+      AWS_REGION: ${{ vars.TF_STATE_REGION }}
+      PLAN_BUCKET: ${{ vars.TF_PLAN_BUCKET }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_STATE_KEY: ${{ vars.TF_STATE_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify server approval before loading patch code or AWS identity
+        id: approval
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/verify_patch_authorization.py /tmp/approval.json
+          python - <<'PY'
+          import json, os, re
+          c=json.load(open('/tmp/approval.json'))
+          assert c['patch_id'] == os.environ['PATCH_ID']
+          assert c['base_ref'] == os.environ['GITHUB_REF_NAME']
+          assert re.fullmatch(r'[0-9a-f]{40}', c['head_sha'])
+          assert re.fullmatch(r'[0-9a-f]{40}', c['base_sha'])
+          assert re.fullmatch(r'ai-patch/[0-9a-f-]{36}', c['branch'])
+          assert isinstance(c['pr_number'], int)
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+              for k in ('head_sha','base_sha','branch','base_ref','pr_number','check_run_id',
+                        'plan_sha256','plan_key','plan_version_id'):
+                  f.write(f'{k.upper()}={c[k]}\n')
+          PY
+      - name: Confirm PR, branch and base commit are unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.state')" == open ]]
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.draft')" == true ]]
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')" == "$HEAD_SHA" ]]
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.base.ref')" == "$BASE_REF" ]]
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/$BASE_REF" --jq '.sha')" == "$BASE_SHA" ]]
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq '.object.sha')" == "$HEAD_SHA" ]]
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHECK_RUN_ID" --jq '.conclusion')" == success ]]
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHECK_RUN_ID" --jq '.head_branch')" == "$BRANCH" ]]
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHECK_RUN_ID" --jq '.event')" == pull_request ]]
+      - name: Check out exact approved patch commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "$HEAD_SHA"
+          [[ "$(git rev-parse HEAD)" == "$HEAD_SHA" ]]
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+      - name: Configure deployment AWS identity
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.TF_APPLY_ROLE_ARN }}
+          aws-region: ${{ vars.TF_STATE_REGION }}
+      - name: Verify immutable plan and Terraform state
+        id: plan
+        shell: bash
+        working-directory: .
+        run: |
+          set -euo pipefail
+          [[ ! -e backend.tf ]]
+          cat > backend.tf <<EOF
+          terraform {
+            backend "s3" {
+              bucket = "$TF_STATE_BUCKET"
+              key = "$TF_STATE_KEY"
+              region = "$AWS_REGION"
+              encrypt = true
+              use_lockfile = true
+            }
+          }
+          EOF
+          terraform init -reconfigure -input=false -no-color > /tmp/apply-init.log 2>&1
+          aws s3api get-object --bucket "$PLAN_BUCKET" --key "$PLAN_KEY" \
+            --version-id "$PLAN_VERSION_ID" /tmp/approved.tfplan > /dev/null
+          [[ "$(sha256sum /tmp/approved.tfplan | cut -d ' ' -f 1)" == "$PLAN_SHA256" ]]
+          terraform state pull | python -c 'import json,sys; s=json.load(sys.stdin); a=json.load(open("/tmp/approval.json")); assert s["lineage"]==a["state"]["lineage"] and s["serial"]==a["state"]["serial"]'
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/$BASE_REF" --jq '.sha')" == "$BASE_SHA" ]]
+      - name: Merge approved PR without running Terraform
+        id: merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api -X POST "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/ready_for_review" > /tmp/ready-result.json
+          gh api -X PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/merge" \
+            -f sha="$HEAD_SHA" -f merge_method=merge > /tmp/merge-result.json
+          python -c 'import json; assert json.load(open("/tmp/merge-result.json"))["merged"] is True'
+          merge_sha="$(python -c 'import json; print(json.load(open("/tmp/merge-result.json"))["sha"])')"
+          head_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$HEAD_SHA" --jq '.tree.sha')"
+          merge_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$merge_sha" --jq '.tree.sha')"
+          [[ "$head_tree" == "$merge_tree" ]]
+          echo "MERGE_SHA=$merge_sha" >> "$GITHUB_ENV"
+      - name: Reconfirm state and apply exact approved saved plan
+        id: apply
+        shell: bash
+        working-directory: .
+        run: |
+          set -euo pipefail
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/$BASE_REF" --jq '.sha')" == "$MERGE_SHA" ]]
+          terraform state pull | python -c 'import json,sys; s=json.load(sys.stdin); a=json.load(open("/tmp/approval.json")); assert s["lineage"]==a["state"]["lineage"] and s["serial"]==a["state"]["serial"]'
+          terraform apply -input=false -auto-approve -no-color /tmp/approved.tfplan > /tmp/terraform-apply.log 2>&1
+      - name: Record sanitized deployment result
+        if: ${{ always() && steps.approval.outcome == 'success' }}
+        env:
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          APPLY_OUTCOME: ${{ steps.apply.outcome }}
+          MERGE_OUTCOME: ${{ steps.merge.outcome }}
+        run: |
+          mkdir -p /tmp/deployment-result
+          python - <<'PY'
+          import json,os,datetime
+          data={'patch_id':os.environ['PATCH_ID'], 'head_sha':os.getenv('HEAD_SHA'),
+                'merge_sha':os.getenv('MERGE_SHA'), 'apply_status':os.environ['APPLY_OUTCOME'],
+                'merge_status':os.environ['MERGE_OUTCOME'], 'plan_status':os.environ['PLAN_OUTCOME'],
+                'at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                'run_id':int(os.environ['GITHUB_RUN_ID'])}
+          with open('/tmp/deployment-result/manifest.json','w') as output: json.dump(data,output)
+          PY
+      - name: Upload result without Terraform logs or state
+        if: ${{ always() && steps.approval.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-deploy-${{ env.PATCH_ID }}
+          path: /tmp/deployment-result/manifest.json
+          retention-days: 90

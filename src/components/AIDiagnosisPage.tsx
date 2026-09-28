@@ -198,9 +198,12 @@ function ResultCard({ result }: { result: DiagnosisResult }) {
 
 export function AIDiagnosisPage({
   onUnauthorized,
+  onRemediate,
 }: {
   onUnauthorized: () => void
+  onRemediate?: (selection: { runId: number; ruleIds: string[] }) => void
 }) {
+  const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([])
   const [status, setStatus] = useState<RunStatusResponse | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<"전체" | DiagnosisStatus>("전체")
@@ -275,6 +278,7 @@ export function AIDiagnosisPage({
 
   const running = status?.status === "collecting" || status?.status === "diagnosing"
   const report = status?.status === "done" ? status.result : null
+  useEffect(() => { setSelectedRuleIds([]) }, [status?.id])
 
   const grouped = CATEGORY_ORDER.map((category) => ({
     category,
@@ -372,6 +376,12 @@ export function AIDiagnosisPage({
 
       {report && (
         <>
+          {onRemediate && <div className="flex items-center gap-3 rounded-xl border border-[#E4E7EC] bg-white p-3 text-xs">
+            <span>FAIL {selectedRuleIds.length}개 선택</span>
+            <button disabled={!selectedRuleIds.length || !status?.id}
+              onClick={() => status?.id && onRemediate({ runId: status.id, ruleIds: selectedRuleIds })}
+              className="rounded-lg bg-[#101828] px-4 py-2 font-semibold text-white disabled:opacity-40">선택한 항목 AI 조치</button>
+          </div>}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
             {[
               ["전체", report.summary.total, "#101828"],
@@ -459,7 +469,14 @@ export function AIDiagnosisPage({
                   </p>
                   <div className="space-y-2">
                     {filtered.map((result) => (
-                      <ResultCard key={result.rule_id} result={result} />
+                      <div key={result.rule_id} className="flex items-start gap-2">
+                        {onRemediate && result.status === "FAIL" && <input type="checkbox"
+                          aria-label={`FAIL ${result.rule_id} 선택`} className="mt-4"
+                          checked={selectedRuleIds.includes(result.rule_id)}
+                          onChange={e => setSelectedRuleIds(ids => e.target.checked
+                            ? [...ids, result.rule_id] : ids.filter(id => id !== result.rule_id))} />}
+                        <div className="min-w-0 flex-1"><ResultCard result={result} /></div>
+                      </div>
                     ))}
                   </div>
                 </div>

@@ -4,6 +4,17 @@ on:
   push:
     branches:
       - wonny
+    paths:
+      - "backend/**"
+      - "src/**"
+      - "scripts/**"
+      - "deploy/dashboard/**"
+      - "Dockerfile"
+      - "index.html"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - ".github/workflows/deploy-dashboard.yml"
   workflow_dispatch:
 
 permissions:
@@ -80,11 +91,35 @@ jobs:
       - name: Log in to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push immutable image
+      - name: Build immutable image
         env:
           IMAGE_URI: ${{ env.DASHBOARD_ECR_URI }}:${{ github.sha }}
         run: |
           docker build --tag "$IMAGE_URI" .
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ env.DASHBOARD_ECR_URI }}:${{ github.sha }}
+          format: json
+          output: trivy-image.json
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: ${{ vars.TRIVY_BLOCK_DEPLOY == 'true' && '1' || '0' }}
+
+      - name: Retain Trivy results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-${{ github.sha }}
+          path: trivy-image.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Push scanned image to ECR
+        env:
+          IMAGE_URI: ${{ env.DASHBOARD_ECR_URI }}:${{ github.sha }}
+        run: |
           docker push "$IMAGE_URI"
 
       - name: Deploy through AWS Systems Manager
