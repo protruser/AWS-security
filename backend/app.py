@@ -48,6 +48,11 @@ from services.attack_reach import (
     load_instance_map,
     merge_verdicts,
 )
+from services.terraform_remediation_service import (
+    RemediationError,
+    generate_terraform_fix,
+    review_terraform_fix,
+)
 
 load_dotenv()
 
@@ -2198,6 +2203,55 @@ def ai_diagnosis_report_pdf():
         as_attachment=True,
         download_name=filename,
     )
+
+
+# AI 조치(A단계): 진단 FAIL 항목 + 사람이 붙여넣은 .tf 파일을 받아, AI 가 수정안을 만들고
+# 다른 모델이 2차 검증한 결과만 돌려준다. 파일 쓰기·커밋·apply 는 하지 않는다(제안만).
+AI_ACTION_MAX_TF_CHARS = 50_000
+
+
+@app.post("/api/ai-actions/terraform-fix")
+@role_required(os.getenv("ADMIN_ROLE", "관리자"))
+def ai_action_terraform_fix():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "INVALID_REQUEST", "message": "요청 형식이 올바르지 않습니다."}), 400
+
+    finding = body.get("finding")
+    file_path = str(body.get("file_path") or "").strip()
+    file_content = body.get("file_content")
+
+    if not isinstance(finding, dict) or not finding:
+        return jsonify({"error": "INVALID_FINDING", "message": "진단 항목(finding)이 필요합니다."}), 400
+    if not file_path.endswith(".tf") or "/" in file_path or "\\" in file_path or len(file_path) > 128:
+        return jsonify({"error": "INVALID_FILE_PATH", "message": ".tf 파일명을 입력해 주세요."}), 400
+    if not isinstance(file_content, str) or not file_content.strip():
+        return jsonify({"error": "EMPTY_FILE", "message": "Terraform 파일 내용을 붙여넣어 주세요."}), 400
+    if len(file_content) > AI_ACTION_MAX_TF_CHARS:
+        return jsonify({"error": "FILE_TOO_LARGE",
+                        "message": f"파일이 너무 큽니다({AI_ACTION_MAX_TF_CHARS}자 이하)."}), 400
+
+    if not os.getenv("OPENAI_API_KEY", "").strip():
+        return jsonify({"error": "OPENAI_API_KEY_MISSING",
+                        "message": "OPENAI_API_KEY가 설정되어 있지 않습니다."}), 503
+    if not os.getenv("ANTHROPIC_API_KEY", "").strip():
+        return jsonify({"error": "ANTHROPIC_API_KEY_MISSING",
+                        "message": "ANTHROPIC_API_KEY가 설정되어 있지 않습니다(2차 검증에 필요)."}), 503
+
+    try:
+        fix = generate_terraform_fix(finding=finding, file_path=file_path, file_content=file_content)
+        # AI 가 "고칠 것 없음"으로 원본을 그대로 돌려주면 검증할 diff 가 없다.
+        if not fix["changed"]:
+            return jsonify({**fix, "review": None,
+                            "message": "AI가 변경이 필요하지 않다고 판단했습니다."})
+        review = review_terraform_fix(finding=finding, diff_text=fix["diff"])
+        return jsonify({**fix, "review": review})
+    except RemediationError as exc:
+        app.logger.warning("AI terraform fix unavailable: %s", exc)
+        return jsonify({"error": "AI_ACTION_FAILED", "message": str(exc)}), 502
+    except Exception:
+        app.logger.exception("AI terraform fix failed")
+        return jsonify({"error": "AI_ACTION_FAILED", "message": "AI 조치안 생성에 실패했습니다."}), 500
 
 
 # 화면(SPA). 해시 라우팅(#/scenario/...)을 쓰므로 서버는 항상 index.html만 주면 된다.
