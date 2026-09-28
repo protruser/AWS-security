@@ -138,6 +138,11 @@ class AIActionRouteTest(unittest.TestCase):
         self.assertEqual(self.create(source_commit_sha="b" * 40).status_code, 409)
         self.assertEqual(self.create(mapping={"3.7": ["modules/unknown.tf"]}).status_code, 400)
 
+    def test_not_terraform_rule_cannot_create_patch(self):
+        response = self.create(mapping={"1.6": ["modules/compute/iam.tf"]})
+        self.assertEqual((response.status_code, response.get_json()["error"]), (400, "NOT_TERRAFORM_FIXABLE"))
+        self.source.snapshot.assert_not_called()
+
     def test_background_work_returns_before_ai_and_can_be_polled(self):
         tasks = []
         with patch.object(self.service, "submit", side_effect=tasks.append):

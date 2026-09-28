@@ -141,11 +141,19 @@ interface MappingPreview {
   ref: string
   commit_sha: string
   mapping: Record<string, {
-    status: "MATCHED" | "MANUAL_REVIEW"
+    status: "MATCHED" | "MANUAL_REVIEW" | "NOT_TERRAFORM" | "NO_CANDIDATE"
     reason: string
     candidates: { file_path: string; identity_match: boolean; resources: { type: string; name: string }[] }[]
+    // 자동 입력할 파일(한 패치 한도 5개까지)과 전체 후보 수
+    suggested?: string[]
+    total_candidates?: number
   }>
 }
+
+const MAX_PATCH_FILES = 5
+
+const splitPaths = (value: string | undefined) =>
+  (value ?? "").split(",").map((p) => p.trim()).filter(Boolean)
 const PATCH_STATUS: Record<string, string> = {
   FETCHING: "GitHub 조회 중",
   SOURCE_READY: "원본 조회 완료",
@@ -344,6 +352,10 @@ export function AIActionsPage({
   }, [fix?.id, fix?.status])
   const selected = fails.filter((r) => selectedRuleIds.includes(r.rule_id))
   const selectionKey = selected.map((r) => r.rule_id).sort().join(",")
+  const notTerraformSelected = !!mappingPreview && previewRules === selectionKey &&
+    selected.some((r) => mappingPreview.mapping[r.rule_id]?.status === "NOT_TERRAFORM")
+  // 같은 파일을 여러 항목이 쓰면 한 파일로 통합되므로 중복을 빼고 센다.
+  const selectedFileCount = new Set(selected.flatMap((r) => splitPaths(paths[r.rule_id]))).size
   const selectDetail = (data: PatchDetail) => {
     setFix(data)
     setReviewed(false)
@@ -368,9 +380,19 @@ export function AIActionsPage({
       })
       setMappingPreview(result)
       setPreviewRules(selectionKey)
-      setPaths(Object.fromEntries(selected.map((r) => [
-        r.rule_id, result.mapping[r.rule_id]?.candidates[0]?.file_path ?? "",
-      ])))
+      setPaths(Object.fromEntries(selected.map((r) => {
+        const item = result.mapping[r.rule_id]
+        const files = item?.suggested ?? (item?.candidates[0] ? [item.candidates[0].file_path] : [])
+        return [r.rule_id, files.join(", ")]
+      })))
+    })
+  const toggleCandidate = (ruleId: string, filePath: string) =>
+    setPaths((p) => {
+      const current = splitPaths(p[ruleId])
+      const next = current.includes(filePath)
+        ? current.filter((path) => path !== filePath)
+        : [...current, filePath]
+      return { ...p, [ruleId]: next.join(", ") }
     })
   const fetchSource = () =>
     perform(async () => {
@@ -530,19 +552,42 @@ export function AIActionsPage({
                   placeholder="예: modules/network/security_groups.tf"
                   className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono"
                 />
-                {mappingPreview && previewRules === selectionKey && (
-                  <span className="mt-1 block text-gray-600">
-                    {mappingPreview.mapping[r.rule_id]?.status === "MANUAL_REVIEW"
-                      ? "수동 확인 필요: Terraform State에서 리소스 연결을 확인하지 못했습니다."
-                      : "Terraform State에서 리소스 연결을 확인했습니다. 파일을 검토하세요."}
-                    {mappingPreview.mapping[r.rule_id]?.candidates.map((candidate) => (
-                      <button key={candidate.file_path} type="button"
-                        className="ml-2 underline" onClick={() => setPaths((p) => ({ ...p, [r.rule_id]: candidate.file_path }))}>
-                        {candidate.file_path}{candidate.identity_match ? " (ID 일치)" : ""}
-                      </button>
-                    ))}
-                  </span>
-                )}
+                {mappingPreview && previewRules === selectionKey && (() => {
+                  const item = mappingPreview.mapping[r.rule_id]
+                  if (!item) return null
+                  if (item.status === "NOT_TERRAFORM") {
+                    return (
+                      <span className="mt-1 block text-amber-700">
+                        Terraform 조치 대상 아님: {item.reason} 선택을 해제하세요.
+                      </span>
+                    )
+                  }
+                  const chosen = splitPaths(paths[r.rule_id])
+                  const total = item.total_candidates ?? item.candidates.length
+                  return (
+                    <span className="mt-1 block text-gray-600">
+                      {item.status === "NO_CANDIDATE"
+                        ? "대상 리소스가 선언된 Terraform 파일을 찾지 못했습니다. 경로를 직접 입력하세요."
+                        : item.status === "MATCHED"
+                          ? "Terraform State에서 리소스 연결을 확인했습니다. 자동 입력된 파일을 검토하세요."
+                          : "자동 입력된 파일을 검토하세요(State 연결은 확인하지 못함). 파일을 눌러 추가·제외할 수 있습니다."}
+                      {total > (item.suggested?.length ?? total) && (
+                        <span className="block text-amber-700">
+                          후보 {total}개 중 {item.suggested?.length}개만 자동 입력했습니다(한 패치 최대 {MAX_PATCH_FILES}개).
+                          나머지는 다음 패치로 처리하세요.
+                        </span>
+                      )}
+                      {item.candidates.map((candidate) => (
+                        <button key={candidate.file_path} type="button"
+                          className={`ml-2 underline ${chosen.includes(candidate.file_path) ? "font-semibold text-[#101828]" : ""}`}
+                          onClick={() => toggleCandidate(r.rule_id, candidate.file_path)}>
+                          {chosen.includes(candidate.file_path) ? "✓ " : "+ "}
+                          {candidate.file_path}{candidate.identity_match ? " (ID 일치)" : ""}
+                        </button>
+                      ))}
+                    </span>
+                  )
+                })()}
               </label>
             ))}
             <button
@@ -553,11 +598,18 @@ export function AIActionsPage({
                 !selected.length ||
                 !mappingPreview || previewRules !== selectionKey ||
                 selected.some((r) => !paths[r.rule_id]?.trim()) ||
+                notTerraformSelected ||
+                selectedFileCount > MAX_PATCH_FILES ||
                 !!(initialSelection && initialSelection.runId !== diagnosis?.id)
               }
             >
               {running ? "처리 중…" : "GitHub 원본 조회 · 새 패치 생성"}
             </button>
+            {selectedFileCount > MAX_PATCH_FILES && (
+              <p className="text-xs text-amber-700">
+                한 패치는 파일 {MAX_PATCH_FILES}개까지입니다(현재 {selectedFileCount}개). 파일이나 항목을 줄이세요.
+              </p>
+            )}
           </section>
         </div>
       )}
