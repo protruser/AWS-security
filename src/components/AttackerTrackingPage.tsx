@@ -274,8 +274,8 @@ function EventTimelineGraph({
   }
 
   const width = 900
-  const height = 230
-  const padding = { left: 40, right: 16, top: 10, bottom: 8 }
+  const height = 110
+  const padding = { left: 16, right: 16, top: 16, bottom: 16 }
   const trackWidth = width - padding.left - padding.right
   const minT = Math.min(...times)
   const maxT = Math.max(...times)
@@ -284,97 +284,36 @@ function EventTimelineGraph({
   const span = Math.max(maxT - minT, 60_000)
   const x = (t: number) => padding.left + ((t - minT) / span) * trackWidth
 
-  // Y축을 "도달 단계"로 쓴다 - S3 이벤트는 S1·S2를 거치지 않고 뜬금없이
-  // 나온 게 아니라 그 요청이 S1·S2를 통과해서 S3까지 간 것이므로, 점 하나를
-  // 그 단계 높이에 찍고 바닥(S1)부터 줄기(stem)를 그어 "여기까지 도달했다"는
-  // 누적 의미를 표현한다. C(클라우드 권한)는 네트워크 단계와는 성격이 달라
-  // 맨 위에 별도 줄로 띄워 둔다.
-  const stageRows: Stage[] = ["S1", "S2", "S3", "S4", "C"]
-  const remStripHeight = 22
-  const stageAreaHeight = height - padding.top - padding.bottom - remStripHeight
-  const rowHeight = stageAreaHeight / stageRows.length
-  const rowY = (stage: Stage) => {
-    const rowIndexFromBottom = stageRows.indexOf(stage)
-    return padding.top + stageAreaHeight - (rowIndexFromBottom + 0.5) * rowHeight
-  }
-  const baseY = padding.top + stageAreaHeight
-  const remY = padding.top + stageAreaHeight + remStripHeight / 2
+  // 세로축은 의미를 안 준다 - "몇 단계까지 도달했는지"는 그래프 바로 위의
+  // 단계 스테퍼(StageStepper)가 이미 보여주고 있어서, 그래프까지 세로에
+  // 의미를 실으면 정보가 겹치면서 "시간 흐름"이라는 핵심이 묻힌다. 여기는
+  // 순수하게 "언제 무슨 일이 있었는지"만 한 줄로 훑는 용도 - 점 색깔로
+  // 그 이벤트가 도달한 단계를 구분한다.
+  const eventY = height / 2
+  const remY = height - 14
 
   return (
     <div className="rounded-2xl border border-[#E4E7EC] bg-white p-3">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-[13px] font-bold text-[#101828]">공격 타임라인</p>
-          <p className="text-[11.5px] text-[#98A2B3]">가로축 = 시간, 세로축 = 도달 단계 (위로 갈수록 깊이 침투)</p>
+          <p className="text-[11.5px] text-[#98A2B3]">가로축 = 시간 · 점 색깔 = 그 시점에 도달한 단계</p>
         </div>
-        <span className="flex items-center gap-1 text-[11px] text-[#667085]">
-          <span className="inline-block h-0.5 w-2.5" style={{ backgroundColor: "#16A34A" }} />
-          조치
-        </span>
+        <div className="flex flex-wrap gap-2 text-[11px] text-[#667085]">
+          {(["S1", "S2", "S3", "S4", "C"] as Stage[]).map((s) => (
+            <span key={s} className="flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: STAGE_COLOR[s] }} />
+              {s}
+            </span>
+          ))}
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-0.5 w-2.5" style={{ backgroundColor: "#16A34A" }} />
+            조치
+          </span>
+        </div>
       </div>
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full" style={{ height }}>
-        {stageRows.map((s) => (
-          <g key={s}>
-            <line
-              x1={padding.left}
-              y1={rowY(s)}
-              x2={width - padding.right}
-              y2={rowY(s)}
-              stroke="#F2F4F7"
-              strokeWidth={1}
-            />
-            <text x={padding.left - 6} y={rowY(s)} textAnchor="end" dominantBaseline="middle" fontSize={10} fill="#98A2B3">
-              {s}
-            </text>
-          </g>
-        ))}
-        <line x1={padding.left} y1={baseY} x2={width - padding.right} y2={baseY} stroke="#D0D5DD" strokeWidth={1.5} />
-        {events.map((ev) => {
-          const cx = x(new Date(ev.time).getTime())
-          const cy = rowY(ev.stage)
-          const active = highlightId === ev.eventId
-          return (
-            <g key={ev.eventId} onClick={() => onSelectEvent(ev.eventId)} style={{ cursor: "pointer" }}>
-              <line
-                x1={cx}
-                y1={baseY}
-                x2={cx}
-                y2={cy}
-                stroke={STAGE_COLOR[ev.stage]}
-                strokeOpacity={ev.excluded ? 0.3 : 0.55}
-                strokeWidth={active ? 2 : 1.5}
-              />
-              {/* 선만 그으면 "그냥 줄"로 보이고 S1~S3을 실제로 거쳤다는 게
-                  안 읽힌다는 피드백이라, 거쳐온 단계마다 작은 점을 따로
-                  찍어 사다리처럼 보이게 한다. C는 네트워크 단계 순서 밖이라
-                  건너뛴다. */}
-              {ev.stage !== "C" &&
-                STAGE_STEPS.slice(0, STAGE_STEPS.indexOf(ev.stage as Exclude<Stage, "C">)).map((passedStage) => (
-                  <circle
-                    key={`${ev.eventId}-${passedStage}`}
-                    cx={cx}
-                    cy={rowY(passedStage)}
-                    r={3}
-                    fill={STAGE_COLOR[passedStage]}
-                    fillOpacity={ev.excluded ? 0.25 : 0.6}
-                  />
-                ))}
-              <circle
-                cx={cx}
-                cy={cy}
-                r={active ? 7 : 5.5}
-                fill={STAGE_COLOR[ev.stage]}
-                fillOpacity={ev.excluded ? 0.35 : 1}
-                stroke={active ? "#101828" : "white"}
-                strokeWidth={active ? 2 : 1.5}
-              />
-              <title>
-                {formatTime(ev.time)} · {SCENARIO_LABEL[ev.scenarioType] ?? ev.scenarioType} · {ev.stage}{" "}
-                {STAGE_META[ev.stage].label}
-              </title>
-            </g>
-          )
-        })}
+        <line x1={padding.left} y1={eventY} x2={width - padding.right} y2={eventY} stroke="#E4E7EC" strokeWidth={2} />
         {remediations.map((r) => {
           const cx = x(new Date(r.time).getTime())
           return (
@@ -391,6 +330,27 @@ function EventTimelineGraph({
                 {formatTime(r.time)} · {ACTION_LABEL[r.action ?? ""] ?? r.action} · {r.result}
               </title>
             </line>
+          )
+        })}
+        {events.map((ev) => {
+          const cx = x(new Date(ev.time).getTime())
+          const active = highlightId === ev.eventId
+          return (
+            <g key={ev.eventId} onClick={() => onSelectEvent(ev.eventId)} style={{ cursor: "pointer" }}>
+              <circle
+                cx={cx}
+                cy={eventY}
+                r={active ? 8 : 6}
+                fill={STAGE_COLOR[ev.stage]}
+                fillOpacity={ev.excluded ? 0.35 : 1}
+                stroke={active ? "#101828" : "white"}
+                strokeWidth={active ? 2 : 1.5}
+              />
+              <title>
+                {formatTime(ev.time)} · {SCENARIO_LABEL[ev.scenarioType] ?? ev.scenarioType} · {ev.stage}{" "}
+                {STAGE_META[ev.stage].label}
+              </title>
+            </g>
           )
         })}
       </svg>
