@@ -85,6 +85,15 @@ export const STAGE_META: Record<Stage, { label: string; className: string }> = {
 }
 const STAGE_STEPS: Exclude<Stage, "C">[] = ["S1", "S2", "S3", "S4"]
 const STAGE_FILTERS: (Stage | "")[] = ["", "S4", "S3", "S2", "S1", "C"]
+// STAGE_META의 className은 Tailwind 클래스라 SVG fill/stroke에는 못 쓴다 -
+// 같은 색을 raw hex로 한 번 더 정의해 타임라인 그래프에서 쓴다.
+const STAGE_COLOR: Record<Stage, string> = {
+  S1: "#175CD3",
+  S2: "#067647",
+  S3: "#B54708",
+  S4: "#B42318",
+  C: "#5925DC",
+}
 
 const CONFIDENCE_LABEL: Record<Confidence, string> = {
   confirmed: "로그 확인",
@@ -239,7 +248,119 @@ function ReachMap({ reach }: { reach: Reach }) {
   )
 }
 
-function Timeline({ detail }: { detail: AttackerDetail }) {
+function EventTimelineGraph({
+  detail,
+  highlightId,
+  onSelectEvent,
+}: {
+  detail: AttackerDetail
+  highlightId: string | null
+  onSelectEvent: (eventId: string) => void
+}) {
+  const events = detail.timeline
+  const remediations = detail.remediations.filter(
+    (r): r is RemediationItem & { time: string } => Boolean(r.time),
+  )
+  const times = [
+    ...events.map((e) => new Date(e.time).getTime()),
+    ...remediations.map((r) => new Date(r.time).getTime()),
+  ]
+  if (times.length === 0) {
+    return (
+      <div className="rounded-2xl border border-[#E4E7EC] bg-white p-4 text-[13px] text-[#667085]">
+        타임라인으로 그릴 이벤트가 없습니다.
+      </div>
+    )
+  }
+
+  const width = 900
+  const height = 130
+  const padding = { left: 16, right: 16, top: 18, bottom: 24 }
+  const trackWidth = width - padding.left - padding.right
+  const minT = Math.min(...times)
+  const maxT = Math.max(...times)
+  // 이벤트가 1건뿐이거나 전부 같은 시각이면 폭이 0이 돼 나눗셈이 깨지므로
+  // 최소 1분 폭을 보장한다.
+  const span = Math.max(maxT - minT, 60_000)
+  const x = (t: number) => padding.left + ((t - minT) / span) * trackWidth
+  const eventY = padding.top + 26
+  const remY = padding.top + 66
+
+  return (
+    <div className="rounded-2xl border border-[#E4E7EC] bg-white p-3">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[13px] font-bold text-[#101828]">공격 타임라인</p>
+        <div className="flex flex-wrap gap-2 text-[11px] text-[#667085]">
+          {STAGE_STEPS.map((s) => (
+            <span key={s} className="flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: STAGE_COLOR[s] }} />
+              {s}
+            </span>
+          ))}
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-0.5 w-2.5" style={{ backgroundColor: "#16A34A" }} />
+            조치
+          </span>
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" style={{ height }}>
+        <line x1={padding.left} y1={eventY} x2={width - padding.right} y2={eventY} stroke="#E4E7EC" strokeWidth={2} />
+        <line x1={padding.left} y1={remY} x2={width - padding.right} y2={remY} stroke="#F2F4F7" strokeWidth={1} />
+        {remediations.map((r) => {
+          const cx = x(new Date(r.time).getTime())
+          return (
+            <line
+              key={`rem-${r.eventId}-${r.time}`}
+              x1={cx}
+              x2={cx}
+              y1={remY - 10}
+              y2={remY + 10}
+              stroke="#16A34A"
+              strokeWidth={2.5}
+            >
+              <title>
+                {formatTime(r.time)} · {ACTION_LABEL[r.action ?? ""] ?? r.action} · {r.result}
+              </title>
+            </line>
+          )
+        })}
+        {events.map((ev) => {
+          const cx = x(new Date(ev.time).getTime())
+          const active = highlightId === ev.eventId
+          return (
+            <g key={ev.eventId} onClick={() => onSelectEvent(ev.eventId)} style={{ cursor: "pointer" }}>
+              <circle
+                cx={cx}
+                cy={eventY}
+                r={active ? 8 : 6}
+                fill={STAGE_COLOR[ev.stage]}
+                fillOpacity={ev.excluded ? 0.35 : 1}
+                stroke={active ? "#101828" : "white"}
+                strokeWidth={active ? 2 : 1.5}
+              />
+              <title>
+                {formatTime(ev.time)} · {SCENARIO_LABEL[ev.scenarioType] ?? ev.scenarioType} · {ev.stage}{" "}
+                {STAGE_META[ev.stage].label}
+              </title>
+            </g>
+          )
+        })}
+      </svg>
+      <div className="flex justify-between text-[11px] text-[#98A2B3]">
+        <span>{formatTime(new Date(minT).toISOString())}</span>
+        <span>{formatTime(new Date(maxT).toISOString())}</span>
+      </div>
+    </div>
+  )
+}
+
+function Timeline({
+  detail,
+  highlightId,
+}: {
+  detail: AttackerDetail
+  highlightId: string | null
+}) {
   type Row =
     | { kind: "event"; time: string; item: TimelineItem }
     | { kind: "remediation"; time: string; item: RemediationItem }
@@ -265,8 +386,13 @@ function Timeline({ detail }: { detail: AttackerDetail }) {
         ) : (
           <li
             key={row.item.eventId}
-            className={`grid grid-cols-[88px_1fr_auto] items-center gap-2 rounded-lg border border-[#EAECF0] px-3 py-2 ${
+            id={`tl-${row.item.eventId}`}
+            className={`grid grid-cols-[88px_1fr_auto] items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
               row.item.excluded ? "opacity-50" : ""
+            } ${
+              highlightId === row.item.eventId
+                ? "border-[#101828] bg-[#F2F4F7] ring-2 ring-[#101828]/10"
+                : "border-[#EAECF0]"
             }`}
           >
             <span className="text-[13px] tabular-nums text-[#667085]">{formatTime(row.time)}</span>
@@ -307,11 +433,13 @@ function DetailPanel({
 }) {
   const [detail, setDetail] = useState<AttackerDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [highlightId, setHighlightId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     setDetail(null)
     setError(null)
+    setHighlightId(null)
     fetchJson<AttackerDetail>(`/api/attackers/${encodeURIComponent(ip)}?range=${range}`, onUnauthorized)
       .then((data) => !cancelled && setDetail(data))
       .catch((err: Error) => !cancelled && setError(err.message))
@@ -319,6 +447,13 @@ function DetailPanel({
       cancelled = true
     }
   }, [ip, range, onUnauthorized])
+
+  // 타임라인 그래프에서 점을 클릭하면 아래 상세 로그 목록에서 같은 이벤트로
+  // 스크롤 + 강조한다 - 그래프는 개요만 보여주고, 실제 내용은 목록에 있으므로.
+  useEffect(() => {
+    if (!highlightId) return
+    document.getElementById(`tl-${highlightId}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+  }, [highlightId])
 
   if (error) return <p className="p-6 text-[14px] text-[#B42318]">{error}</p>
   if (!detail) return <p className="p-6 text-[14px] text-[#667085]">불러오는 중...</p>
@@ -343,16 +478,21 @@ function DetailPanel({
           IP 차단({formatTime(s.block.at)}) 이후에도 WAF 를 통과한 요청이 있습니다. 차단 목록 반영 여부와 WAF 규칙 순서를 확인하세요.
         </p>
       )}
-      <ReachMap reach={detail.reach} />
-      <div className="flex flex-wrap gap-3 text-[12.5px] text-[#667085]">
-        <span className="flex items-center gap-1">
-          <span className="inline-block h-3 w-3 rounded-sm ring-2 ring-[#D92D20]" /> 로그로 확인된 도달
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block h-3 w-3 rounded-sm outline-2 outline-dashed outline-[#F79009]" /> 추정 도달 (ALB 이후 앱 로그 미수집)
-        </span>
+      <EventTimelineGraph detail={detail} highlightId={highlightId} onSelectEvent={setHighlightId} />
+      <div className="grid gap-3 lg:grid-cols-2">
+        <ReachMap reach={detail.reach} />
+        <div className="max-h-[480px] space-y-2 overflow-y-auto rounded-2xl border border-[#E4E7EC] bg-white p-3">
+          <div className="flex flex-wrap gap-3 text-[12.5px] text-[#667085]">
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-3 w-3 rounded-sm ring-2 ring-[#D92D20]" /> 로그로 확인된 도달
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-3 w-3 rounded-sm outline-2 outline-dashed outline-[#F79009]" /> 추정 도달 (ALB 이후 앱 로그 미수집)
+            </span>
+          </div>
+          <Timeline detail={detail} highlightId={highlightId} />
+        </div>
       </div>
-      <Timeline detail={detail} />
     </div>
   )
 }
@@ -433,83 +573,80 @@ export function AttackerTrackingPage({
         </p>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-[280px_1fr]">
-        <section className="rounded-2xl border border-[#E4E7EC] bg-white">
-          <div className="space-y-2 border-b border-[#EAECF0] p-3">
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="IP 검색"
-              className="w-full rounded-lg border border-[#D0D5DD] px-3 py-1.5 text-[14px] outline-none focus:border-[#101828]"
-            />
-            <div className="flex flex-wrap gap-1">
-              {STAGE_FILTERS.map((stage) => (
-                <button
-                  key={stage || "all"}
-                  type="button"
-                  onClick={() => setStageFilter(stage)}
-                  className={`rounded-full px-2.5 py-0.5 text-[12.5px] font-semibold ${
-                    stageFilter === stage ? "bg-[#101828] text-white" : "bg-[#F2F4F7] text-[#475467] hover:bg-[#E4E7EC]"
-                  }`}
-                >
-                  {stage ? `${stage} ${STAGE_META[stage].label}` : "전체"}
-                </button>
-              ))}
-            </div>
+      <section className="space-y-2 rounded-2xl border border-[#E4E7EC] bg-white p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="IP 검색"
+            className="w-48 rounded-lg border border-[#D0D5DD] px-3 py-1.5 text-[14px] outline-none focus:border-[#101828]"
+          />
+          <div className="flex flex-wrap gap-1">
+            {STAGE_FILTERS.map((stage) => (
+              <button
+                key={stage || "all"}
+                type="button"
+                onClick={() => setStageFilter(stage)}
+                className={`rounded-full px-2.5 py-0.5 text-[12.5px] font-semibold ${
+                  stageFilter === stage ? "bg-[#101828] text-white" : "bg-[#F2F4F7] text-[#475467] hover:bg-[#E4E7EC]"
+                }`}
+              >
+                {stage ? `${stage} ${STAGE_META[stage].label}` : "전체"}
+              </button>
+            ))}
           </div>
-          {error ? (
-            <p className="p-4 text-[14px] text-[#B42318]">{error}</p>
-          ) : !list ? (
-            <p className="p-4 text-[14px] text-[#667085]">불러오는 중...</p>
-          ) : items.length === 0 ? (
-            <p className="p-4 text-[14px] text-[#667085]">조건에 맞는 IP 가 없습니다.</p>
-          ) : (
-            <ul className="max-h-[640px] divide-y divide-[#F2F4F7] overflow-y-auto">
-              {items.map((item) => (
-                <li key={item.ip}>
-                  <button
-                    type="button"
-                    onClick={() => onSelectIp(item.ip)}
-                    className={`w-full space-y-0.5 px-2.5 py-2 text-left hover:bg-[#F9FAFB] ${
-                      selectedIp === item.ip ? "bg-[#F2F4F7]" : ""
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-center gap-1">
-                      <span className="font-mono text-[13px] font-semibold text-[#101828]">{item.ip}</span>
-                      {item.block.state === "bypassed" && (
-                        <span className="rounded-full bg-[#D92D20] px-1.5 text-[10.5px] font-bold text-white">재시도</span>
-                      )}
-                      {item.block.state === "blocked" && (
-                        <span className="rounded-full bg-[#ECFDF3] px-1.5 text-[10.5px] font-semibold text-[#067647]">차단됨</span>
-                      )}
-                      {item.isInternal && (
-                        <span className="rounded-full bg-[#F2F4F7] px-1.5 text-[10.5px] font-semibold text-[#475467]">내부</span>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1">
-                      <StageBadge stage={item.maxStage} confidence={item.maxStageConfidence} />
-                      {item.cloudAccess && <StageBadge stage="C" />}
-                      <span className="text-[11.5px] text-[#667085]">
-                        {item.scenarioTypes.map((t) => SCENARIO_LABEL[t] ?? t).join(", ")}
-                        {item.requestCount !== null && ` · 통과 ${formatCount(item.passedCount)}/${formatCount(item.requestCount)}`}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-[#98A2B3]">{formatTime(item.lastSeen)}</p>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        </div>
+        {error ? (
+          <p className="p-2 text-[14px] text-[#B42318]">{error}</p>
+        ) : !list ? (
+          <p className="p-2 text-[14px] text-[#667085]">불러오는 중...</p>
+        ) : items.length === 0 ? (
+          <p className="p-2 text-[14px] text-[#667085]">조건에 맞는 IP 가 없습니다.</p>
+        ) : (
+          // 세로 목록 대신 가로로 훑어보는 칩 목록 - IP 선택이 화면 상단에서
+          // 한눈에 끝나고, 아래는 선택한 IP의 재구성 화면에 전부 쓸 수 있다.
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {items.map((item) => (
+              <button
+                key={item.ip}
+                type="button"
+                onClick={() => onSelectIp(item.ip)}
+                className={`min-w-[168px] flex-shrink-0 space-y-1 rounded-xl border px-3 py-2 text-left transition-colors ${
+                  selectedIp === item.ip
+                    ? "border-[#101828] bg-[#F2F4F7] ring-1 ring-[#101828]"
+                    : "border-[#E4E7EC] bg-white hover:bg-[#F9FAFB]"
+                }`}
+              >
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="font-mono text-[13px] font-semibold text-[#101828]">{item.ip}</span>
+                  {item.block.state === "bypassed" && (
+                    <span className="rounded-full bg-[#D92D20] px-1.5 text-[10.5px] font-bold text-white">재시도</span>
+                  )}
+                  {item.block.state === "blocked" && (
+                    <span className="rounded-full bg-[#ECFDF3] px-1.5 text-[10.5px] font-semibold text-[#067647]">차단됨</span>
+                  )}
+                  {item.isInternal && (
+                    <span className="rounded-full bg-[#F2F4F7] px-1.5 text-[10.5px] font-semibold text-[#475467]">내부</span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-1">
+                  <StageBadge stage={item.maxStage} confidence={item.maxStageConfidence} />
+                  {item.cloudAccess && <StageBadge stage="C" />}
+                </div>
+                <p className="text-[11px] text-[#98A2B3]">{formatTime(item.lastSeen)}</p>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
 
-        <section className="min-h-[300px] max-h-[760px] overflow-y-auto rounded-2xl border border-[#E4E7EC] bg-white">
-          {selectedIp ? (
-            <DetailPanel key={selectedIp} ip={selectedIp} range={range} onUnauthorized={handleUnauthorized} />
-          ) : (
-            <p className="p-6 text-[14px] text-[#667085]">왼쪽 목록에서 IP 를 선택하세요.</p>
-          )}
-        </section>
-      </div>
+      <section className="min-h-[300px] rounded-2xl border border-[#E4E7EC] bg-white">
+        {selectedIp ? (
+          <DetailPanel key={selectedIp} ip={selectedIp} range={range} onUnauthorized={handleUnauthorized} />
+        ) : (
+          <p className="p-6 text-[14px] text-[#667085]">위 목록에서 IP 를 선택하세요.</p>
+        )}
+      </section>
 
       <p className="text-[12.5px] text-[#98A2B3]">
         IP 기준 집계이며 같은 공격자임을 보장하지 않습니다. WAF 통과 이후(k3s·Flask 등) 도달은 앱·ALB 로그가 수집되지 않아 추정으로 표시합니다.
