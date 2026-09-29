@@ -543,12 +543,13 @@ function SecurityDataMonitoringContent({
   const [knownValues, setKnownValues] = useState<{
     attackerIps: string[]
     assets: string[]
-  }>({ attackerIps: [], assets: [] })
+    scenarioTypes: string[]
+  }>({ attackerIps: [], assets: [], scenarioTypes: [] })
 
-  // 공격 IP/자산 드롭다운은 (1) 기간 제한 없이 해당 소스 전체에서 관측된
-  // 값(knownValues, 소스를 고를 때 한 번 조회)과 (2) 방금 조회한 결과(logs)를
-  // 합쳐서 채운다 - knownValues만 쓰면 조회 이후 새로 들어온 값을 놓치고,
-  // logs만 쓰면 검색 전엔 목록이 비어 있어서 둘 다 필요하다.
+  // 공격 IP/자산/공격유형 드롭다운은 (1) 지금 고른 기간(range) 안에서 관측된
+  // 값(knownValues, 기간을 고를 때 조회)과 (2) 방금 조회한 결과(logs)를 합쳐서
+  // 채운다 - knownValues만 쓰면 조회 이후 새로 들어온 값을 놓치고, logs만
+  // 쓰면 검색 전엔 목록이 비어 있어서 둘 다 필요하다.
   const attackerIpOptions = Array.from(
     new Set([
       ...knownValues.attackerIps,
@@ -563,6 +564,12 @@ function SecurityDataMonitoringContent({
       ...logs.map((log) => log.asset).filter((asset): asset is string => Boolean(asset)),
     ]),
   )
+  // 기간 안에서 관측된 게 하나도 없으면(아직 조회 전 등) 필터링하지 않고
+  // 전체 옵션을 보여준다 - 모르는 상태를 "선택지가 없다"로 오인하지 않도록.
+  const scenarioTypeOptions = (allOptions: [string, string][]) =>
+    knownValues.scenarioTypes.length > 0
+      ? allOptions.filter(([value]) => knownValues.scenarioTypes.includes(value))
+      : allOptions
 
   const resetResults = () => {
     setLogs([])
@@ -572,9 +579,19 @@ function SecurityDataMonitoringContent({
     setValidationError(null)
   }
 
-  const loadKnownValues = async (nextSource: LogSource) => {
+  const loadKnownValues = async (
+    nextSource: LogSource,
+    window: { range: RangePreset } | { start: string; end: string },
+  ) => {
     try {
-      const response = await fetch(`/api/logs/values?source=${nextSource}`, {
+      const params = new URLSearchParams({ source: nextSource })
+      if ("range" in window) {
+        params.set("range", window.range)
+      } else {
+        params.set("start", window.start.length === 16 ? `${window.start}:00` : window.start)
+        params.set("end", window.end.length === 16 ? `${window.end}:00` : window.end)
+      }
+      const response = await fetch(`/api/logs/values?${params.toString()}`, {
         credentials: "include",
         headers: { Accept: "application/json" },
       })
@@ -583,6 +600,7 @@ function SecurityDataMonitoringContent({
       setKnownValues({
         attackerIps: Array.isArray(result.attackerIps) ? result.attackerIps : [],
         assets: Array.isArray(result.assets) ? result.assets : [],
+        scenarioTypes: Array.isArray(result.scenarioTypes) ? result.scenarioTypes : [],
       })
     } catch {
       // 목록 채우기는 편의 기능이라 실패해도 직접 입력으로 계속 조회할 수 있다.
@@ -596,8 +614,7 @@ function SecurityDataMonitoringContent({
     setEndAt("")
     setFilters(EMPTY_FILTERS)
     resetResults()
-    setKnownValues({ attackerIps: [], assets: [] })
-    void loadKnownValues(nextSource)
+    setKnownValues({ attackerIps: [], assets: [], scenarioTypes: [] })
   }
 
   const selectRange = (nextRange: RangePreset) => {
@@ -606,12 +623,19 @@ function SecurityDataMonitoringContent({
     setLogs([])
     setExpandedId(null)
     setQueryState("idle")
-    if (nextRange === "custom" && (!startAt || !endAt)) {
-      const end = new Date()
-      const start = new Date(end.getTime() - 60 * 60 * 1000)
-      setStartAt(toDatetimeLocal(start))
-      setEndAt(toDatetimeLocal(end))
+    if (nextRange === "custom") {
+      if (!startAt || !endAt) {
+        const end = new Date()
+        const start = new Date(end.getTime() - 60 * 60 * 1000)
+        setStartAt(toDatetimeLocal(start))
+        setEndAt(toDatetimeLocal(end))
+      }
+      // 직접 설정은 시작/종료를 다시 고를 수 있어 바로 조회하지 않고, 실제
+      // 검색(조회 버튼) 이후의 결과(logs)로만 드롭다운을 채운다.
+      setKnownValues({ attackerIps: [], assets: [], scenarioTypes: [] })
+      return
     }
+    if (source) void loadKnownValues(source, { range: nextRange })
   }
 
   const setFilter = (key: keyof SearchFilters, value: string) => {
@@ -800,13 +824,13 @@ function SecurityDataMonitoringContent({
                   label="공격 유형"
                   value={filters.scenarioType}
                   onChange={(value) => setFilter("scenarioType", value)}
-                  options={[
+                  options={scenarioTypeOptions([
                     ["sqli", "SQL Injection"],
                     ["xss", "XSS"],
                     ["dir", "Directory Scan"],
                     ["brute", "Brute Force"],
                     ["flood", "Rate Limit Flood"],
-                  ]}
+                  ])}
                 />
                 <InputField
                   label="공격 IP"
@@ -832,10 +856,10 @@ function SecurityDataMonitoringContent({
                   label="Finding 유형"
                   value={filters.scenarioType}
                   onChange={(value) => setFilter("scenarioType", value)}
-                  options={[
+                  options={scenarioTypeOptions([
                     ["port", "Port Scan"],
                     ["cred", "Credential 관련 이벤트"],
-                  ]}
+                  ])}
                 />
                 <SelectField
                   label="위험도"

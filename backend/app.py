@@ -527,14 +527,18 @@ def _log_scenario_condition(source):
 
 
 def _read_security_log_values(args):
-    """검색 조건의 공격 IP/대상 자산 드롭다운을, 기간 제한 없이 해당 소스에서
-    실제로 관측된 값 전체로 채우기 위한 조회. 조회 결과(logs)에만 의존하면
-    아직 검색을 안 한 상태에선 목록이 비어 있으므로 별도로 둔다."""
+    """검색 조건의 공격 IP/대상 자산/공격 유형 드롭다운을, 화면에서 고른 것과
+    같은 기간(range 또는 start~end) 안에서 실제로 관측된 값으로 채우기 위한
+    조회. 조회 결과(logs)에만 의존하면 아직 검색을 안 한 상태에선 목록이
+    비어 있으므로 별도로 둔다 - 단, 기간은 실제 검색과 똑같이 맞춘다."""
     source = str(args.get("source") or "").strip().lower()
     if source not in LOG_SOURCES:
         raise ValueError("WAF, GuardDuty, Inspector 중 하나를 선택해 주세요.")
 
+    start_at, end_at = _log_time_window(args)
     scenario_condition, scenario_params = _log_scenario_condition(source)
+    window_condition = f"{scenario_condition} AND detected_at >= %s AND detected_at <= %s"
+    window_params = [*scenario_params, start_at, end_at]
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
@@ -542,11 +546,11 @@ def _read_security_log_values(args):
                 f"""
                 SELECT DISTINCT attacker_ip
                 FROM security_events
-                WHERE {scenario_condition} AND attacker_ip IS NOT NULL AND attacker_ip <> ''
+                WHERE {window_condition} AND attacker_ip IS NOT NULL AND attacker_ip <> ''
                 ORDER BY attacker_ip
                 LIMIT 500
                 """,
-                scenario_params,
+                window_params,
             )
             attacker_ips = [row["attacker_ip"] for row in cursor.fetchall()]
 
@@ -554,15 +558,25 @@ def _read_security_log_values(args):
                 f"""
                 SELECT DISTINCT asset
                 FROM security_events
-                WHERE {scenario_condition} AND asset IS NOT NULL AND asset <> ''
+                WHERE {window_condition} AND asset IS NOT NULL AND asset <> ''
                 ORDER BY asset
                 LIMIT 500
                 """,
-                scenario_params,
+                window_params,
             )
             assets = [row["asset"] for row in cursor.fetchall()]
 
-    return {"attackerIps": attacker_ips, "assets": assets}
+            cursor.execute(
+                f"""
+                SELECT DISTINCT LOWER(scenario_type) AS scenario_type
+                FROM security_events
+                WHERE {window_condition} AND scenario_type IS NOT NULL AND scenario_type <> ''
+                """,
+                window_params,
+            )
+            scenario_types = [row["scenario_type"] for row in cursor.fetchall()]
+
+    return {"attackerIps": attacker_ips, "assets": assets, "scenarioTypes": scenario_types}
 
 
 def _read_dashboard_data():
