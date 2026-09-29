@@ -339,7 +339,7 @@ function MonitoringAnalytics({ source, range, window, logs }: { source: LogSourc
   const severityData = SEVERITIES.map((label) => ({ label, value: severityCounts.get(label) ?? 0, color: SEVERITY_COLORS[label] }))
 
   return (
-    <div className="p-4 space-y-3 border-b border-[#EAECF0]">
+    <div className="p-4 space-y-3 border-t border-[#EAECF0]">
       <SummaryCards source={source} logs={logs} />
       <LineChart title={source === "waf" ? "시간대별 공격 탐지 건수" : "시간대별 Finding 발생 건수"} data={trend} />
       {/* WAF는 위 요약 카드(총 탐지/BLOCK/ALLOW)가 이미 이 두 막대그래프와
@@ -711,6 +711,9 @@ function SecurityDataMonitoringContent({
         throw new Error(data.message || `Logs API ${response.status}`)
       }
       setLogs(data.logs)
+      // 결과가 1건뿐이면 어차피 펼쳐볼 대상이 하나뿐이라, 클릭 없이 바로
+      // 상세 데이터를 보여준다. 여러 건이면 기존처럼 눌러야 펼쳐진다.
+      setExpandedId(data.logs.length === 1 ? data.logs[0].id : null)
       setLastWindow(queryWindow)
       setQueryState("success")
     } catch (error) {
@@ -974,14 +977,6 @@ function SecurityDataMonitoringContent({
             </div>
           ) : (
             <>
-              {lastWindow && (
-                <MonitoringAnalytics
-                  source={source as LogSource}
-                  range={range as RangePreset}
-                  window={lastWindow}
-                  logs={logs}
-                />
-              )}
               <div className="px-4 py-3 border-b border-[#EAECF0]">
                 <p className="text-xs font-bold text-[#101828]">상세 데이터</p>
               </div>
@@ -1024,6 +1019,14 @@ function SecurityDataMonitoringContent({
                 </tbody>
               </table>
               </div>
+              {lastWindow && (
+                <MonitoringAnalytics
+                  source={source as LogSource}
+                  range={range as RangePreset}
+                  window={lastWindow}
+                  logs={logs}
+                />
+              )}
             </>
           )}
         </section>
