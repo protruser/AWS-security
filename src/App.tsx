@@ -2517,7 +2517,7 @@ export default function App() {
       {/* ── Body ───────────────────────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* ── Left navigation ─────────────────────────────────────────── */}
-        <nav className="w-[176px] flex-shrink-0 bg-white border-r border-[#E4E7EC] px-2.5 py-3 flex flex-col gap-1.5">
+        <nav className="w-[192px] flex-shrink-0 bg-white border-r border-[#E4E7EC] px-2.5 py-3 flex flex-col gap-1.5">
           <p className="px-2.5 pb-1 text-[11px] font-bold tracking-[0.12em] text-[#98A2B3] uppercase">
             Navigation
           </p>
@@ -2661,7 +2661,7 @@ export default function App() {
                 }`}
               >
                 <span className="flex-shrink-0">{item.icon}</span>
-                <span className="text-[13px] font-semibold flex-1">
+                <span className="text-[13px] font-semibold flex-1 whitespace-nowrap">
                   {item.label}
                 </span>
                 {item.badge !== undefined && item.badge > 0 && (
