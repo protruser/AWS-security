@@ -621,7 +621,7 @@ export function AIActionsPage({
                   return (
                     <span className="mt-1 block text-gray-600">
                       {item.status === "NO_CANDIDATE"
-                        ? "대상 리소스가 선언된 Terraform 파일을 찾지 못했습니다. 경로를 직접 입력하세요."
+                        ? item.reason
                         : item.status === "MATCHED"
                           ? "Terraform State에서 리소스 연결을 확인했습니다. 자동 입력된 파일을 검토하세요."
                           : "자동 입력된 파일을 검토하세요(State 연결은 확인하지 못함). 파일을 눌러 추가·제외할 수 있습니다."}

@@ -143,6 +143,24 @@ class AIActionRouteTest(unittest.TestCase):
         self.assertEqual((response.status_code, response.get_json()["error"]), (400, "NOT_TERRAFORM_FIXABLE"))
         self.source.snapshot.assert_not_called()
 
+    def test_iam_rules_can_be_manually_mapped_to_existing_module_file(self):
+        path = "modules/compute/iam.tf"
+        self.source.terraform_paths.return_value = ("a" * 40, [path])
+        self.repo.results["results"].extend(
+            {"rule_id": rule_id, "status": "FAIL", "resource_ids": [f"iam-{rule_id}"]}
+            for rule_id in ("1.2", "1.3", "1.4", "1.9")
+        )
+        self.repo.results["results"] = [
+            {**item, "status": "FAIL", "resource_ids": ["iam-1.1"]}
+            if item["rule_id"] == "1.1" else item
+            for item in self.repo.results["results"]
+        ]
+        for rule_id in ("1.1", "1.2", "1.3", "1.4", "1.9"):
+            with self.subTest(rule_id=rule_id):
+                response = self.create(mapping={rule_id: [path]})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.get_json()["status"], "SOURCE_READY")
+
     def test_background_work_returns_before_ai_and_can_be_polled(self):
         tasks = []
         with patch.object(self.service, "submit", side_effect=tasks.append):

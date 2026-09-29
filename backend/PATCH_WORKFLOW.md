@@ -25,6 +25,10 @@ reads Terraform State to confirm AWS resource identity. State values are never
 returned or stored by mapping. A file-type match without State ownership is
 marked `MANUAL_REVIEW`; the operator must confirm or change the file. The
 preview commit SHA is required when creating a patch, so stale mappings fail.
+IAM rules 1.1–1.4 and 1.9 can be mapped to their specific Terraform
+resource types (1.2 targets IAM access keys and login profiles). When the live `gyu` tree has no such declarations, preview
+returns `NO_CANDIDATE` and permits an operator to choose a file manually;
+it never claims that an existing IAM resource is owned by Terraform.
 
 The sequence is source snapshot → integrated proposal and first report → first
 approval → second AI review (a `NEEDS_HUMAN_REVIEW` result requires a separate

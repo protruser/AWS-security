@@ -21,6 +21,43 @@ def log_group(name):
 
 
 class MappingTest(unittest.TestCase):
+    def test_iam_rules_suggest_only_their_terraform_resource_types(self):
+        source = source_with({
+            "modules/identity/user_attachment.tf": 'resource "aws_iam_user_policy_attachment" "alice_admin" {}\n',
+            "modules/identity/credentials.tf": 'resource "aws_iam_access_key" "alice" {}\n'
+                'resource "aws_iam_user_login_profile" "bob" {}\n',
+            "modules/identity/users.tf": 'resource "aws_iam_user" "alice" {}\n',
+            "modules/identity/groups.tf": 'resource "aws_iam_group" "operators" {}\n'
+                'resource "aws_iam_group_membership" "operators" {}\n',
+            "modules/identity/password.tf": 'resource "aws_iam_account_password_policy" "account" {}\n',
+            "modules/compute/roles.tf": 'resource "aws_iam_role" "admin" {}\n',
+        })
+        expected = {
+            "1.1": ["modules/identity/user_attachment.tf"],
+            "1.2": ["modules/identity/credentials.tf"],
+            "1.3": ["modules/identity/users.tf"],
+            "1.4": ["modules/identity/groups.tf"],
+            "1.9": ["modules/identity/password.tf"],
+        }
+        result = preview(source, [{"rule_id": rule_id, "resource_ids": ["resource-1"]}
+                                  for rule_id in expected], index={})["mapping"]
+        for rule_id, paths in expected.items():
+            with self.subTest(rule_id=rule_id):
+                self.assertEqual(result[rule_id]["suggested"], paths)
+                self.assertEqual(result[rule_id]["status"], "MANUAL_REVIEW")
+                self.assertNotIn("modules/compute/roles.tf", result[rule_id]["suggested"])
+
+    def test_unmanaged_iam_rules_allow_manual_mapping_without_false_candidate(self):
+        source = source_with({"modules/compute/iam.tf": 'resource "aws_iam_role" "ec2" {}\n'
+                              'resource "aws_iam_role_policy_attachment" "ssm" {}\n'})
+        result = preview(source, [{"rule_id": rule_id, "resource_ids": ["resource-1"]}
+                                  for rule_id in ("1.1", "1.2", "1.3", "1.4", "1.9")], index={})["mapping"]
+        for rule_id, item in result.items():
+            with self.subTest(rule_id=rule_id):
+                self.assertEqual((item["status"], item["candidates"], item["suggested"]),
+                                 ("NO_CANDIDATE", [], []))
+                self.assertIn("수동 선택", item["reason"])
+
     def test_real_declarations_suggest_only_matching_files(self):
         source = source_with({
             "modules/network/security_groups.tf": 'resource "aws_security_group" "dashboard" {\n name = "dashboard"\n}\n',

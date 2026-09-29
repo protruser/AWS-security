@@ -20,6 +20,11 @@ MAX_PATCH_FILES = 5
 # 로그 그룹 이름에 "waf" 가 들어 있다는 이유로 WAF 파일을 고르는 식의 오탐이 생긴다.
 # 여기 없는 항목은 resource_prefixes() 의 키워드 추측을 그대로 쓴다.
 RULE_TARGETS = {
+    "1.1": ("aws_iam_user_policy_attachment",),
+    "1.2": ("aws_iam_access_key", "aws_iam_user_login_profile"),
+    "1.3": ("aws_iam_user",),
+    "1.4": ("aws_iam_group", "aws_iam_group_membership", "aws_iam_user_group_membership"),
+    "1.9": ("aws_iam_account_password_policy",),
     "2.1": ("aws_iam_role", "aws_iam_role_policy", "aws_iam_role_policy_attachment", "aws_iam_policy"),
     "2.2": ("aws_iam_role", "aws_iam_role_policy", "aws_iam_role_policy_attachment", "aws_iam_policy"),
     "2.3": ("aws_iam_role", "aws_iam_role_policy", "aws_iam_role_policy_attachment", "aws_iam_policy"),
@@ -47,19 +52,23 @@ RULE_TARGETS = {
     "4.12": ("aws_db_instance", "aws_docdb_cluster"),
 }
 
-# 계정 설정이나 운영 조치라 이 인프라 Terraform 으로 고칠 수 없는 항목. 패치 생성을 막는다.
-# (IAM 사용자·루트 계정·비밀번호 정책은 이 저장소가 관리하지 않는다)
+# Terraform으로 직접 관리할 수 없는 운영 조치. 패치 생성을 막는다.
+# 1.1~1.4/1.9는 대상 선언이 있을 때만 후보로 제시한다. 현재 gyu에
+# 선언이 없으면 NO_CANDIDATE로 남기고 사용자가 관리 전환을 확인하도록 한다.
 NOT_TERRAFORM_RULES = {
-    "1.1": "IAM 사용자 정책 연결은 이 Terraform이 관리하지 않습니다. IAM 콘솔에서 조치하세요.",
-    "1.2": "IAM 사용자 계정 정리는 IAM 콘솔에서 조치하세요.",
-    "1.3": "IAM 사용자 태그는 이 Terraform이 관리하지 않습니다. IAM 콘솔에서 조치하세요.",
-    "1.4": "IAM 그룹 구성원은 이 Terraform이 관리하지 않습니다. IAM 콘솔에서 조치하세요.",
     "1.5": "EC2는 SSM 접속을 쓰도록 Key Pair 없이 설계되었습니다. 예외 승인 여부를 검토하세요.",
     "1.6": "루트 계정 사용은 계정 운영 조치입니다(루트 사용 중단, 사용 기록 점검).",
     "1.7": "루트/IAM Access Key 정리는 IAM 콘솔에서 조치하세요.",
     "1.8": "MFA 설정은 IAM 콘솔에서 사용자별로 조치하세요.",
-    "1.9": "계정 비밀번호 정책은 이 Terraform이 관리하지 않습니다. IAM 콘솔에서 조치하세요.",
     "4.7": "CloudWatch 에이전트 설치는 SSM Run Command로 조치하세요. user_data 변경은 서버를 교체합니다.",
+}
+
+UNMANAGED_IAM_REASONS = {
+    "1.1": "직접 연결된 IAM 사용자 정책을 관리하는 Terraform 선언이 없습니다. 기존 연결을 조치하려면 소유권과 import 여부를 확인하고 파일을 수동 선택하세요.",
+    "1.2": "IAM Access Key 또는 로그인 프로필을 관리하는 Terraform 선언이 없습니다. 기존 자격증명의 소유권, import 여부와 비활성화 영향을 확인하고 파일을 수동 선택하세요.",
+    "1.3": "IAM 사용자를 관리하는 Terraform 선언이 없습니다. 기존 사용자의 태그를 변경하려면 소유권과 import 여부를 확인하고 파일을 수동 선택하세요.",
+    "1.4": "IAM 그룹 또는 구성원을 관리하는 Terraform 선언이 없습니다. 기존 그룹의 소유권과 import 여부를 확인하고 파일을 수동 선택하세요.",
+    "1.9": "계정 암호 정책을 관리하는 Terraform 선언이 없습니다. 기존 정책의 관리 방식과 계획된 변경을 확인하고 파일을 수동 선택하세요.",
 }
 
 
@@ -169,7 +178,8 @@ def preview(source, findings, index=None):
         # State 로 확인된 파일, 대상 리소스가 많은 파일 순. 자동 입력은 한 패치 한도(5개)까지.
         candidates.sort(key=lambda item: (not item["identity_match"], -len(item["resources"]), item["file_path"]))
         if not candidates:
-            status, reason = "NO_CANDIDATE", "이 항목의 대상 리소스가 선언된 Terraform 파일이 없습니다."
+            status = "NO_CANDIDATE"
+            reason = UNMANAGED_IAM_REASONS.get(rule_id, "이 항목의 대상 리소스가 선언된 Terraform 파일이 없습니다.")
         elif identifiers and all(any(resource_id in item["covered_resource_ids"]
                                  for item in candidates) for resource_id in identifiers):
             status, reason = "MATCHED", "Terraform state links an AWS resource to this declaration. Confirm before patching."
