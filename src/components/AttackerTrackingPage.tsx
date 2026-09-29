@@ -274,8 +274,8 @@ function EventTimelineGraph({
   }
 
   const width = 900
-  const height = 130
-  const padding = { left: 16, right: 16, top: 18, bottom: 24 }
+  const height = 230
+  const padding = { left: 40, right: 16, top: 10, bottom: 8 }
   const trackWidth = width - padding.left - padding.right
   const minT = Math.min(...times)
   const maxT = Math.max(...times)
@@ -283,56 +283,71 @@ function EventTimelineGraph({
   // 최소 1분 폭을 보장한다.
   const span = Math.max(maxT - minT, 60_000)
   const x = (t: number) => padding.left + ((t - minT) / span) * trackWidth
-  const eventY = padding.top + 26
-  const remY = padding.top + 66
+
+  // Y축을 "도달 단계"로 쓴다 - S3 이벤트는 S1·S2를 거치지 않고 뜬금없이
+  // 나온 게 아니라 그 요청이 S1·S2를 통과해서 S3까지 간 것이므로, 점 하나를
+  // 그 단계 높이에 찍고 바닥(S1)부터 줄기(stem)를 그어 "여기까지 도달했다"는
+  // 누적 의미를 표현한다. C(클라우드 권한)는 네트워크 단계와는 성격이 달라
+  // 맨 위에 별도 줄로 띄워 둔다.
+  const stageRows: Stage[] = ["S1", "S2", "S3", "S4", "C"]
+  const remStripHeight = 22
+  const stageAreaHeight = height - padding.top - padding.bottom - remStripHeight
+  const rowHeight = stageAreaHeight / stageRows.length
+  const rowY = (stage: Stage) => {
+    const rowIndexFromBottom = stageRows.indexOf(stage)
+    return padding.top + stageAreaHeight - (rowIndexFromBottom + 0.5) * rowHeight
+  }
+  const baseY = padding.top + stageAreaHeight
+  const remY = padding.top + stageAreaHeight + remStripHeight / 2
 
   return (
     <div className="rounded-2xl border border-[#E4E7EC] bg-white p-3">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[13px] font-bold text-[#101828]">공격 타임라인</p>
-        <div className="flex flex-wrap gap-2 text-[11px] text-[#667085]">
-          {STAGE_STEPS.map((s) => (
-            <span key={s} className="flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: STAGE_COLOR[s] }} />
-              {s}
-            </span>
-          ))}
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-0.5 w-2.5" style={{ backgroundColor: "#16A34A" }} />
-            조치
-          </span>
+        <div>
+          <p className="text-[13px] font-bold text-[#101828]">공격 타임라인</p>
+          <p className="text-[11.5px] text-[#98A2B3]">가로축 = 시간, 세로축 = 도달 단계 (위로 갈수록 깊이 침투)</p>
         </div>
+        <span className="flex items-center gap-1 text-[11px] text-[#667085]">
+          <span className="inline-block h-0.5 w-2.5" style={{ backgroundColor: "#16A34A" }} />
+          조치
+        </span>
       </div>
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full" style={{ height }}>
-        <line x1={padding.left} y1={eventY} x2={width - padding.right} y2={eventY} stroke="#E4E7EC" strokeWidth={2} />
-        <line x1={padding.left} y1={remY} x2={width - padding.right} y2={remY} stroke="#F2F4F7" strokeWidth={1} />
-        {remediations.map((r) => {
-          const cx = x(new Date(r.time).getTime())
-          return (
+        {stageRows.map((s) => (
+          <g key={s}>
             <line
-              key={`rem-${r.eventId}-${r.time}`}
-              x1={cx}
-              x2={cx}
-              y1={remY - 10}
-              y2={remY + 10}
-              stroke="#16A34A"
-              strokeWidth={2.5}
-            >
-              <title>
-                {formatTime(r.time)} · {ACTION_LABEL[r.action ?? ""] ?? r.action} · {r.result}
-              </title>
-            </line>
-          )
-        })}
+              x1={padding.left}
+              y1={rowY(s)}
+              x2={width - padding.right}
+              y2={rowY(s)}
+              stroke="#F2F4F7"
+              strokeWidth={1}
+            />
+            <text x={padding.left - 6} y={rowY(s)} textAnchor="end" dominantBaseline="middle" fontSize={10} fill="#98A2B3">
+              {s}
+            </text>
+          </g>
+        ))}
+        <line x1={padding.left} y1={baseY} x2={width - padding.right} y2={baseY} stroke="#D0D5DD" strokeWidth={1.5} />
         {events.map((ev) => {
           const cx = x(new Date(ev.time).getTime())
+          const cy = rowY(ev.stage)
           const active = highlightId === ev.eventId
           return (
             <g key={ev.eventId} onClick={() => onSelectEvent(ev.eventId)} style={{ cursor: "pointer" }}>
+              <line
+                x1={cx}
+                y1={baseY}
+                x2={cx}
+                y2={cy}
+                stroke={STAGE_COLOR[ev.stage]}
+                strokeOpacity={ev.excluded ? 0.3 : 0.55}
+                strokeWidth={active ? 2 : 1.5}
+              />
               <circle
                 cx={cx}
-                cy={eventY}
-                r={active ? 8 : 6}
+                cy={cy}
+                r={active ? 7 : 5.5}
                 fill={STAGE_COLOR[ev.stage]}
                 fillOpacity={ev.excluded ? 0.35 : 1}
                 stroke={active ? "#101828" : "white"}
@@ -343,6 +358,24 @@ function EventTimelineGraph({
                 {STAGE_META[ev.stage].label}
               </title>
             </g>
+          )
+        })}
+        {remediations.map((r) => {
+          const cx = x(new Date(r.time).getTime())
+          return (
+            <line
+              key={`rem-${r.eventId}-${r.time}`}
+              x1={cx}
+              x2={cx}
+              y1={remY - 8}
+              y2={remY + 8}
+              stroke="#16A34A"
+              strokeWidth={2.5}
+            >
+              <title>
+                {formatTime(r.time)} · {ACTION_LABEL[r.action ?? ""] ?? r.action} · {r.result}
+              </title>
+            </line>
           )
         })}
       </svg>
@@ -479,19 +512,19 @@ function DetailPanel({
         </p>
       )}
       <EventTimelineGraph detail={detail} highlightId={highlightId} onSelectEvent={setHighlightId} />
-      <div className="grid gap-3 lg:grid-cols-2">
-        <ReachMap reach={detail.reach} />
-        <div className="max-h-[480px] space-y-2 overflow-y-auto rounded-2xl border border-[#E4E7EC] bg-white p-3">
-          <div className="flex flex-wrap gap-3 text-[12.5px] text-[#667085]">
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-3 w-3 rounded-sm ring-2 ring-[#D92D20]" /> 로그로 확인된 도달
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-3 w-3 rounded-sm outline-2 outline-dashed outline-[#F79009]" /> 추정 도달 (ALB 이후 앱 로그 미수집)
-            </span>
-          </div>
-          <Timeline detail={detail} highlightId={highlightId} />
-        </div>
+      {/* 구조도는 폭이 좁아지면 축소 스케일이 확 줄어서 내용이 잘려 보이므로
+          텍스트 타임라인과 나란히 두지 않고 전체 폭을 그대로 준다. */}
+      <ReachMap reach={detail.reach} />
+      <div className="flex flex-wrap gap-3 text-[12.5px] text-[#667085]">
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-3 w-3 rounded-sm ring-2 ring-[#D92D20]" /> 로그로 확인된 도달
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-3 w-3 rounded-sm outline-2 outline-dashed outline-[#F79009]" /> 추정 도달 (ALB 이후 앱 로그 미수집)
+        </span>
+      </div>
+      <div className="max-h-[420px] overflow-y-auto rounded-2xl border border-[#E4E7EC] bg-white p-3">
+        <Timeline detail={detail} highlightId={highlightId} />
       </div>
     </div>
   )
@@ -605,7 +638,9 @@ export function AttackerTrackingPage({
         ) : (
           // 세로 목록 대신 가로로 훑어보는 칩 목록 - IP 선택이 화면 상단에서
           // 한눈에 끝나고, 아래는 선택한 IP의 재구성 화면에 전부 쓸 수 있다.
-          <div className="flex gap-2 overflow-x-auto pb-1">
+          // overflow-x-auto를 주면 overflow-y도 자동으로 auto가 돼서 선택된
+          // 칩의 ring이 위아래로 살짝 잘려 보인다 - py로 ring이 들어갈 공간을 확보한다.
+          <div className="flex gap-2 overflow-x-auto px-0.5 py-1">
             {items.map((item) => (
               <button
                 key={item.ip}
