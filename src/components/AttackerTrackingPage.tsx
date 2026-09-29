@@ -118,25 +118,10 @@ const SCENARIO_MITRE: Record<string, { tactic: string; technique: string }> = {
   cred: { tactic: "Credential Access", technique: "T1552 Unsecured Credentials" },
 }
 
-// MITRE ATT&CK Enterprise 전술의 한국어 표기 - 우리 시스템(WAF/GuardDuty/
-// Inspector)은 이 중 정찰·초기 접근·자격증명 접근·영향 4개만 탐지할 수
-// 있다. 나머지(수평 이동, C2, 유출 등)는 탐지 데이터가 없어 안 뜬다.
-const MITRE_TACTIC_LABEL: Record<string, string> = {
-  Reconnaissance: "정찰",
-  "Resource Development": "리소스 개발",
-  "Initial Access": "초기 접근",
-  Execution: "실행",
-  Persistence: "지속성 유지",
-  "Privilege Escalation": "권한 상승",
-  "Defense Evasion": "방어 회피",
-  "Credential Access": "자격증명 접근",
-  Discovery: "탐색",
-  "Lateral Movement": "수평 이동",
-  Collection: "수집",
-  "Command and Control": "명령 및 제어",
-  Exfiltration: "유출",
-  Impact: "영향",
-}
+// MITRE ATT&CK 전술 이름은 업계 표준 용어라 번역하지 않고 원문 그대로 쓴다.
+// 우리 시스템(WAF/GuardDuty/Inspector)은 이 중 Reconnaissance·Initial
+// Access·Credential Access·Impact 4개만 탐지할 수 있다 - 나머지(Lateral
+// Movement, C2, Exfiltration 등)는 탐지 데이터가 없어 안 뜬다.
 const MITRE_TACTIC_COLOR: Record<string, string> = {
   Reconnaissance: "#175CD3",
   "Initial Access": "#B42318",
@@ -268,7 +253,7 @@ function MitreArrowTimeline({ detail }: { detail: AttackerDetail }) {
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
         {events.map((ev, index) => {
           const tactic = SCENARIO_MITRE[ev.scenarioType]?.tactic
-          const tacticLabel = tactic ? (MITRE_TACTIC_LABEL[tactic] ?? tactic) : null
+          const tacticLabel = tactic
           const scenarioName = SCENARIO_LABEL[ev.scenarioType] ?? ev.scenarioType
           const color = tactic ? (MITRE_TACTIC_COLOR[tactic] ?? MITRE_TACTIC_DEFAULT_COLOR) : MITRE_TACTIC_DEFAULT_COLOR
           return (
