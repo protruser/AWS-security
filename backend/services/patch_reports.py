@@ -14,6 +14,46 @@ from reportlab.platypus import Paragraph, Preformatted, SimpleDocTemplate, Space
 from services.patch_security import PatchError, check_sensitive
 
 
+def change_details_from_diff(files, first_report):
+    """Record every changed line from the saved, server-generated Terraform diff."""
+    details = []
+    explanations = (first_report or {}).get("changes") or []
+    for file in files or []:
+        diff = file.get("diff") or ""
+        if not diff:
+            continue
+        path = file.get("file_path", "")
+        hunks = []
+        current = None
+        for line in diff.splitlines():
+            if line.startswith("@@"):
+                current = {"location": line, "before_lines": [], "after_lines": []}
+                hunks.append(current)
+            elif line.startswith(("--- ", "+++ ", "\\ No newline")):
+                continue
+            elif line.startswith(("-", "+")):
+                if current is None:
+                    current = {"location": "", "before_lines": [], "after_lines": []}
+                    hunks.append(current)
+                current["before_lines" if line.startswith("-") else "after_lines"].append(line[1:])
+        hunks = [hunk for hunk in hunks if hunk["before_lines"] or hunk["after_lines"]]
+        if not hunks:
+            continue
+        details.append({
+            "file_path": path,
+            "explanations": [
+                {"evidence": change["evidence"], "explanation": change["explanation"]}
+                for change in explanations
+                if isinstance(change, dict) and change.get("file_path") == path
+                and isinstance(change.get("evidence"), str)
+                and change["evidence"] in diff.splitlines()
+                and isinstance(change.get("explanation"), str)
+            ],
+            "hunks": hunks,
+        })
+    return details
+
+
 def final_report(patch):
     payload = patch["payload"]
     if not payload.get("report") or not payload.get("ai_review") or not payload.get("checks"):
@@ -21,13 +61,15 @@ def final_report(patch):
     checks = payload["checks"]
     if any(v.get("status") != "PASS" for v in checks["results"].values()):
         raise PatchError("CHECKS_NOT_PASSED", "모든 검증이 통과해야 합니다.", 409)
+    change_details = change_details_from_diff(payload["files"], payload["report"])
     facts = {
         "patch_id": patch["id"], "findings": payload["findings"],
         "source": payload["source"], "files": payload["files"],
         "first_report": payload["report"], "ai_review": payload["ai_review"],
         "human_review_approval": payload.get("human_review_approval"),
         "checks": checks, "github_pr": payload["github_pr"],
-        "plan": checks.get("plan_summary"), "review_history": [e for e in payload["audit"]
+        "plan": checks.get("plan_summary"), "change_details": change_details,
+        "review_history": [e for e in payload["audit"]
               if e["event"] in ("FIRST_APPROVED", "AI_REJECTED", "AI_APPROVED",
                                 "AI_NEEDS_HUMAN_REVIEW", "HUMAN_REVIEW_APPROVED",
                                 "HUMAN_REVIEW_REJECTED",
@@ -46,7 +88,9 @@ def final_report(patch):
                 "resource_replacement(서버 등 리소스 교체 가능성과 이유), "
                 "risks(남은 위험 문자열 배열), decision_points(승인 전 확인사항 문자열 배열), "
                 "post_deploy_checks(배포 후 확인사항 문자열 배열)입니다. "
-                "각 설명은 구체적인 대상과 결과를 쉬운 말로 2~3문장으로 쓰고, 전문 용어는 처음에 풀어 설명하세요. "
+                "change_details는 실제 Diff의 파일별 변경 전후 행과 1차 보고서의 근거입니다. "
+                "change_explanation에는 모든 변경 파일을 언급하고, 각 파일에서 어떤 설정이 이전 값에서 새 값으로 바뀌는지와 그 이유를 구체적으로 설명하세요. "
+                "Diff에 없는 값이나 변경은 만들지 마세요. 각 설명은 구체적인 대상과 결과를 쉬운 말로 쓰고, 전문 용어는 처음에 풀어 설명하세요. "
                 "실제 이용자 영향이나 중단 여부를 확인할 수 없다면 확인 불가 사유와 배포 전 확인할 내용을 적으세요. "
                 "Terraform Plan의 생성·변경·삭제·교체 개수와 1차 보고서의 영향·중단·교체 내용을 대조하세요. "
                 "실행하지 않은 검사, 입증되지 않은 보안 효과, 알 수 없는 수치를 주장하지 마세요. "
@@ -77,10 +121,11 @@ def final_report(patch):
         decisions = narrative.get("decision_points")
         narrative["decision_points"] = decisions if (isinstance(decisions, list)
             and all(isinstance(item, str) and item.strip() for item in decisions)) else first.get("checks") or []
+        narrative.pop("change_details", None)
         check_sensitive(json.dumps(narrative, ensure_ascii=False))
     except Exception:
         raise PatchError("FINAL_REPORT_FAILED", "AI 최종 보고서 생성에 실패했습니다.", 502) from None
-    return {"version": "final-v2", **facts, "ai_assessment": narrative,
+    return {"version": "final-v3", **facts, "ai_assessment": narrative,
             "report_notice": "배포 전 코드와 검사 결과를 바탕으로 한 예상입니다. 실제 AWS 변경과 보안 문제 해결 여부는 배포 후 재진단으로 확인합니다.",
             "deployment": None, "rediagnosis": None}
 

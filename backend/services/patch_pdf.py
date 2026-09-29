@@ -10,6 +10,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Preformatted, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from services.patch_security import PatchError
+from services.patch_reports import change_details_from_diff
 
 
 def render_pdf(patch, kind):
@@ -108,6 +109,24 @@ def render_pdf(patch, kind):
         para(assessment.get("assessment"))
         section("무엇이 바뀌나요?")
         para(assessment.get("change_explanation") or first.get("summary"))
+        change_details = final.get("change_details")
+        if not isinstance(change_details, list):
+            change_details = change_details_from_diff(payload.get("files"), first)
+        for file_detail in change_details:
+            section(f"변경 파일: {file_detail.get('file_path', '')}")
+            for explanation in file_detail.get("explanations") or []:
+                para(explanation.get("explanation"))
+                para(f"보고서 근거: {explanation.get('evidence', '')}")
+            for index, hunk in enumerate(file_detail.get("hunks") or [], start=1):
+                para(f"변경 구간 {index}")
+                before = hunk.get("before_lines") or []
+                after = hunk.get("after_lines") or []
+                para("변경 전" if before else "변경 전: 해당 설정 없음 (새로 추가)")
+                if before:
+                    code_block("\n".join(before))
+                para("변경 후" if after else "변경 후: 해당 설정 없음 (삭제)")
+                if after:
+                    code_block("\n".join(after))
         counts = ((payload.get("checks") or {}).get("plan_summary") or {}).get("counts") or {}
         para(f"배포 계획: 새로 생성 {counts.get('create', '미확인')}개 · 설정 변경 {counts.get('update', '미확인')}개 · "
              f"삭제 {counts.get('delete', '미확인')}개 · 교체 {counts.get('replace', '미확인')}개")

@@ -109,6 +109,11 @@ interface PatchDetail extends PatchSummary {
     final_report?: {
       version: string
       report_notice?: string
+      change_details?: {
+        file_path: string
+        explanations: { evidence: string; explanation: string }[]
+        hunks: { location: string; before_lines: string[]; after_lines: string[] }[]
+      }[]
       ai_assessment: {
         assessment: string
         change_explanation?: string
@@ -1084,6 +1089,48 @@ export function AIActionsPage({
                 <p className="mt-1 whitespace-pre-wrap">
                   {fix.payload.final_report.ai_assessment.change_explanation ?? fix.payload.report?.summary ?? "변경 내용을 확인할 수 없습니다."}
                 </p>
+                {fix.payload.final_report.change_details?.length ? (
+                  <div className="mt-3 space-y-4">
+                    {fix.payload.final_report.change_details.map((file) => (
+                      <div key={file.file_path} className="rounded-lg border border-gray-200 p-3">
+                        <h5 className="break-all font-semibold">변경 파일: {file.file_path}</h5>
+                        {file.explanations.map((item, index) => (
+                          <div key={index} className="mt-2">
+                            <p className="whitespace-pre-wrap">{item.explanation}</p>
+                            <p className="mt-1 break-all text-xs text-[#667085]">보고서 근거: <code>{item.evidence}</code></p>
+                          </div>
+                        ))}
+                        {file.hunks.map((hunk, index) => (
+                          <div key={index} className="mt-3 border-t border-gray-100 pt-3">
+                            <h6 className="font-medium">변경 구간 {index + 1}</h6>
+                            <div className="mt-2 grid gap-2 lg:grid-cols-2">
+                              <div>
+                                <p className="text-xs font-semibold text-[#475467]">변경 전 {hunk.before_lines.length === 0 && "· 새로 추가"}</p>
+                                <pre className="mt-1 overflow-x-auto whitespace-pre rounded bg-red-50 p-2 text-xs">{hunk.before_lines.join("\n") || "해당 설정 없음"}</pre>
+                              </div>
+                              <div>
+                                <p className="text-xs font-semibold text-[#475467]">변경 후 {hunk.after_lines.length === 0 && "· 삭제"}</p>
+                                <pre className="mt-1 overflow-x-auto whitespace-pre rounded bg-green-50 p-2 text-xs">{hunk.after_lines.join("\n") || "해당 설정 없음"}</pre>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {fix.payload.files.filter((file) => file.diff).map((file) => (
+                      <div key={file.file_path} className="rounded-lg border border-gray-200 p-3">
+                        <h5 className="break-all font-semibold">변경 파일: {file.file_path}</h5>
+                        {fix.payload.report?.changes.filter((change) => change.file_path === file.file_path).map((change, index) => (
+                          <p key={index} className="mt-1 whitespace-pre-wrap">{change.explanation}</p>
+                        ))}
+                        <DiffView diff={file.diff ?? ""} />
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {fix.payload.checks?.plan_summary?.counts && (
                   <p className="mt-2 text-[#475467]">
                     배포 계획: 새로 생성 {fix.payload.checks.plan_summary.counts.create ?? 0}개 ·
