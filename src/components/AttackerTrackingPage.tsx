@@ -223,7 +223,7 @@ function ReachMap({ reach }: { reach: Reach }) {
   reach.confirmed.forEach((id) => (statuses[id] = "critical"))
   const lit = [...reach.confirmed, ...reach.estimated]
   return (
-    <div className="relative h-[360px]">
+    <div className="relative h-[480px]">
       <ArchitectureMap
         assetStatuses={statuses}
         highlightedAssets={lit}
@@ -433,7 +433,7 @@ export function AttackerTrackingPage({
         </p>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(340px,420px)_1fr]">
+      <div className="grid gap-3 lg:grid-cols-[280px_1fr]">
         <section className="rounded-2xl border border-[#E4E7EC] bg-white">
           <div className="space-y-2 border-b border-[#EAECF0] p-3">
             <input
@@ -470,31 +470,31 @@ export function AttackerTrackingPage({
                   <button
                     type="button"
                     onClick={() => onSelectIp(item.ip)}
-                    className={`w-full space-y-1 px-3 py-2.5 text-left hover:bg-[#F9FAFB] ${
+                    className={`w-full space-y-0.5 px-2.5 py-2 text-left hover:bg-[#F9FAFB] ${
                       selectedIp === item.ip ? "bg-[#F2F4F7]" : ""
                     }`}
                   >
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono text-[14.5px] font-semibold text-[#101828]">{item.ip}</span>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="font-mono text-[13px] font-semibold text-[#101828]">{item.ip}</span>
                       {item.block.state === "bypassed" && (
-                        <span className="rounded-full bg-[#D92D20] px-1.5 text-[11.5px] font-bold text-white">재시도</span>
+                        <span className="rounded-full bg-[#D92D20] px-1.5 text-[10.5px] font-bold text-white">재시도</span>
                       )}
                       {item.block.state === "blocked" && (
-                        <span className="rounded-full bg-[#ECFDF3] px-1.5 text-[11.5px] font-semibold text-[#067647]">차단됨</span>
+                        <span className="rounded-full bg-[#ECFDF3] px-1.5 text-[10.5px] font-semibold text-[#067647]">차단됨</span>
                       )}
                       {item.isInternal && (
-                        <span className="rounded-full bg-[#F2F4F7] px-1.5 text-[11.5px] font-semibold text-[#475467]">내부</span>
+                        <span className="rounded-full bg-[#F2F4F7] px-1.5 text-[10.5px] font-semibold text-[#475467]">내부</span>
                       )}
-                      <span className="ml-auto text-[12.5px] text-[#98A2B3]">{formatTime(item.lastSeen)}</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-1">
                       <StageBadge stage={item.maxStage} confidence={item.maxStageConfidence} />
                       {item.cloudAccess && <StageBadge stage="C" />}
-                      <span className="text-[12.5px] text-[#667085]">
+                      <span className="text-[11.5px] text-[#667085]">
                         {item.scenarioTypes.map((t) => SCENARIO_LABEL[t] ?? t).join(", ")}
                         {item.requestCount !== null && ` · 통과 ${formatCount(item.passedCount)}/${formatCount(item.requestCount)}`}
                       </span>
                     </div>
+                    <p className="text-[11px] text-[#98A2B3]">{formatTime(item.lastSeen)}</p>
                   </button>
                 </li>
               ))}
@@ -502,7 +502,7 @@ export function AttackerTrackingPage({
           )}
         </section>
 
-        <section className="min-h-[300px] rounded-2xl border border-[#E4E7EC] bg-white">
+        <section className="min-h-[300px] max-h-[760px] overflow-y-auto rounded-2xl border border-[#E4E7EC] bg-white">
           {selectedIp ? (
             <DetailPanel key={selectedIp} ip={selectedIp} range={range} onUnauthorized={handleUnauthorized} />
           ) : (
