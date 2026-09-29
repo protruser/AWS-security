@@ -82,7 +82,7 @@ export function EventDetailModal({
     ["탐지 규칙", event.details.rule],
     // blocked 컬럼은 IP 차단 조치 후 '차단'으로 덮어써지므로, Lambda B 원래 수치가 있으면 그것을 보여준다.
     event.reach && event.reach.requests !== null
-      ? ["WAF 결과", `요청 ${event.reach.requests}건 중 ${event.reach.passed ?? 0}건 통과 (${event.reach.stage} ${STAGE_META[event.reach.stage].label})`]
+      ? ["WAF 결과", `요청 ${event.reach.requests}건 중 ${event.reach.passed ?? 0}건 통과 (${STAGE_META[event.reach.stage].label})`]
       : ["차단 여부", event.details.blocked === undefined || event.details.blocked === null
         ? null : event.details.blocked ? "차단" : "미차단"],
     [isAuto ? "조치 내용" : "권장 조치", event.recommendation],

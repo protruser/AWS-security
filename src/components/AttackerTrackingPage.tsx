@@ -76,24 +76,18 @@ interface AttackerDetail {
   truncated: boolean
 }
 
+// S1~S4/C 는 "공격이 거쳐가는 단계"가 아니라, 탐지된 이벤트 하나하나를 그
+// 자체 결과로 분류하는 서로 독립적인 범주다(services/attack_reach.py 참고).
+// "S"+숫자 표기가 Step처럼 순서를 암시해서 혼동을 줬으므로 화면에는 숫자
+// 없이 라벨만 노출한다(내부 키는 하위 호환을 위해 유지).
 export const STAGE_META: Record<Stage, { label: string; className: string }> = {
-  S1: { label: "정찰", className: "bg-[#EFF8FF] text-[#175CD3]" },
-  S2: { label: "경계 차단", className: "bg-[#ECFDF3] text-[#067647]" },
+  S1: { label: "정찰만 탐지", className: "bg-[#EFF8FF] text-[#175CD3]" },
+  S2: { label: "전체 차단", className: "bg-[#ECFDF3] text-[#067647]" },
   S3: { label: "일부 통과", className: "bg-[#FFFAEB] text-[#B54708]" },
-  S4: { label: "WAF 통과", className: "bg-[#FEF3F2] text-[#B42318]" },
-  C: { label: "클라우드 권한", className: "bg-[#F4F3FF] text-[#5925DC]" },
+  S4: { label: "완전 통과", className: "bg-[#FEF3F2] text-[#B42318]" },
+  C: { label: "클라우드 권한 접근", className: "bg-[#F4F3FF] text-[#5925DC]" },
 }
-const STAGE_STEPS: Exclude<Stage, "C">[] = ["S1", "S2", "S3", "S4"]
 const STAGE_FILTERS: (Stage | "")[] = ["", "S4", "S3", "S2", "S1", "C"]
-// STAGE_META의 className은 Tailwind 클래스라 SVG fill/stroke에는 못 쓴다 -
-// 같은 색을 raw hex로 한 번 더 정의해 타임라인 그래프에서 쓴다.
-const STAGE_COLOR: Record<Stage, string> = {
-  S1: "#175CD3",
-  S2: "#067647",
-  S3: "#B54708",
-  S4: "#B42318",
-  C: "#5925DC",
-}
 
 const CONFIDENCE_LABEL: Record<Confidence, string> = {
   confirmed: "로그 확인",
@@ -109,6 +103,19 @@ const SCENARIO_LABEL: Record<string, string> = {
   flood: "HTTP Flood",
   port: "포트 스캔",
   cred: "자격증명",
+}
+
+// 공격 "유형"(scenarioType)은 공격자가 뭘 시도했는지라 MITRE ATT&CK 전술/기법과
+// 자연스럽게 대응된다(WAF가 막았는지는 별개 차원 - STAGE_META가 담당).
+// 업계 표준 용어로 한 번 더 확인할 수 있게 참고용으로 붙인다.
+const SCENARIO_MITRE: Record<string, { tactic: string; technique: string }> = {
+  sqli: { tactic: "Initial Access", technique: "T1190 Exploit Public-Facing Application" },
+  xss: { tactic: "Initial Access", technique: "T1190 Exploit Public-Facing Application" },
+  dir: { tactic: "Reconnaissance", technique: "T1595.003 Active Scanning: Wordlist Scanning" },
+  brute: { tactic: "Credential Access", technique: "T1110 Brute Force" },
+  flood: { tactic: "Impact", technique: "T1498 Network Denial of Service" },
+  port: { tactic: "Reconnaissance", technique: "T1595.001 Active Scanning: Scanning IP Blocks" },
+  cred: { tactic: "Credential Access", technique: "T1552 Unsecured Credentials" },
 }
 
 const ACTION_LABEL: Record<string, string> = {
@@ -149,7 +156,7 @@ export function StageBadge({ stage, confidence }: { stage: Stage | null; confide
   const meta = STAGE_META[stage]
   return (
     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12.5px] font-semibold ${meta.className}`}>
-      {stage === "C" ? "C" : stage} {meta.label}
+      {meta.label}
       {confidence && confidence !== "confirmed" && (
         <span className="font-medium opacity-75">· {CONFIDENCE_LABEL[confidence]}</span>
       )}
@@ -197,31 +204,24 @@ function SummaryCard({ label, value, tone }: { label: string; value: number; ton
   )
 }
 
-function StageStepper({ summary }: { summary: AttackerSummary }) {
-  const reached = summary.maxStage ? STAGE_STEPS.indexOf(summary.maxStage) : -1
+// 예전엔 "S1→S2→S3→S4를 순서대로 거쳤다"는 식의 퍼널로 그렸는데, 실제로는
+// 이벤트마다 독립적으로 분류된 결과라 그 전제가 틀렸다(위 STAGE_META 주석
+// 참고). 그래서 화살표로 잇지 않고, 이 IP가 실제로 겪은 결과들만 순서
+//없이 나열한다 - 겪지 않은 건 아예 안 보여준다.
+function OutcomeBadges({ detail }: { detail: AttackerDetail }) {
+  const present = Array.from(new Set(detail.timeline.map((item) => item.stage)))
+  if (present.length === 0) return null
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      {STAGE_STEPS.map((stage, index) => {
-        const on = index <= reached
-        const isMax = index === reached
-        return (
-          <div key={stage} className="flex items-center gap-1.5">
-            {index > 0 && <span className={`h-px w-4 ${on ? "bg-[#344054]" : "bg-[#D0D5DD]"}`} />}
-            <span
-              className={`rounded-md px-2 py-1 text-[13px] font-semibold ${
-                isMax ? STAGE_META[stage].className + " ring-1 ring-current" : on ? "bg-[#F2F4F7] text-[#344054]" : "bg-white text-[#98A2B3] ring-1 ring-[#E4E7EC]"
-              }`}
-            >
-              {stage} {STAGE_META[stage].label}
-            </span>
-          </div>
-        )
-      })}
-      {summary.cloudAccess && (
-        <span className={`ml-2 rounded-md px-2 py-1 text-[13px] font-semibold ring-1 ring-current ${STAGE_META.C.className}`}>
-          C 클라우드 권한 도달
+      <span className="text-[12px] font-semibold text-[#98A2B3]">이 IP 가 겪은 결과</span>
+      {present.map((stage) => (
+        <span
+          key={stage}
+          className={`rounded-md px-2 py-1 text-[13px] font-semibold ${STAGE_META[stage].className}`}
+        >
+          {STAGE_META[stage].label}
         </span>
-      )}
+      ))}
     </div>
   )
 }
@@ -248,7 +248,49 @@ function ReachMap({ reach }: { reach: Reach }) {
   )
 }
 
-function EventTimelineGraph({
+interface ScenarioGroup {
+  scenarioType: string
+  events: TimelineItem[]
+  firstTime: string
+  lastTime: string
+  totalRequests: number | null
+  totalPassed: number | null
+  outcomes: Stage[]
+}
+
+function groupByScenario(timeline: TimelineItem[]): ScenarioGroup[] {
+  const map = new Map<string, TimelineItem[]>()
+  timeline.forEach((item) => {
+    const list = map.get(item.scenarioType) ?? []
+    list.push(item)
+    map.set(item.scenarioType, list)
+  })
+  return Array.from(map.entries())
+    .map(([scenarioType, events]) => {
+      const sortedTimes = [...events].map((e) => e.time).sort()
+      const withRequests = events.filter((e) => e.requests !== null)
+      const totalRequests =
+        withRequests.length > 0 ? withRequests.reduce((sum, e) => sum + (e.requests ?? 0), 0) : null
+      const totalPassed =
+        withRequests.length > 0 ? withRequests.reduce((sum, e) => sum + (e.passed ?? 0), 0) : null
+      return {
+        scenarioType,
+        events: [...events].sort((a, b) => a.time.localeCompare(b.time)),
+        firstTime: sortedTimes[0],
+        lastTime: sortedTimes[sortedTimes.length - 1],
+        totalRequests,
+        totalPassed,
+        outcomes: Array.from(new Set(events.map((e) => e.stage))),
+      }
+    })
+    .sort((a, b) => b.lastTime.localeCompare(a.lastTime))
+}
+
+// 시간축 그래프 대신, 이 IP가 일으킨 이벤트들을 "무슨 공격을 시도했는지"
+// (scenarioType) 기준으로 묶어서 카드로 보여준다 - 개별 이벤트를 흩어진
+// 점으로 보는 것보다 "이 IP는 SQLi 2번, 포트 스캔 1번을 시도했다" 처럼
+// 공격 시나리오 단위로 읽는 게 더 자연스럽다는 피드백을 반영했다.
+function ScenarioGroups({
   detail,
   highlightId,
   onSelectEvent,
@@ -257,176 +299,117 @@ function EventTimelineGraph({
   highlightId: string | null
   onSelectEvent: (eventId: string) => void
 }) {
-  const events = detail.timeline
-  const remediations = detail.remediations.filter(
-    (r): r is RemediationItem & { time: string } => Boolean(r.time),
-  )
-  const times = [
-    ...events.map((e) => new Date(e.time).getTime()),
-    ...remediations.map((r) => new Date(r.time).getTime()),
-  ]
-  if (times.length === 0) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const groups = useMemo(() => groupByScenario(detail.timeline), [detail.timeline])
+
+  if (groups.length === 0) {
     return (
       <div className="rounded-2xl border border-[#E4E7EC] bg-white p-4 text-[13px] text-[#667085]">
-        타임라인으로 그릴 이벤트가 없습니다.
+        모아서 보여줄 이벤트가 없습니다.
       </div>
     )
   }
 
-  const width = 900
-  const height = 110
-  const padding = { left: 16, right: 16, top: 16, bottom: 16 }
-  const trackWidth = width - padding.left - padding.right
-  const minT = Math.min(...times)
-  const maxT = Math.max(...times)
-  // 이벤트가 1건뿐이거나 전부 같은 시각이면 폭이 0이 돼 나눗셈이 깨지므로
-  // 최소 1분 폭을 보장한다.
-  const span = Math.max(maxT - minT, 60_000)
-  const x = (t: number) => padding.left + ((t - minT) / span) * trackWidth
-
-  // 세로축은 의미를 안 준다 - "몇 단계까지 도달했는지"는 그래프 바로 위의
-  // 단계 스테퍼(StageStepper)가 이미 보여주고 있어서, 그래프까지 세로에
-  // 의미를 실으면 정보가 겹치면서 "시간 흐름"이라는 핵심이 묻힌다. 여기는
-  // 순수하게 "언제 무슨 일이 있었는지"만 한 줄로 훑는 용도 - 점 색깔로
-  // 그 이벤트가 도달한 단계를 구분한다.
-  const eventY = height / 2
-  const remY = height - 14
+  const toggle = (scenarioType: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(scenarioType)) next.delete(scenarioType)
+      else next.add(scenarioType)
+      return next
+    })
+  }
 
   return (
-    <div className="rounded-2xl border border-[#E4E7EC] bg-white p-3">
-      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-[13px] font-bold text-[#101828]">공격 타임라인</p>
-          <p className="text-[11.5px] text-[#98A2B3]">가로축 = 시간 · 점 색깔 = 그 시점에 도달한 단계</p>
-        </div>
-        <div className="flex flex-wrap gap-2 text-[11px] text-[#667085]">
-          {(["S1", "S2", "S3", "S4", "C"] as Stage[]).map((s) => (
-            <span key={s} className="flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: STAGE_COLOR[s] }} />
-              {s}
-            </span>
-          ))}
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-0.5 w-2.5" style={{ backgroundColor: "#16A34A" }} />
-            조치
-          </span>
-        </div>
-      </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" style={{ height }}>
-        <line x1={padding.left} y1={eventY} x2={width - padding.right} y2={eventY} stroke="#E4E7EC" strokeWidth={2} />
-        {remediations.map((r) => {
-          const cx = x(new Date(r.time).getTime())
-          return (
-            <line
-              key={`rem-${r.eventId}-${r.time}`}
-              x1={cx}
-              x2={cx}
-              y1={remY - 8}
-              y2={remY + 8}
-              stroke="#16A34A"
-              strokeWidth={2.5}
+    <div className="space-y-2">
+      <p className="text-[13px] font-bold text-[#101828]">공격 시나리오별로 모아보기</p>
+      {groups.map((group) => {
+        const mitre = SCENARIO_MITRE[group.scenarioType]
+        const isOpen = expanded.has(group.scenarioType)
+        const remediationsForGroup = detail.remediations.filter((r) =>
+          group.events.some((e) => e.eventId === r.eventId),
+        )
+        return (
+          <div key={group.scenarioType} className="rounded-2xl border border-[#E4E7EC] bg-white">
+            <button
+              type="button"
+              onClick={() => toggle(group.scenarioType)}
+              className="flex w-full flex-wrap items-center gap-2 px-3 py-2.5 text-left hover:bg-[#F9FAFB]"
             >
-              <title>
-                {formatTime(r.time)} · {ACTION_LABEL[r.action ?? ""] ?? r.action} · {r.result}
-              </title>
-            </line>
-          )
-        })}
-        {events.map((ev) => {
-          const cx = x(new Date(ev.time).getTime())
-          const active = highlightId === ev.eventId
-          return (
-            <g key={ev.eventId} onClick={() => onSelectEvent(ev.eventId)} style={{ cursor: "pointer" }}>
-              <circle
-                cx={cx}
-                cy={eventY}
-                r={active ? 8 : 6}
-                fill={STAGE_COLOR[ev.stage]}
-                fillOpacity={ev.excluded ? 0.35 : 1}
-                stroke={active ? "#101828" : "white"}
-                strokeWidth={active ? 2 : 1.5}
-              />
-              <title>
-                {formatTime(ev.time)} · {SCENARIO_LABEL[ev.scenarioType] ?? ev.scenarioType} · {ev.stage}{" "}
-                {STAGE_META[ev.stage].label}
-              </title>
-            </g>
-          )
-        })}
-      </svg>
-      <div className="flex justify-between text-[11px] text-[#98A2B3]">
-        <span>{formatTime(new Date(minT).toISOString())}</span>
-        <span>{formatTime(new Date(maxT).toISOString())}</span>
-      </div>
+              <span className="text-[14px] font-bold text-[#101828]">
+                {SCENARIO_LABEL[group.scenarioType] ?? group.scenarioType}
+              </span>
+              <span className="text-[12.5px] text-[#667085]">
+                {group.events.length}건 · {formatTime(group.firstTime)} ~ {formatTime(group.lastTime)}
+                {group.totalRequests !== null &&
+                  ` · 요청 ${formatCount(group.totalRequests)}건 중 ${formatCount(group.totalPassed)}건 통과`}
+              </span>
+              <div className="ml-auto flex flex-wrap items-center gap-1">
+                {group.outcomes.map((stage) => (
+                  <span
+                    key={stage}
+                    className={`rounded-full px-2 py-0.5 text-[11.5px] font-semibold ${STAGE_META[stage].className}`}
+                  >
+                    {STAGE_META[stage].label}
+                  </span>
+                ))}
+                <span className={`text-[#98A2B3] transition-transform ${isOpen ? "rotate-180" : ""}`}>⌄</span>
+              </div>
+            </button>
+            {mitre && (
+              <p className="px-3 pb-2 text-[11px] text-[#98A2B3]">
+                MITRE ATT&amp;CK 참고: {mitre.tactic} · {mitre.technique}
+              </p>
+            )}
+            {isOpen && (
+              <div className="space-y-1.5 border-t border-[#EAECF0] px-3 py-2.5">
+                {group.events.map((ev) => (
+                  <button
+                    type="button"
+                    key={ev.eventId}
+                    id={`tl-${ev.eventId}`}
+                    onClick={() => onSelectEvent(ev.eventId)}
+                    className={`block w-full rounded-lg border px-3 py-2 text-left text-[13px] transition-colors ${
+                      highlightId === ev.eventId
+                        ? "border-[#101828] bg-[#F2F4F7]"
+                        : "border-[#EAECF0] hover:bg-[#F9FAFB]"
+                    } ${ev.excluded ? "opacity-50" : ""}`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="tabular-nums text-[#667085]">{formatTime(ev.time)}</span>
+                      <span className="font-semibold text-[#101828]">{ev.title}</span>
+                      <span
+                        className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold ${STAGE_META[ev.stage].className}`}
+                      >
+                        {STAGE_META[ev.stage].label}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-[12px] text-[#667085]">
+                      {ev.requests !== null
+                        ? `요청 ${formatCount(ev.requests)}건 중 ${formatCount(ev.passed)}건 통과`
+                        : ev.stage === "S1"
+                          ? `대상 ${ev.target ?? "미확인"}`
+                          : ev.stage === "C"
+                            ? "AWS API 호출 (네트워크 경로 아님)"
+                            : "요청 수 정보 없음"}
+                      {ev.source === "admin" && " · 관리자 ALB"}
+                      {` · ${ev.status}`}
+                    </p>
+                  </button>
+                ))}
+                {remediationsForGroup.map((r) => (
+                  <p
+                    key={`rem-${r.eventId}-${r.time}`}
+                    className="text-center text-[12.5px] font-semibold text-[#067647]"
+                  >
+                    {formatTime(r.time)} {ACTION_LABEL[r.action ?? ""] ?? r.action} · {r.result}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
-  )
-}
-
-function Timeline({
-  detail,
-  highlightId,
-}: {
-  detail: AttackerDetail
-  highlightId: string | null
-}) {
-  type Row =
-    | { kind: "event"; time: string; item: TimelineItem }
-    | { kind: "remediation"; time: string; item: RemediationItem }
-  const rows: Row[] = [
-    ...detail.timeline.map((item) => ({ kind: "event" as const, time: item.time, item })),
-    ...detail.remediations
-      .filter((item) => item.time)
-      .map((item) => ({ kind: "remediation" as const, time: item.time as string, item })),
-  ].sort((a, b) => a.time.localeCompare(b.time))
-
-  return (
-    <ol className="space-y-1.5">
-      {rows.map((row) =>
-        row.kind === "remediation" ? (
-          <li
-            key={`rem-${row.item.eventId}-${row.time}`}
-            className="flex items-center gap-2 py-1 text-[13px] font-semibold text-[#067647]"
-          >
-            <span className="h-px flex-1 bg-[#A6F4C5]" />
-            {formatTime(row.time)} {ACTION_LABEL[row.item.action ?? ""] ?? row.item.action} · {row.item.result}
-            <span className="h-px flex-1 bg-[#A6F4C5]" />
-          </li>
-        ) : (
-          <li
-            key={row.item.eventId}
-            id={`tl-${row.item.eventId}`}
-            className={`grid grid-cols-[88px_1fr_auto] items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
-              row.item.excluded ? "opacity-50" : ""
-            } ${
-              highlightId === row.item.eventId
-                ? "border-[#101828] bg-[#F2F4F7] ring-2 ring-[#101828]/10"
-                : "border-[#EAECF0]"
-            }`}
-          >
-            <span className="text-[13px] tabular-nums text-[#667085]">{formatTime(row.time)}</span>
-            <div className="min-w-0">
-              <p className="truncate text-[14px] font-semibold text-[#101828]">
-                {SCENARIO_LABEL[row.item.scenarioType] ?? row.item.scenarioType}
-                <span className="ml-1.5 font-normal text-[#667085]">{row.item.title}</span>
-              </p>
-              <p className="text-[12.5px] text-[#667085]">
-                {row.item.requests !== null
-                  ? `요청 ${formatCount(row.item.requests)}건 중 ${formatCount(row.item.passed)}건 통과`
-                  : row.item.stage === "S1"
-                    ? `대상 ${row.item.target ?? "미확인"}`
-                    : row.item.stage === "C"
-                      ? "AWS API 호출 (네트워크 경로 아님)"
-                      : "요청 수 정보 없음"}
-                {row.item.source === "admin" && " · 관리자 ALB"}
-                {` · ${row.item.status}`}
-                {row.item.excluded && " (최대 단계 계산에서 제외)"}
-              </p>
-            </div>
-            <StageBadge stage={row.item.stage} confidence={row.item.confidence} />
-          </li>
-        ),
-      )}
-    </ol>
   )
 }
 
@@ -456,13 +439,6 @@ function DetailPanel({
     }
   }, [ip, range, onUnauthorized])
 
-  // 타임라인 그래프에서 점을 클릭하면 아래 상세 로그 목록에서 같은 이벤트로
-  // 스크롤 + 강조한다 - 그래프는 개요만 보여주고, 실제 내용은 목록에 있으므로.
-  useEffect(() => {
-    if (!highlightId) return
-    document.getElementById(`tl-${highlightId}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" })
-  }, [highlightId])
-
   if (error) return <p className="p-6 text-[14px] text-[#B42318]">{error}</p>
   if (!detail) return <p className="p-6 text-[14px] text-[#667085]">불러오는 중...</p>
 
@@ -480,15 +456,14 @@ function DetailPanel({
           {formatCount(s.passedCount)}건 통과
         </span>
       </div>
-      <StageStepper summary={s} />
+      <OutcomeBadges detail={detail} />
       {s.block.state === "bypassed" && (
         <p className="rounded-lg bg-[#FEF3F2] px-3 py-2 text-[13.5px] text-[#B42318]">
           IP 차단({formatTime(s.block.at)}) 이후에도 WAF 를 통과한 요청이 있습니다. 차단 목록 반영 여부와 WAF 규칙 순서를 확인하세요.
         </p>
       )}
-      <EventTimelineGraph detail={detail} highlightId={highlightId} onSelectEvent={setHighlightId} />
       {/* 구조도는 폭이 좁아지면 축소 스케일이 확 줄어서 내용이 잘려 보이므로
-          텍스트 타임라인과 나란히 두지 않고 전체 폭을 그대로 준다. */}
+          다른 패널과 나란히 두지 않고 전체 폭을 그대로 준다. */}
       <ReachMap reach={detail.reach} />
       <div className="flex flex-wrap gap-3 text-[12.5px] text-[#667085]">
         <span className="flex items-center gap-1">
@@ -498,8 +473,8 @@ function DetailPanel({
           <span className="inline-block h-3 w-3 rounded-sm outline-2 outline-dashed outline-[#F79009]" /> 추정 도달 (ALB 이후 앱 로그 미수집)
         </span>
       </div>
-      <div className="max-h-[420px] overflow-y-auto rounded-2xl border border-[#E4E7EC] bg-white p-3">
-        <Timeline detail={detail} highlightId={highlightId} />
+      <div className="max-h-[480px] overflow-y-auto">
+        <ScenarioGroups detail={detail} highlightId={highlightId} onSelectEvent={setHighlightId} />
       </div>
     </div>
   )
@@ -599,7 +574,7 @@ export function AttackerTrackingPage({
                   stageFilter === stage ? "bg-[#101828] text-white" : "bg-[#F2F4F7] text-[#475467] hover:bg-[#E4E7EC]"
                 }`}
               >
-                {stage ? `${stage} ${STAGE_META[stage].label}` : "전체"}
+                {stage ? STAGE_META[stage].label : "전체"}
               </button>
             ))}
           </div>
