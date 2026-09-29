@@ -19,6 +19,13 @@ interface DiagnosisResult {
   reason?: string
   recommendation?: string
   remediation_constraints?: string
+  remediation_scope?: {
+    selected_resource_ids: string[]
+    deferred_resource_ids: string[]
+    https_exception_resource_ids?: string[]
+    https_exception_reason?: string
+    rule_result_may_remain_fail_due_to_https_exception?: boolean
+  }
 }
 
 interface DiagnosisStatus {
@@ -35,6 +42,7 @@ interface PatchSummary {
   requested_by: string
   created_at?: string
   rule_ids?: string[]
+  https_exception_count?: number
   first_approval?: boolean
   first_decision?: "approve" | "reject" | null
   ai_verdict?: string | null
@@ -169,13 +177,11 @@ interface MappingPreview {
     reason: string
     candidates: { file_path: string; identity_match: boolean; covered_resource_ids?: string[]; resources: { type: string; name: string }[] }[]
     unmapped_resource_ids?: string[]
-    // 자동 입력할 파일(한 패치 한도 5개까지)과 전체 후보 수
+    // 자동 입력할 파일과 전체 후보 수
     suggested?: string[]
     total_candidates?: number
   }>
 }
-
-const MAX_PATCH_FILES = 5
 
 const splitPaths = (value: string | undefined) =>
   (value ?? "").split(",").map((p) => p.trim()).filter(Boolean)
@@ -249,6 +255,46 @@ function DiffView({ diff }: { diff: string }) {
   )
 }
 
+function resourceNameKorean(ruleId: string, resourceId: string) {
+  const listener = resourceId.match(/:listener\/(?:app|net)\/([^/]+)/)
+  if (listener) return `로드밸런서 접속 규칙 · ${listener[1]}`
+  const balancer = resourceId.match(/:loadbalancer\/(?:app|net)\/([^/]+)/)
+  if (balancer) return `로드밸런서 · ${balancer[1]}`
+  if (resourceId.startsWith("sg-")) return "보안 그룹"
+  if (resourceId.startsWith("i-")) return "가상 서버(EC2)"
+  if (resourceId.startsWith("arn:aws:iam::")) return "접근 권한 주체(IAM)"
+  if (ruleId === "4.4" || resourceId.startsWith("arn:aws:s3:::")) return "S3 저장소(버킷)"
+  return "AWS 리소스"
+}
+
+function canMarkHttpsException(ruleId: string, resourceId: string) {
+  return (ruleId === "3.9" && resourceId.includes(":loadbalancer/")) ||
+    (ruleId === "4.4" && resourceId.includes(":listener/"))
+}
+
+function HttpsExceptionSummary({ findings }: { findings: DiagnosisResult[] }) {
+  const exceptions = findings.flatMap((finding) =>
+    (finding.remediation_scope?.https_exception_resource_ids ?? []).map((resourceId) => ({
+      ruleId: finding.rule_id,
+      resourceId,
+      reason: finding.remediation_scope?.https_exception_reason ?? "",
+    })))
+  if (!exceptions.length) return null
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+      <h4 className="font-semibold">HTTPS 운영 예외 · 미조치</h4>
+      <p className="mt-1">아래 HTTPS 조건은 이번 수정에서 해결되지 않습니다. 원래 진단 결과와 위험은 유지됩니다.</p>
+      {exceptions.map((item) => (
+        <div key={`${item.ruleId}-${item.resourceId}`} className="mt-2">
+          <p className="font-semibold">규칙 {item.ruleId} · {resourceNameKorean(item.ruleId, item.resourceId)}</p>
+          <p className="break-all font-mono text-[11px]">AWS ID: {item.resourceId}</p>
+          <p className="mt-1 whitespace-pre-wrap">사유: {item.reason}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function AIActionsPage({
   onUnauthorized,
   initialSelection,
@@ -268,6 +314,8 @@ export function AIActionsPage({
   const [paths, setPaths] = useState<Record<string, string>>({})
   const [targetResources, setTargetResources] = useState<Record<string, string[]>>({})
   const [constraints, setConstraints] = useState<Record<string, string>>({})
+  const [httpsExceptions, setHttpsExceptions] = useState<Record<string, string[]>>({})
+  const [httpsExceptionReasons, setHttpsExceptionReasons] = useState<Record<string, string>>({})
   const [mappingPreview, setMappingPreview] = useState<MappingPreview | null>(null)
   const [previewRules, setPreviewRules] = useState("")
   const [running, setRunning] = useState(false)
@@ -383,8 +431,6 @@ export function AIActionsPage({
   const selectionKey = selected.map((r) => r.rule_id).sort().join(",")
   const notTerraformSelected = !!mappingPreview && previewRules === selectionKey &&
     selected.some((r) => mappingPreview.mapping[r.rule_id]?.status === "NOT_TERRAFORM")
-  // 같은 파일을 여러 항목이 쓰면 한 파일로 통합되므로 중복을 빼고 센다.
-  const selectedFileCount = new Set(selected.flatMap((r) => splitPaths(paths[r.rule_id]))).size
   const selectDetail = (data: PatchDetail) => {
     setFix(data)
     setReviewed(false)
@@ -409,6 +455,8 @@ export function AIActionsPage({
       })
       setMappingPreview(result)
       setPreviewRules(selectionKey)
+      setHttpsExceptions({})
+      setHttpsExceptionReasons({})
       setTargetResources(Object.fromEntries(selected.map((r) => {
         const item = result.mapping[r.rule_id]
         const suggested = item?.suggested ?? []
@@ -448,6 +496,12 @@ export function AIActionsPage({
         mapping,
         target_resource_ids: Object.fromEntries(selected.map((r) => [
           r.rule_id, targetResources[r.rule_id] ?? r.resource_ids ?? [],
+        ])),
+        https_exception_resource_ids: Object.fromEntries(selected.map((r) => [
+          r.rule_id, httpsExceptions[r.rule_id] ?? [],
+        ])),
+        https_exception_reasons: Object.fromEntries(selected.map((r) => [
+          r.rule_id, httpsExceptionReasons[r.rule_id] ?? "",
         ])),
         remediation_constraints: Object.fromEntries(selected.map((r) => [r.rule_id, constraints[r.rule_id] ?? ""])),
         source_commit_sha: mappingPreview?.commit_sha,
@@ -577,7 +631,7 @@ export function AIActionsPage({
             <h2 className="text-sm font-semibold">관련 Terraform 파일 지정</h2>
             <p className="text-xs text-gray-500">
               저장소 기준 상대 경로를 입력하세요. 여러 파일은 쉼표로
-              구분합니다(최대 5개). 같은 파일의 선택 항목은 통합합니다.
+              구분합니다. 같은 파일의 선택 항목은 통합합니다.
             </p>
             <button className={button} onClick={previewFiles}
               disabled={running || !selected.length || !!(initialSelection && initialSelection.runId !== diagnosis?.id)}>
@@ -589,26 +643,71 @@ export function AIActionsPage({
               </p>
             )}
             {selected.map((r) => (
-              <label key={r.rule_id} className="block text-xs">
+              <div key={r.rule_id} className="block text-xs">
                 <span className="font-semibold">{r.rule_id}</span> ·{" "}
                 {r.recommendation}
                 {!!r.resource_ids?.length && (
                   <span className="mt-2 block rounded-lg border border-amber-200 bg-amber-50 p-2">
-                    <span className="block font-semibold">이번 패치에서 조치할 리소스</span>
+                    <span className="block font-semibold">리소스별 조치 범위</span>
                     <span className="block text-amber-800">
-                      선택하지 않은 리소스는 다음 패치 대상으로 남습니다. 선택한 ID와 Terraform 파일의 연결을 확인하세요.
+                      이번 수정에서 제외한 리소스는 미조치로 남습니다. HTTPS 예외는 사유를 기록해 따로 표시하며 진단 결과는 PASS로 바뀌지 않습니다.
                     </span>
                     {r.resource_ids.map((id) => (
-                      <span key={id} className="mt-1 flex items-center gap-2 font-mono">
-                        <input type="checkbox" checked={(targetResources[r.rule_id] ?? r.resource_ids ?? []).includes(id)}
-                          onChange={() => setTargetResources((current) => {
-                            const chosen = current[r.rule_id] ?? r.resource_ids ?? []
-                            return { ...current, [r.rule_id]: chosen.includes(id)
-                              ? chosen.filter((value) => value !== id) : [...chosen, id] }
-                          })} />
-                        {id}
+                      <span key={id} className="mt-2 block rounded border border-amber-100 bg-white p-2">
+                        <span className="block font-semibold">{resourceNameKorean(r.rule_id, id)}</span>
+                        <span className="block break-all font-mono text-[11px] text-gray-500">AWS ID: {id}</span>
+                        <span className="mt-1 flex flex-wrap items-center gap-4">
+                          <span className="inline-flex items-center gap-1">
+                            <input aria-label={`${resourceNameKorean(r.rule_id, id)} 이번 수정`} type="checkbox"
+                              checked={(targetResources[r.rule_id] ?? r.resource_ids ?? []).includes(id)}
+                              onChange={() => {
+                                const chosen = targetResources[r.rule_id] ?? r.resource_ids ?? []
+                                const selecting = !chosen.includes(id)
+                                setTargetResources((current) => ({ ...current, [r.rule_id]: selecting
+                                  ? [...(current[r.rule_id] ?? r.resource_ids ?? []), id]
+                                  : (current[r.rule_id] ?? r.resource_ids ?? []).filter((value) => value !== id) }))
+                                if (!selecting || r.rule_id === "4.4") {
+                                  setHttpsExceptions((current) => ({ ...current, [r.rule_id]:
+                                    (current[r.rule_id] ?? []).filter((value) => value !== id) }))
+                                }
+                              }} />
+                            이번 수정
+                          </span>
+                          {canMarkHttpsException(r.rule_id, id) && (
+                            <span className="inline-flex items-center gap-1 text-amber-800">
+                              <input aria-label={`${resourceNameKorean(r.rule_id, id)} HTTPS 예외`} type="checkbox"
+                                checked={(httpsExceptions[r.rule_id] ?? []).includes(id)}
+                                onChange={() => {
+                                  const marking = !(httpsExceptions[r.rule_id] ?? []).includes(id)
+                                  setHttpsExceptions((current) => ({ ...current, [r.rule_id]: marking
+                                    ? [...(current[r.rule_id] ?? []), id]
+                                    : (current[r.rule_id] ?? []).filter((value) => value !== id) }))
+                                  if (marking && r.rule_id === "4.4") {
+                                    setTargetResources((current) => ({ ...current, [r.rule_id]:
+                                      (current[r.rule_id] ?? r.resource_ids ?? []).filter((value) => value !== id) }))
+                                  }
+                                  if (marking && r.rule_id === "3.9") {
+                                    setTargetResources((current) => ({ ...current, [r.rule_id]:
+                                      Array.from(new Set([...(current[r.rule_id] ?? r.resource_ids ?? []), id])) }))
+                                  }
+                                }} />
+                              HTTPS 예외(미조치)
+                            </span>
+                          )}
+                        </span>
                       </span>
                     ))}
+                  </span>
+                )}
+                {!!httpsExceptions[r.rule_id]?.length && (
+                  <span className="mt-2 block">
+                    <span className="font-semibold">HTTPS 예외 사유</span>
+                    <textarea value={httpsExceptionReasons[r.rule_id] ?? ""} maxLength={2000} rows={2}
+                      onChange={(event) => setHttpsExceptionReasons((current) => ({
+                        ...current, [r.rule_id]: event.target.value,
+                      }))}
+                      placeholder="예: 도메인·ACM 인증서가 준비되지 않아 HTTPS 전환을 다음 변경으로 미룹니다."
+                      className="mt-1 w-full rounded-lg border border-amber-300 px-3 py-2 text-xs" />
                   </span>
                 )}
                 <span className="mt-2 block text-gray-600">
@@ -649,7 +748,6 @@ export function AIActionsPage({
                     )
                   }
                   const chosen = splitPaths(paths[r.rule_id])
-                  const total = item.total_candidates ?? item.candidates.length
                   return (
                     <span className="mt-1 block text-gray-600">
                       {item.status === "NO_CANDIDATE"
@@ -657,15 +755,10 @@ export function AIActionsPage({
                         : item.status === "MATCHED"
                           ? "Terraform State에서 리소스 연결을 확인했습니다. 자동 입력된 파일을 검토하세요."
                           : "자동 입력된 파일을 검토하세요(State 연결은 확인하지 못함). 파일을 눌러 추가·제외할 수 있습니다."}
-                      {total > (item.suggested?.length ?? total) && (
-                        <span className="block text-amber-700">
-                          후보 {total}개 중 {item.suggested?.length}개만 자동 입력했습니다(한 패치 최대 {MAX_PATCH_FILES}개).
-                          나머지는 다음 패치로 처리하세요.
-                        </span>
-                      )}
                       {!!item.unmapped_resource_ids?.length && (
                         <span className="block text-amber-700">
-                          Terraform State에서 연결을 확인하지 못한 리소스: {item.unmapped_resource_ids.join(", ")}
+                          Terraform State에서 연결을 확인하지 못한 리소스: {item.unmapped_resource_ids
+                            .map((id) => `${resourceNameKorean(r.rule_id, id)} (AWS ID: ${id})`).join(", ")}
                         </span>
                       )}
                       {item.candidates.map((candidate) => (
@@ -674,13 +767,14 @@ export function AIActionsPage({
                           onClick={() => toggleCandidate(r.rule_id, candidate.file_path)}>
                           {chosen.includes(candidate.file_path) ? "✓ " : "+ "}
                           {candidate.file_path}{candidate.identity_match
-                            ? ` (ID 일치: ${candidate.covered_resource_ids?.join(", ")})` : ""}
+                            ? ` (ID 일치: ${(candidate.covered_resource_ids ?? [])
+                              .map((id) => `${resourceNameKorean(r.rule_id, id)} · ${id}`).join(", ")})` : ""}
                         </button>
                       ))}
                     </span>
                   )
                 })()}
-              </label>
+              </div>
             ))}
             <button
               className={button}
@@ -691,9 +785,9 @@ export function AIActionsPage({
                 !mappingPreview || previewRules !== selectionKey ||
                 selected.some((r) => !paths[r.rule_id]?.trim()) ||
                 selected.some((r) => r.rule_id === "3.2" && !constraints[r.rule_id]?.trim()) ||
+                selected.some((r) => !!httpsExceptions[r.rule_id]?.length && !httpsExceptionReasons[r.rule_id]?.trim()) ||
                 selected.some((r) => !!r.resource_ids?.length && !(targetResources[r.rule_id] ?? r.resource_ids ?? []).length) ||
                 notTerraformSelected ||
-                selectedFileCount > MAX_PATCH_FILES ||
                 !!(initialSelection && initialSelection.runId !== diagnosis?.id)
               }
             >
@@ -705,10 +799,8 @@ export function AIActionsPage({
                 보안 그룹을 운영 통신 요건에 입력해야 새 패치를 만들 수 있습니다.
               </p>
             )}
-            {selectedFileCount > MAX_PATCH_FILES && (
-              <p className="text-xs text-amber-700">
-                한 패치는 파일 {MAX_PATCH_FILES}개까지입니다(현재 {selectedFileCount}개). 파일이나 항목을 줄이세요.
-              </p>
+            {selected.some((r) => !!httpsExceptions[r.rule_id]?.length && !httpsExceptionReasons[r.rule_id]?.trim()) && (
+              <p className="text-xs text-amber-800">HTTPS 예외로 표시한 리소스의 사유를 입력하세요.</p>
             )}
           </section>
         </div>
@@ -734,6 +826,7 @@ export function AIActionsPage({
                 <th className="p-2">패치 ID</th>
                 <th>상태</th>
                 <th>FAIL</th>
+                <th>HTTPS 예외</th>
                 <th>1차 승인</th>
                 <th>2차 AI</th>
                 <th>GitHub 검사</th>
@@ -765,6 +858,7 @@ export function AIActionsPage({
                   </td>
                   <td>{PATCH_STATUS[p.status] ?? p.status}</td>
                   <td>{p.rule_ids?.join(", ") ?? "-"}</td>
+                  <td>{p.https_exception_count ? `${p.https_exception_count}건 · 미조치` : "-"}</td>
                   <td>{p.first_decision === "approve" ? "승인" : p.first_decision === "reject" ? "반려" : "-"}</td>
                   <td>{p.ai_verdict ?? "-"}</td>
                   <td>{p.checks_status ?? "-"}</td>
@@ -820,6 +914,7 @@ export function AIActionsPage({
               {fix.payload.source.commit_sha}
             </p>
           )}
+          <HttpsExceptionSummary findings={fix.payload.findings} />
           {fix.payload.findings.some((finding) => finding.rule_id === "3.2") &&
             fix.payload.resource_bindings !== undefined && (
               <div className="rounded-lg border border-gray-200 p-3 text-xs">
@@ -827,7 +922,8 @@ export function AIActionsPage({
                 {fix.payload.resource_bindings.filter((binding) => binding.rule_id === "3.2").length ? (
                   fix.payload.resource_bindings.filter((binding) => binding.rule_id === "3.2").map((binding) => (
                     <p key={`${binding.resource_id}-${binding.file_path}-${binding.resource_name}`} className="mt-1 break-all">
-                      {binding.resource_id} → {binding.file_path} · {binding.module ? `${binding.module}.` : ""}{binding.resource_type}.{binding.resource_name}
+                      {resourceNameKorean(binding.rule_id, binding.resource_id)} · AWS ID: {binding.resource_id}
+                      {" → "}{binding.file_path} · {binding.module ? `${binding.module}.` : ""}{binding.resource_type}.{binding.resource_name}
                     </p>
                   ))
                 ) : (
@@ -1128,6 +1224,7 @@ export function AIActionsPage({
                 {fix.payload.final_report.report_notice ??
                   "이 보고서는 배포 전 예상입니다. 실제 보안 문제 해결 여부는 배포 후 재진단으로 확인합니다."}
               </p>
+              <HttpsExceptionSummary findings={fix.payload.findings} />
               <div>
                 <h4 className="font-semibold">한눈에 보기</h4>
                 <p className="mt-1 whitespace-pre-wrap">{fix.payload.final_report.ai_assessment.assessment}</p>

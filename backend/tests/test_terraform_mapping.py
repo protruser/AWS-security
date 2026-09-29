@@ -106,11 +106,12 @@ class MappingTest(unittest.TestCase):
         self.assertEqual(item["suggested"], ["modules/security/waf_log_groups.tf", "modules/security/logging.tf"])
         self.assertNotIn("modules/edge/alb_waf.tf", [c["file_path"] for c in item["candidates"]])
 
-    def test_suggestions_are_capped_at_patch_file_limit(self):
-        files = {f"modules/lambda_{i}/main.tf": log_group(f"l{i}") for i in range(6)}
+    def test_all_matching_files_are_available_and_suggested(self):
+        files = {f"modules/lambda_{i}/main.tf": log_group(f"l{i}") for i in range(12)}
         item = preview(source_with(files), [{"rule_id": "4.11"}], index={})["mapping"]["4.11"]
-        self.assertEqual(len(item["suggested"]), 5)
-        self.assertEqual(item["total_candidates"], 6)
+        self.assertEqual(len(item["suggested"]), 12)
+        self.assertEqual(len(item["candidates"]), 12)
+        self.assertEqual(item["total_candidates"], 12)
 
     def test_account_level_rules_are_not_terraform(self):
         source = source_with({"modules/compute/iam.tf": 'resource "aws_iam_role" "ec2" {}\n'})

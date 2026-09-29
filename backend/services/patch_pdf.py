@@ -13,6 +13,23 @@ from services.patch_security import PatchError
 from services.patch_reports import change_details_from_diff
 
 
+def resource_name_ko(rule_id, resource_id):
+    """Readable resource type; preserve the AWS identifier beside it for traceability."""
+    if ":listener/" in resource_id:
+        return "로드밸런서 접속 규칙"
+    if ":loadbalancer/" in resource_id:
+        return "로드밸런서"
+    if resource_id.startswith("sg-"):
+        return "보안 그룹"
+    if resource_id.startswith("i-"):
+        return "가상 서버(EC2)"
+    if resource_id.startswith("arn:aws:iam::"):
+        return "접근 권한 주체(IAM)"
+    if rule_id == "4.4" or resource_id.startswith("arn:aws:s3:::"):
+        return "S3 저장소(버킷)"
+    return "AWS 리소스"
+
+
 def render_pdf(patch, kind):
     payload = patch["payload"]
     if kind == "first" and not payload.get("report"):
@@ -78,8 +95,19 @@ def render_pdf(patch, kind):
     if kind in ("first", "final"):
         section("선택한 FAIL 항목")
         for finding in payload.get("findings", []):
-            para(f"{finding.get('rule_id')}: {finding.get('reason', '')} "
-                 f"(AWS 리소스: {', '.join(finding.get('resource_ids') or [])})")
+            para(f"{finding.get('rule_id')}: {finding.get('reason', '')}")
+            for resource_id in finding.get("resource_ids") or []:
+                para(f"{resource_name_ko(finding.get('rule_id'), resource_id)} · AWS ID: {resource_id}")
+        exceptions = [(finding.get("rule_id"), resource_id,
+                       (finding.get("remediation_scope") or {}).get("https_exception_reason", ""))
+                      for finding in payload.get("findings", [])
+                      for resource_id in (finding.get("remediation_scope") or {}).get(
+                          "https_exception_resource_ids", [])]
+        if exceptions:
+            section("HTTPS 운영 예외 · 미조치")
+            para("이 리소스의 HTTPS 조건은 이번 수정에서 해결되지 않으며 원래 진단 결과와 위험이 유지됩니다.")
+            for rule_id, resource_id, reason in exceptions:
+                para(f"규칙 {rule_id} · {resource_name_ko(rule_id, resource_id)} · AWS ID: {resource_id} · 사유: {reason}")
         for file in payload.get("files", []):
             section(f"Terraform 파일: {file.get('file_path', '')}")
             para("기존 설정")

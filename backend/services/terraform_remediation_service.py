@@ -76,6 +76,11 @@ def generate_terraform_fix(
                 "related_files는 일관성 확인용이며 현재 파일 외의 코드를 출력하지 마세요. "
                 "finding의 remediation_scope가 있으면 selected_resource_ids만 이번 패치 대상으로 "
                 "삼고 deferred_resource_ids는 수정했다고 주장하지 마세요. "
+                "https_exception_resource_ids는 운영자가 HTTPS 조건만 미조치 예외로 표시한 "
+                "리소스입니다. 3.9에서는 해당 ALB의 HTTPS 조건만 제외하고 삭제 보호·헤더 "
+                "설정 등 다른 선택된 위반 조건은 계속 수정하세요. 4.4에서는 예외 리스너를 "
+                "이번 수정에서 제외하고 선택된 S3 버킷 등만 수정하세요. 예외를 해결 또는 "
+                "PASS로 주장하지 마세요. "
                 "verified_resource_bindings는 Terraform State에서 확인한 AWS ID와 현재 파일의 "
                 "resource 선언 연결입니다. 이 연결이 있으면 해당 선언에만 선택 리소스 조치를 "
                 "적용하세요. 연결이 없는 ID를 리소스 이름이 비슷하다는 이유만으로 단정하지 마세요. "
@@ -163,6 +168,8 @@ def generate_change_report(*, findings, files):
                 "changes의 evidence는 해당 diff에서 "
                 "+ 또는 -로 시작하는 변경 행 하나를 정확히 인용하세요(파일 헤더 제외). "
                 "모든 변경 파일에 근거를 포함하고, 미해결 항목과 불확실성 및 부작용을 기술하세요."
+                "remediation_scope.https_exception_resource_ids는 HTTPS 미조치 예외이므로 "
+                "해결됐다고 쓰지 말고 남은 위험과 확인 사항에 사유를 기록하세요."
             ),
             input=json.dumps({"findings": findings, "diffs": [
                 {"file_path": f["file_path"], "diff": f["diff"]} for f in files]}, ensure_ascii=False),
@@ -266,6 +273,12 @@ def review_terraform_fix(
                 "각 FAIL 진단의 실제 근거와 매핑된 파일의 원본·수정본·diff를 대조하세요. "
                 "진단의 remediation_scope가 있으면 selected_resource_ids에 대한 수정만 "
                 "이번 패치의 해결 대상으로 평가하고 deferred_resource_ids는 다음 패치로 남깁니다. "
+                "https_exception_resource_ids는 HTTPS 조건의 미조치 예외입니다. 3.9에서는 "
+                "같은 ALB의 다른 선택된 위반 조건이 해결됐는지 검토하고, HTTPS 미해결만을 "
+                "이유로 반려하지 마세요. 4.4에서는 예외 리스너를 선택 범위에서 제외하되 "
+                "예외 리스너를 변경하지 않았는지와 선택된 S3 버킷 등의 해결 여부를 검토하세요. "
+                "예외를 PASS나 완료로 "
+                "표현하지 마세요. "
                 "선택되지 않은 리소스가 여전히 취약하다는 이유만으로 이번 부분 패치를 반려하지 "
                 "마세요. 선택된 리소스와 수정 파일의 연결 근거가 부족하면 NEEDS_HUMAN_REVIEW입니다. "
                 "verified_resource_bindings는 서버가 Terraform State와 파일 선언을 대조해 "

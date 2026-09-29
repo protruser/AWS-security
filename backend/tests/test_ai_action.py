@@ -376,6 +376,79 @@ class AIActionRouteTest(unittest.TestCase):
         self.assertEqual(finding["remediation_constraints"], "443/TCP to VPC CIDR")
         self.assertEqual(response.get_json()["payload"]["original_findings"][0]["resource_ids"], ["sg-one", "sg-two"])
 
+    def test_4_4_https_exception_defers_listener_but_keeps_s3_patch_scope(self):
+        shop_listener = "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:listener/app/shop/one/two"
+        admin_listener = "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:listener/app/admin/one/two"
+        bucket = "wonny-security-logs"
+        self.repo.results = {"results": [{"rule_id": "4.4", "status": "FAIL",
+            "resource_ids": [shop_listener, bucket, admin_listener],
+            "evidence": [{"resource": resource_id, "path": "observed", "value": "HTTP"}
+                         for resource_id in (shop_listener, bucket, admin_listener)]}]}
+        reason = "도메인과 ACM 인증서 미준비로 HTTPS 전환을 추후 진행"
+        response = self.create(mapping={"4.4": ["modules/security/a.tf"]},
+                               target_resource_ids={"4.4": [bucket]},
+                               https_exception_resource_ids={"4.4": [shop_listener]},
+                               https_exception_reasons={"4.4": reason})
+        self.assertEqual(response.status_code, 200)
+        row = response.get_json()
+        finding = row["payload"]["findings"][0]
+        scope = finding["remediation_scope"]
+        self.assertEqual(scope["selected_resource_ids"], [bucket])
+        self.assertEqual(scope["https_exception_resource_ids"], [shop_listener])
+        self.assertEqual(scope["https_exception_reason"], reason)
+        self.assertEqual(scope["deferred_resource_ids"], [admin_listener])
+        self.assertTrue(scope["rule_result_may_remain_fail_due_to_https_exception"])
+        self.assertEqual(finding["resource_ids"], [bucket])
+        self.assertEqual([item["resource"] for item in finding["evidence"]], [bucket])
+        self.assertEqual(row["payload"]["original_findings"][0]["resource_ids"],
+                         [shop_listener, bucket, admin_listener])
+        self.assertEqual(row["payload"]["audit"][1]["event"], "HTTPS_EXCEPTION_DECLARED")
+        before_hash = digest(row["payload"])
+        row["payload"]["https_exception_reasons"]["4.4"] = "changed"
+        self.assertNotEqual(digest(row["payload"]), before_hash)
+        generated = self.client.post("/api/ai-actions/terraform-fix", json={
+            "patch_id": row["id"]}).get_json()
+        self.assertEqual(generated["status"], "AWAITING_FIRST_APPROVAL")
+        context_scope = self.gen.call_args.kwargs["finding"]["findings"][0]["remediation_scope"]
+        self.assertEqual(context_scope["selected_resource_ids"], [bucket])
+        self.assertEqual(context_scope["https_exception_resource_ids"], [shop_listener])
+
+    def test_3_9_https_exception_keeps_same_alb_selected_for_other_fixes(self):
+        alb = "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:loadbalancer/app/shop/one"
+        self.repo.results = {"results": [{"rule_id": "3.9", "status": "FAIL",
+            "resource_ids": [alb], "evidence": [{"resource": alb, "path": "listener", "value": "HTTP"}]}]}
+        response = self.create(mapping={"3.9": ["modules/security/a.tf"]},
+                               target_resource_ids={"3.9": [alb]},
+                               https_exception_resource_ids={"3.9": [alb]},
+                               https_exception_reasons={"3.9": "인증서 준비 전, 삭제 보호와 헤더 설정은 이번에 조치"})
+        self.assertEqual(response.status_code, 200)
+        scope = response.get_json()["payload"]["findings"][0]["remediation_scope"]
+        self.assertEqual(scope["selected_resource_ids"], [alb])
+        self.assertEqual(scope["https_exception_resource_ids"], [alb])
+        self.assertEqual(scope["deferred_resource_ids"], [])
+        self.assertTrue(scope["rule_result_may_remain_fail_until_deferred_resources_are_fixed"])
+
+    def test_https_exception_rejects_overlap_missing_reason_and_unrelated_rule(self):
+        listener = "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:listener/app/shop/one/two"
+        self.repo.results = {"results": [{"rule_id": "4.4", "status": "FAIL",
+            "resource_ids": [listener, "bucket"], "evidence": [
+                {"resource": listener, "path": "listener", "value": "HTTP"},
+                {"resource": "bucket", "path": "policy", "value": "missing"}]}]}
+        base = {"mapping": {"4.4": ["modules/security/a.tf"]},
+                "https_exception_resource_ids": {"4.4": [listener]}}
+        overlap = self.create(**base, target_resource_ids={"4.4": [listener, "bucket"]},
+                              https_exception_reasons={"4.4": "cert pending"})
+        self.assertEqual(overlap.get_json()["error"], "INVALID_HTTPS_EXCEPTION")
+        missing_reason = self.create(**base, target_resource_ids={"4.4": ["bucket"]})
+        self.assertEqual(missing_reason.get_json()["error"], "INVALID_HTTPS_EXCEPTION")
+        self.repo.results = {"results": [{"rule_id": "3.7", "status": "FAIL",
+            "resource_ids": ["bucket"], "evidence": [
+                {"resource": "bucket", "path": "policy", "value": "missing"}]}]}
+        unrelated = self.create(mapping={"3.7": ["modules/security/a.tf"]},
+                                https_exception_resource_ids={"3.7": ["bucket"]},
+                                https_exception_reasons={"3.7": "cert pending"})
+        self.assertEqual(unrelated.get_json()["error"], "INVALID_HTTPS_EXCEPTION")
+
     def test_partial_scope_requires_real_diagnosis_evidence(self):
         self.repo.results = {"results": [{"rule_id": "3.7", "status": "FAIL",
             "resource_ids": ["sg-one", "sg-two"], "evidence": [{"resource": "sg-two", "path": "p", "value": "v"}]}]}
@@ -433,6 +506,18 @@ class AIActionRouteTest(unittest.TestCase):
         self.assertEqual(result["status"], "AWAITING_FIRST_APPROVAL")
         self.assertEqual(self.gen.call_count, 2)
         self.assertEqual(len(result["payload"]["report"]["changes"]), 2)
+
+    def test_more_than_five_files_can_be_in_one_patch(self):
+        files = [f"modules/security/file_{index}.tf" for index in range(7)]
+        self.source.terraform_paths.return_value = ("a" * 40, files)
+        response = self.create(mapping={"3.7": files})
+        self.assertEqual(response.status_code, 200)
+        row = response.get_json()
+        self.assertEqual(len(row["payload"]["files"]), 7)
+        result = self.client.post("/api/ai-actions/terraform-fix", json={"patch_id": row["id"]}).get_json()
+        self.assertEqual(result["status"], "AWAITING_FIRST_APPROVAL")
+        self.assertEqual(self.gen.call_count, 7)
+        self.assertEqual(len(result["payload"]["report"]["changes"]), 7)
 
     def test_generating_twice_or_after_approval_is_blocked(self):
         row = self.generated()

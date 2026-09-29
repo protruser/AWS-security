@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import app
-from services.patch_pdf import render_pdf
+from services.patch_pdf import render_pdf, resource_name_ko
 from services.patch_security import PatchError
 from services.patch_authorization import issue, verify
 
@@ -58,3 +58,14 @@ class ReportArtifactTest(unittest.TestCase):
         row["payload"]["final_report"] = None
         with self.assertRaises(PatchError):
             render_pdf(row, "final")
+
+    def test_https_exception_resource_names_are_readable_in_pdf(self):
+        listener = "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:listener/app/shop/a/b"
+        self.assertEqual(resource_name_ko("4.4", listener), "로드밸런서 접속 규칙")
+        self.assertEqual(resource_name_ko("4.4", "security-logs"), "S3 저장소(버킷)")
+        row = {"id": "patch-id", "status": "AWAITING_FIRST_APPROVAL", "payload": {
+            "findings": [{"rule_id": "4.4", "status": "FAIL", "resource_ids": ["security-logs"],
+                          "remediation_scope": {"https_exception_resource_ids": [listener],
+                                                "https_exception_reason": "인증서 미준비"}}],
+            "source": {}, "files": [], "report": {"summary": "버킷 정책만 변경", "changes": []}}}
+        self.assertTrue(render_pdf(row, "first").startswith(b"%PDF"))

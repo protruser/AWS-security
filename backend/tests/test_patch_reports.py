@@ -55,6 +55,26 @@ class FinalReportTest(unittest.TestCase):
         self.assertEqual(result["change_details"][0]["hunks"][0]["after_lines"],
                          ["enable_deletion_protection = true"])
 
+    def test_https_exception_is_saved_as_unresolved_fact_in_final_report(self):
+        row = report_patch()
+        alb = row["payload"]["findings"][0]
+        alb["remediation_scope"] = {
+            "selected_resource_ids": ["alb-one"],
+            "https_exception_resource_ids": ["alb-one"],
+            "https_exception_reason": "ACM 인증서가 준비되지 않음",
+        }
+        narrative = {"assessment": "삭제 보호만 변경", "risks": [], "post_deploy_checks": []}
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}), patch(
+                "services.patch_reports.OpenAI") as client:
+            client.return_value.responses.create.return_value = SimpleNamespace(
+                status="completed", output_text=json.dumps(narrative, ensure_ascii=False))
+            result = final_report(row)
+            supplied_facts = json.loads(client.return_value.responses.create.call_args.kwargs["input"])
+        expected = [{"rule_id": "3.9", "resource_id": "alb-one",
+                     "reason": "ACM 인증서가 준비되지 않음", "status": "미조치"}]
+        self.assertEqual(result["https_exceptions"], expected)
+        self.assertEqual(supplied_facts["https_exceptions"], expected)
+
     def test_older_ai_fields_get_fact_based_impact_fallbacks(self):
         old_narrative = {"assessment": "설정 변경을 검토했습니다.", "risks": [],
                          "post_deploy_checks": ["재진단"]}

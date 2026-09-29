@@ -62,8 +62,17 @@ def final_report(patch):
     if any(v.get("status") != "PASS" for v in checks["results"].values()):
         raise PatchError("CHECKS_NOT_PASSED", "모든 검증이 통과해야 합니다.", 409)
     change_details = change_details_from_diff(payload["files"], payload["report"])
+    https_exceptions = [
+        {"rule_id": finding.get("rule_id"), "resource_id": resource_id,
+         "reason": (finding.get("remediation_scope") or {}).get("https_exception_reason", ""),
+         "status": "미조치"}
+        for finding in payload["findings"]
+        for resource_id in (finding.get("remediation_scope") or {}).get(
+            "https_exception_resource_ids", [])
+    ]
     facts = {
         "patch_id": patch["id"], "findings": payload["findings"],
+        "https_exceptions": https_exceptions,
         "source": payload["source"], "files": payload["files"],
         "first_report": payload["report"], "ai_review": payload["ai_review"],
         "human_review_approval": payload.get("human_review_approval"),
@@ -96,6 +105,10 @@ def final_report(patch):
                 "실행하지 않은 검사, 입증되지 않은 보안 효과, 알 수 없는 수치를 주장하지 마세요. "
                 "2차 AI가 NEEDS_HUMAN_REVIEW를 반환했다면 사람의 승인만으로 미해결 진단 조건이 "
                 "해결됐다고 주장하지 말고, 남은 조건과 승인 근거를 위험 항목에 명시하세요. "
+                "findings의 remediation_scope.https_exception_resource_ids는 HTTPS 미조치 "
+                "예외입니다. 해당 리소스와 사유를 남은 위험에 명시하고 PASS나 완료로 "
+                "표현하지 마세요. 3.9에서 같은 ALB의 다른 설정을 바꿨다면 그 변경과 "
+                "HTTPS 예외를 구분하세요. "
                 "배포 전 보고서이므로 실제 AWS 변경과 보안 문제 해결이 완료됐다고 쓰지 마세요."),
             input=json.dumps(facts, ensure_ascii=False),
         )
@@ -155,6 +168,7 @@ def render_pdf(patch, kind):
                              spaceBefore=8*mm, spaceAfter=2*mm)
     code = ParagraphStyle("patch-code", fontName=_PDF_FONT, fontSize=7, leading=10)
     labels = {"patch_id": "패치 ID", "version": "보고서 버전", "findings": "선택한 FAIL 항목",
+              "https_exceptions": "HTTPS 운영 예외 · 미조치",
               "source": "GitHub 원본", "files": "Terraform 원본 · 수정안 · Diff",
               "report": "1차 AI 변경 보고서", "first_report": "1차 AI 변경 보고서",
               "ai_review": "2차 AI 검증", "human_review_approval": "사람 검토 승인",

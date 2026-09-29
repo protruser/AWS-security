@@ -13,9 +13,6 @@ RULES = {item["id"]: item for item in json.loads(
 
 RESOURCE = re.compile(r'^\s*resource\s+"(aws_[a-z0-9_]+)"\s+"([a-zA-Z0-9_-]+)"', re.M)
 
-# 한 패치에 넣을 수 있는 파일 수(terraform_patch_service.create 와 같은 한도).
-MAX_PATCH_FILES = 5
-
 # 진단 항목별로 고쳐야 할 Terraform 리소스 타입. 진단 문장의 키워드로 추측하면
 # 로그 그룹 이름에 "waf" 가 들어 있다는 이유로 WAF 파일을 고르는 식의 오탐이 생긴다.
 # 여기 없는 항목은 resource_prefixes() 의 키워드 추측을 그대로 쓴다.
@@ -175,7 +172,7 @@ def preview(source, findings, index=None):
             candidates.append({"file_path": path, "resources": matches,
                                "identity_match": bool(covered_ids),
                                "covered_resource_ids": covered_ids})
-        # State 로 확인된 파일, 대상 리소스가 많은 파일 순. 자동 입력은 한 패치 한도(5개)까지.
+        # State 로 확인된 파일, 대상 리소스가 많은 파일 순.
         candidates.sort(key=lambda item: (not item["identity_match"], -len(item["resources"]), item["file_path"]))
         if not candidates:
             status = "NO_CANDIDATE"
@@ -189,9 +186,9 @@ def preview(source, findings, index=None):
                                  if not any(resource_id in item["covered_resource_ids"] for item in candidates)]
         results[rule_id] = {
             "status": status,
-            "candidates": candidates[:10],
+            "candidates": candidates,
             "unmapped_resource_ids": unmapped_resource_ids,
-            "suggested": [item["file_path"] for item in candidates[:MAX_PATCH_FILES]],
+            "suggested": [item["file_path"] for item in candidates],
             "total_candidates": len(candidates),
             "reason": reason,
         }

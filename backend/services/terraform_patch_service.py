@@ -23,20 +23,35 @@ from services.terraform_remediation_service import (
 def digest(payload):
     # Bind approval to exact findings, GitHub commit, source, proposal and report.
     value = {key: payload.get(key) for key in ("findings", "source", "files", "report", "mapping")}
-    for key in ("original_findings", "target_resource_ids", "resource_bindings"):
+    for key in ("original_findings", "target_resource_ids", "resource_bindings",
+                "https_exception_resource_ids", "https_exception_reasons"):
         if key in payload:
             value[key] = payload[key]
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def scope_finding(finding, selected_ids):
+def scope_finding(finding, selected_ids, https_exception_ids=None, https_exception_reason=""):
     """Keep the original diagnosis while defining exactly what one patch claims to fix."""
     scoped = copy.deepcopy(finding)
     available = finding.get("resource_ids") or []
+    if https_exception_ids is None:
+        https_exception_ids = []
     if not isinstance(available, list) or not all(isinstance(item, str) and item for item in available):
         raise PatchError("INVALID_RESOURCE_SCOPE", "진단 리소스 ID 형식이 올바르지 않습니다.")
+    if (not isinstance(https_exception_ids, list)
+            or any(not isinstance(item, str) or not item for item in https_exception_ids)
+            or len(set(https_exception_ids)) != len(https_exception_ids)
+            or not set(https_exception_ids).issubset(set(available))):
+        raise PatchError("INVALID_HTTPS_EXCEPTION", "진단에 포함된 리소스 ID만 HTTPS 예외로 선택하세요.")
+    rule_id = finding.get("rule_id")
+    if https_exception_ids:
+        if (rule_id not in {"3.9", "4.4"}
+                or (rule_id == "3.9" and any(":loadbalancer/" not in item for item in https_exception_ids))
+                or (rule_id == "4.4" and any(":listener/" not in item for item in https_exception_ids))
+                or not isinstance(https_exception_reason, str) or not https_exception_reason.strip()):
+            raise PatchError("INVALID_HTTPS_EXCEPTION", "3.9/4.4 HTTPS 대상과 예외 사유를 확인하세요.")
     if not available:
-        if selected_ids:
+        if selected_ids or https_exception_ids:
             raise PatchError("INVALID_RESOURCE_SCOPE", "이 진단에는 선택 가능한 리소스 ID가 없습니다.")
         return scoped
     if (not isinstance(selected_ids, list) or not selected_ids
@@ -44,13 +59,20 @@ def scope_finding(finding, selected_ids):
             or len(set(selected_ids)) != len(selected_ids)
             or not set(selected_ids).issubset(set(available))):
         raise PatchError("INVALID_RESOURCE_SCOPE", "진단에 실제 존재하는 리소스 ID를 하나 이상 선택하세요.")
-    deferred = [item for item in available if item not in selected_ids]
+    if rule_id == "4.4" and set(https_exception_ids) & set(selected_ids):
+        raise PatchError("INVALID_HTTPS_EXCEPTION", "4.4의 HTTPS 예외 리스너는 이번 수정 대상에서 제외하세요.")
+    if rule_id == "3.9" and not set(https_exception_ids).issubset(set(selected_ids)):
+        raise PatchError("INVALID_HTTPS_EXCEPTION", "3.9는 HTTPS만 예외로 두고 해당 ALB의 다른 설정은 수정 대상으로 유지하세요.")
+    deferred = [item for item in available if item not in selected_ids and item not in https_exception_ids]
     scoped["remediation_scope"] = {
         "selected_resource_ids": selected_ids,
         "deferred_resource_ids": deferred,
-        "rule_result_may_remain_fail_until_deferred_resources_are_fixed": bool(deferred),
+        "https_exception_resource_ids": https_exception_ids,
+        "https_exception_reason": https_exception_reason.strip() if https_exception_ids else "",
+        "rule_result_may_remain_fail_due_to_https_exception": bool(https_exception_ids),
+        "rule_result_may_remain_fail_until_deferred_resources_are_fixed": bool(deferred or https_exception_ids),
     }
-    if deferred:
+    if set(selected_ids) != set(available):
         evidence = scoped.get("evidence") or []
         if not isinstance(evidence, list):
             raise PatchError("INVALID_RESOURCE_SCOPE", "진단 근거 형식이 올바르지 않습니다.")
@@ -131,15 +153,13 @@ class TerraformPatches:
                              f"Terraform으로 조치할 수 없는 항목입니다: {', '.join(blocked)}. 선택에서 제외하세요.")
         paths = []
         for rule, selected_paths in mapping.items():
-            if not isinstance(rule, str) or not isinstance(selected_paths, list) or not 1 <= len(selected_paths) <= 5:
+            if not isinstance(rule, str) or not isinstance(selected_paths, list) or not selected_paths:
                 raise PatchError("INVALID_SELECTION", "각 FAIL 항목에 관련 파일을 지정하세요.")
             for path in selected_paths:
                 safe_path(path)
                 if not path.startswith("modules/"):
                     raise PatchError("INVALID_FILE_PATH", "운영 Terraform 저장소의 modules/ 경로만 수정할 수 있습니다.")
                 paths.append(path)
-        if len(set(paths)) > 5:
-            raise PatchError("TOO_MANY_FILES", "한 패치는 최대 5개 파일까지 처리합니다.")
         diagnosis = self.repo.diagnosis(run_id)
         failures = {r["rule_id"]: r for r in diagnosis["results"] if r.get("status") == "FAIL"}
         if not set(mapping).issubset(failures):
@@ -154,6 +174,14 @@ class TerraformPatches:
         requested_targets = body.get("target_resource_ids") or {}
         if not isinstance(requested_targets, dict) or not set(requested_targets).issubset(set(mapping)):
             raise PatchError("INVALID_RESOURCE_SCOPE", "선택한 규칙의 리소스 ID만 지정하세요.")
+        https_exceptions = body.get("https_exception_resource_ids", {})
+        https_reasons = body.get("https_exception_reasons", {})
+        if (not isinstance(https_exceptions, dict) or not set(https_exceptions).issubset(set(mapping))
+                or not isinstance(https_reasons, dict) or not set(https_reasons).issubset(set(mapping))
+                or any(not isinstance(value, str) or len(value) > 2000 for value in https_reasons.values())):
+            raise PatchError("INVALID_HTTPS_EXCEPTION", "HTTPS 예외 리소스와 2,000자 이내 사유를 확인하세요.")
+        for reason in https_reasons.values():
+            check_sensitive(reason)
         constraints = body.get("remediation_constraints") or {}
         if (not isinstance(constraints, dict) or not set(constraints).issubset(set(mapping))
                 or any(not isinstance(value, str) or len(value) > 2000 for value in constraints.values())):
@@ -170,7 +198,9 @@ class TerraformPatches:
             rule: requested_targets.get(rule, failures[rule].get("resource_ids") or [])
             for rule in sorted(mapping)
         }
-        findings = [scope_finding(failures[rule], target_resource_ids[rule]) for rule in sorted(mapping)]
+        findings = [scope_finding(failures[rule], target_resource_ids[rule],
+                                  https_exceptions.get(rule, []), https_reasons.get(rule, ""))
+                    for rule in sorted(mapping)]
         for finding in findings:
             constraint = constraints.get(finding["rule_id"], "").strip()
             if constraint:
@@ -178,11 +208,18 @@ class TerraformPatches:
         check_sensitive(json.dumps(original_findings, ensure_ascii=False))
         payload = {"findings": findings, "original_findings": original_findings,
                    "target_resource_ids": target_resource_ids,
+                   "https_exception_resource_ids": {rule: item.get("remediation_scope", {}).get(
+                       "https_exception_resource_ids", []) for rule, item in zip(sorted(mapping), findings)},
+                   "https_exception_reasons": {rule: item.get("remediation_scope", {}).get(
+                       "https_exception_reason", "") for rule, item in zip(sorted(mapping), findings)},
                    "mapping": mapping, "source_commit_sha": current_sha,
                    "audit": [], "files": [], "source": None,
                    "report": None, "first_approval": None, "ai_review": None, "final_approval": None,
                    "github_pr": None, "checks": None, "deployment": None, "rediagnosis": None}
         audit(payload, "CREATED", actor)
+        if any(payload["https_exception_resource_ids"].values()):
+            audit(payload, "HTTPS_EXCEPTION_DECLARED", actor,
+                  resource_ids=payload["https_exception_resource_ids"])
         patch = {"id": str(uuid.uuid4()), "diagnosis_run_id": run_id, "requested_by": actor,
                  "status": "FETCHING", "revision": 1, "payload": payload}
         self.repo.insert(patch)

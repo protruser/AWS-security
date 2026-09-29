@@ -85,6 +85,9 @@ class PatchRepository:
         for row in rows:
             payload = unseal(row.pop("payload_encrypted"))
             row["rule_ids"] = [r["rule_id"] for r in payload.get("findings", [])]
+            row["https_exception_count"] = sum(
+                len((finding.get("remediation_scope") or {}).get("https_exception_resource_ids") or [])
+                for finding in payload.get("findings", []))
             row["first_approval"] = bool(payload.get("first_approval"))
             first_event = (payload.get("first_approval") or {}).get("event")
             row["first_decision"] = ("approve" if first_event == "FIRST_APPROVED"
