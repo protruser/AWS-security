@@ -436,16 +436,11 @@ def _read_security_logs(args):
     conditions = ["detected_at >= %s", "detected_at <= %s"]
     params = [start_at, end_at]
 
+    scenario_condition, scenario_params = _log_scenario_condition(source)
+    conditions.append(scenario_condition)
+    params.extend(scenario_params)
+
     normalized_scenario = "LOWER(COALESCE(scenario_type, ''))"
-    if source == "waf":
-        conditions.append(f"{normalized_scenario} IN (%s, %s, %s, %s, %s)")
-        params.extend(["sqli", "xss", "dir", "brute", "flood"])
-    elif source == "guardduty":
-        conditions.append(f"{normalized_scenario} IN (%s, %s)")
-        params.extend(["port", "cred"])
-    else:
-        conditions.append(f"{normalized_scenario} = %s")
-        params.append("vuln")
 
     severity = str(args.get("severity") or "").strip().capitalize()
     if severity:
@@ -520,6 +515,54 @@ def _read_security_logs(args):
             rows = cursor.fetchall()
 
     return [_event_to_log(row) for row in rows]
+
+
+def _log_scenario_condition(source):
+    normalized_scenario = "LOWER(COALESCE(scenario_type, ''))"
+    if source == "waf":
+        return f"{normalized_scenario} IN (%s, %s, %s, %s, %s)", ["sqli", "xss", "dir", "brute", "flood"]
+    if source == "guardduty":
+        return f"{normalized_scenario} IN (%s, %s)", ["port", "cred"]
+    return f"{normalized_scenario} = %s", ["vuln"]
+
+
+def _read_security_log_values(args):
+    """검색 조건의 공격 IP/대상 자산 드롭다운을, 기간 제한 없이 해당 소스에서
+    실제로 관측된 값 전체로 채우기 위한 조회. 조회 결과(logs)에만 의존하면
+    아직 검색을 안 한 상태에선 목록이 비어 있으므로 별도로 둔다."""
+    source = str(args.get("source") or "").strip().lower()
+    if source not in LOG_SOURCES:
+        raise ValueError("WAF, GuardDuty, Inspector 중 하나를 선택해 주세요.")
+
+    scenario_condition, scenario_params = _log_scenario_condition(source)
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT DISTINCT attacker_ip
+                FROM security_events
+                WHERE {scenario_condition} AND attacker_ip IS NOT NULL AND attacker_ip <> ''
+                ORDER BY attacker_ip
+                LIMIT 500
+                """,
+                scenario_params,
+            )
+            attacker_ips = [row["attacker_ip"] for row in cursor.fetchall()]
+
+            cursor.execute(
+                f"""
+                SELECT DISTINCT asset
+                FROM security_events
+                WHERE {scenario_condition} AND asset IS NOT NULL AND asset <> ''
+                ORDER BY asset
+                LIMIT 500
+                """,
+                scenario_params,
+            )
+            assets = [row["asset"] for row in cursor.fetchall()]
+
+    return {"attackerIps": attacker_ips, "assets": assets}
 
 
 def _read_dashboard_data():
@@ -1839,6 +1882,18 @@ def security_logs():
         return jsonify({"error": "INVALID_QUERY", "message": str(exc)}), 400
     except Exception as exc:
         app.logger.exception("Failed to read security logs")
+        return jsonify({"error": "DATABASE_READ_FAILED", "message": str(exc)}), 500
+
+
+@app.get("/api/logs/values")
+@login_required
+def security_log_values():
+    try:
+        return jsonify(_read_security_log_values(request.args))
+    except ValueError as exc:
+        return jsonify({"error": "INVALID_QUERY", "message": str(exc)}), 400
+    except Exception as exc:
+        app.logger.exception("Failed to read security log filter values")
         return jsonify({"error": "DATABASE_READ_FAILED", "message": str(exc)}), 500
 
 

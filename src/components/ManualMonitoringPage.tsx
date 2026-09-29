@@ -540,20 +540,28 @@ function SecurityDataMonitoringContent({
   const [logs, setLogs] = useState<SecurityLog[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [lastWindow, setLastWindow] = useState<QueryWindow | null>(null)
+  const [knownValues, setKnownValues] = useState<{
+    attackerIps: string[]
+    assets: string[]
+  }>({ attackerIps: [], assets: [] })
 
-  // 직접 입력하기 어려운 공격 IP/자산 값을, 방금 조회된 로그에서 실제로 나온
-  // 값들로 목록을 만들어 datalist로 골라 쓸 수 있게 한다.
+  // 공격 IP/자산 드롭다운은 (1) 기간 제한 없이 해당 소스 전체에서 관측된
+  // 값(knownValues, 소스를 고를 때 한 번 조회)과 (2) 방금 조회한 결과(logs)를
+  // 합쳐서 채운다 - knownValues만 쓰면 조회 이후 새로 들어온 값을 놓치고,
+  // logs만 쓰면 검색 전엔 목록이 비어 있어서 둘 다 필요하다.
   const attackerIpOptions = Array.from(
-    new Set(
-      logs
+    new Set([
+      ...knownValues.attackerIps,
+      ...logs
         .map((log) => log.attackerIp)
         .filter((ip): ip is string => Boolean(ip)),
-    ),
+    ]),
   )
   const assetOptions = Array.from(
-    new Set(
-      logs.map((log) => log.asset).filter((asset): asset is string => Boolean(asset)),
-    ),
+    new Set([
+      ...knownValues.assets,
+      ...logs.map((log) => log.asset).filter((asset): asset is string => Boolean(asset)),
+    ]),
   )
 
   const resetResults = () => {
@@ -564,6 +572,23 @@ function SecurityDataMonitoringContent({
     setValidationError(null)
   }
 
+  const loadKnownValues = async (nextSource: LogSource) => {
+    try {
+      const response = await fetch(`/api/logs/values?source=${nextSource}`, {
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      })
+      if (!response.ok) return
+      const result = await response.json()
+      setKnownValues({
+        attackerIps: Array.isArray(result.attackerIps) ? result.attackerIps : [],
+        assets: Array.isArray(result.assets) ? result.assets : [],
+      })
+    } catch {
+      // 목록 채우기는 편의 기능이라 실패해도 직접 입력으로 계속 조회할 수 있다.
+    }
+  }
+
   const selectSource = (nextSource: LogSource) => {
     setSource(nextSource)
     setRange("")
@@ -571,6 +596,8 @@ function SecurityDataMonitoringContent({
     setEndAt("")
     setFilters(EMPTY_FILTERS)
     resetResults()
+    setKnownValues({ attackerIps: [], assets: [] })
+    void loadKnownValues(nextSource)
   }
 
   const selectRange = (nextRange: RangePreset) => {
