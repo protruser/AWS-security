@@ -118,6 +118,33 @@ const SCENARIO_MITRE: Record<string, { tactic: string; technique: string }> = {
   cred: { tactic: "Credential Access", technique: "T1552 Unsecured Credentials" },
 }
 
+// MITRE ATT&CK Enterprise 전술의 한국어 표기 - 우리 시스템(WAF/GuardDuty/
+// Inspector)은 이 중 정찰·초기 접근·자격증명 접근·영향 4개만 탐지할 수
+// 있다. 나머지(수평 이동, C2, 유출 등)는 탐지 데이터가 없어 안 뜬다.
+const MITRE_TACTIC_LABEL: Record<string, string> = {
+  Reconnaissance: "정찰",
+  "Resource Development": "리소스 개발",
+  "Initial Access": "초기 접근",
+  Execution: "실행",
+  Persistence: "지속성 유지",
+  "Privilege Escalation": "권한 상승",
+  "Defense Evasion": "방어 회피",
+  "Credential Access": "자격증명 접근",
+  Discovery: "탐색",
+  "Lateral Movement": "수평 이동",
+  Collection: "수집",
+  "Command and Control": "명령 및 제어",
+  Exfiltration: "유출",
+  Impact: "영향",
+}
+const MITRE_TACTIC_COLOR: Record<string, string> = {
+  Reconnaissance: "#175CD3",
+  "Initial Access": "#B42318",
+  "Credential Access": "#5925DC",
+  Impact: "#B54708",
+}
+const MITRE_TACTIC_DEFAULT_COLOR = "#475467"
+
 const ACTION_LABEL: Record<string, string> = {
   block_ip: "IP 차단",
   disable_access_key: "Access Key 비활성화",
@@ -222,6 +249,45 @@ function OutcomeBadges({ detail }: { detail: AttackerDetail }) {
           {STAGE_META[stage].label}
         </span>
       ))}
+    </div>
+  )
+}
+
+// 사용자가 요청한 "단순 화살표" 타임라인 - 그래프(축/점) 대신, 실제로
+// 일어난 이벤트만 시간순으로 박스로 나열하고 화살표로 잇는다. 안 일어난
+// 단계는 아예 안 그리므로 예전 그래프처럼 "거쳤다는 게 안 읽힌다"거나
+// "안 거친 단계가 있는 것처럼 보인다"는 문제가 생기지 않는다. 박스 라벨은
+// MITRE ATT&CK 전술 - 공격 유형(SQLi 등)은 공격자가 시도한 기법이라 전술과
+// 자연스럽게 대응된다.
+function MitreArrowTimeline({ detail }: { detail: AttackerDetail }) {
+  const events = [...detail.timeline].sort((a, b) => a.time.localeCompare(b.time))
+  if (events.length === 0) return null
+  return (
+    <div className="rounded-2xl border border-[#E4E7EC] bg-white p-3">
+      <p className="mb-2 text-[13px] font-bold text-[#101828]">공격 흐름 (MITRE ATT&amp;CK 전술)</p>
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+        {events.map((ev, index) => {
+          const tactic = SCENARIO_MITRE[ev.scenarioType]?.tactic
+          const label = tactic
+            ? (MITRE_TACTIC_LABEL[tactic] ?? tactic)
+            : (SCENARIO_LABEL[ev.scenarioType] ?? ev.scenarioType)
+          const color = tactic ? (MITRE_TACTIC_COLOR[tactic] ?? MITRE_TACTIC_DEFAULT_COLOR) : MITRE_TACTIC_DEFAULT_COLOR
+          return (
+            <div key={ev.eventId} className="flex flex-shrink-0 items-center gap-1.5">
+              {index > 0 && <span className="text-[14px] text-[#D0D5DD]">→</span>}
+              <div
+                className="flex-shrink-0 rounded-lg px-2.5 py-1.5 text-center"
+                style={{ backgroundColor: `${color}14`, border: `1px solid ${color}40` }}
+              >
+                <p className="whitespace-nowrap text-[12.5px] font-semibold" style={{ color }}>
+                  {label}
+                </p>
+                <p className="text-[10.5px] text-[#98A2B3]">{formatTime(ev.time)}</p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -457,6 +523,7 @@ function DetailPanel({
         </span>
       </div>
       <OutcomeBadges detail={detail} />
+      <MitreArrowTimeline detail={detail} />
       {s.block.state === "bypassed" && (
         <p className="rounded-lg bg-[#FEF3F2] px-3 py-2 text-[13.5px] text-[#B42318]">
           IP 차단({formatTime(s.block.at)}) 이후에도 WAF 를 통과한 요청이 있습니다. 차단 목록 반영 여부와 WAF 규칙 순서를 확인하세요.
