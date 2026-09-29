@@ -344,6 +344,21 @@ function EventTimelineGraph({
                 strokeOpacity={ev.excluded ? 0.3 : 0.55}
                 strokeWidth={active ? 2 : 1.5}
               />
+              {/* 선만 그으면 "그냥 줄"로 보이고 S1~S3을 실제로 거쳤다는 게
+                  안 읽힌다는 피드백이라, 거쳐온 단계마다 작은 점을 따로
+                  찍어 사다리처럼 보이게 한다. C는 네트워크 단계 순서 밖이라
+                  건너뛴다. */}
+              {ev.stage !== "C" &&
+                STAGE_STEPS.slice(0, STAGE_STEPS.indexOf(ev.stage as Exclude<Stage, "C">)).map((passedStage) => (
+                  <circle
+                    key={`${ev.eventId}-${passedStage}`}
+                    cx={cx}
+                    cy={rowY(passedStage)}
+                    r={3}
+                    fill={STAGE_COLOR[passedStage]}
+                    fillOpacity={ev.excluded ? 0.25 : 0.6}
+                  />
+                ))}
               <circle
                 cx={cx}
                 cy={cy}
