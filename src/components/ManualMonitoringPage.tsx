@@ -46,6 +46,7 @@ interface ChartDatum {
   label: string
   value: number
   color?: string
+  tooltip?: string
 }
 
 const EMPTY_FILTERS: SearchFilters = {
@@ -237,10 +238,15 @@ function timeSeries(logs: SecurityLog[], range: RangePreset, window: QueryWindow
 
   return counts.map((value, index) => {
     const date = new Date(startMs + index * bucketMs)
+    const bucketEnd = new Date(Math.min(endMs, startMs + (index + 1) * bucketMs))
     const label = bucketMs >= 24 * 60 * 60 * 1000
       ? `${date.getMonth() + 1}/${date.getDate()}`
       : `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
-    return { label, value }
+    return {
+      label,
+      value,
+      tooltip: `${toDatetimeLocal(date).replace("T", " ")} ~ ${toDatetimeLocal(bucketEnd).replace("T", " ")}`,
+    }
   })
 }
 
@@ -271,6 +277,7 @@ function SummaryCards({ source, logs }: { source: LogSource, logs: SecurityLog[]
 }
 
 function LineChart({ title, data }: { title: string, data: ChartDatum[] }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null)
   const width = 720
   const height = 180
   const padding = { left: 34, right: 16, top: 16, bottom: 28 }
@@ -283,24 +290,59 @@ function LineChart({ title, data }: { title: string, data: ChartDatum[] }) {
     return { ...item, x, y }
   })
   const labelIndexes = Array.from(new Set([0, Math.floor((data.length - 1) / 2), data.length - 1]))
+  const activePoint = activeIndex === null ? null : points[activeIndex]
+  const tooltipWidth = 260
+  const tooltipX = activePoint
+    ? Math.max(4, Math.min(width - tooltipWidth - 4, activePoint.x - tooltipWidth / 2))
+    : 0
+  const tooltipY = activePoint
+    ? activePoint.y > 80 ? activePoint.y - 68 : activePoint.y + 12
+    : 0
 
   return (
     <div className="rounded-xl border border-[#EAECF0] p-4">
       <p className="text-xs font-bold text-[#101828] mb-2">{title}</p>
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[180px]" role="img" aria-label={title}>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[180px]" role="img" aria-label={activePoint ? `${title}: ${activePoint.tooltip ?? activePoint.label}, ${activePoint.value}건` : title}>
         {[0, 0.5, 1].map((ratio) => {
           const y = padding.top + chartHeight * ratio
           return <line key={ratio} x1={padding.left} x2={width - padding.right} y1={y} y2={y} stroke="#EAECF0" strokeWidth="1" />
         })}
         <polyline fill="none" stroke="#101828" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" points={points.map((point) => `${point.x},${point.y}`).join(" ")} />
         {points.map((point, index) => (
-          <circle key={`${point.label}-${index}`} cx={point.x} cy={point.y} r="3" fill="#101828"><title>{`${point.label}: ${point.value}건`}</title></circle>
+          <circle key={`${point.label}-${index}`} cx={point.x} cy={point.y} r="3" fill="#101828" />
         ))}
         <text x="4" y={padding.top + 4} fontSize="9" fill="#667085">{maxValue}</text>
         <text x="12" y={padding.top + chartHeight + 3} fontSize="9" fill="#667085">0</text>
         {labelIndexes.map((index) => points[index] && (
           <text key={index} x={points[index].x} y={height - 7} textAnchor="middle" fontSize="9" fill="#667085">{points[index].label}</text>
         ))}
+        {activePoint && (
+          <>
+            <line x1={activePoint.x} x2={activePoint.x} y1={padding.top} y2={padding.top + chartHeight} stroke="#98A2B3" strokeDasharray="4 4" />
+            <circle cx={activePoint.x} cy={activePoint.y} r="6" fill="#101828" stroke="white" strokeWidth="2" />
+          </>
+        )}
+        <rect
+          x={padding.left}
+          y={padding.top}
+          width={chartWidth}
+          height={chartHeight}
+          fill="transparent"
+          onPointerMove={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect()
+            const ratio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width))
+            setActiveIndex(Math.round(ratio * (points.length - 1)))
+          }}
+          onPointerLeave={() => setActiveIndex(null)}
+          onPointerCancel={() => setActiveIndex(null)}
+        />
+        {activePoint && (
+          <g transform={`translate(${tooltipX}, ${tooltipY})`} pointerEvents="none">
+            <rect width={tooltipWidth} height="54" rx="8" fill="#101828" />
+            <text x="12" y="21" fontSize="11" fill="#D0D5DD">{activePoint.tooltip ?? activePoint.label}</text>
+            <text x="12" y="41" fontSize="13" fontWeight="700" fill="white">탐지 {activePoint.value}건</text>
+          </g>
+        )}
       </svg>
     </div>
   )
@@ -313,7 +355,7 @@ function BarChart({ title, data }: { title: string, data: ChartDatum[] }) {
       <p className="text-xs font-bold text-[#101828] mb-3">{title}</p>
       <div className="space-y-3">
         {data.map((item) => (
-          <div key={item.label}>
+          <div key={item.label} title={`${item.label}: ${item.value}건`}>
             <div className="flex items-center justify-between gap-3 text-[12px] mb-1">
               <span className="font-medium text-[#475467] truncate">{item.label}</span>
               <span className="font-bold text-[#101828]">{item.value}</span>
