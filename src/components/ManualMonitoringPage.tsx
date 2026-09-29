@@ -340,7 +340,6 @@ function MonitoringAnalytics({ source, range, window, logs }: { source: LogSourc
 
   return (
     <div className="p-4 space-y-3 border-t border-[#EAECF0]">
-      <SummaryCards source={source} logs={logs} />
       <LineChart title={source === "waf" ? "시간대별 공격 탐지 건수" : "시간대별 Finding 발생 건수"} data={trend} />
       {/* WAF는 위 요약 카드(총 탐지/BLOCK/ALLOW)가 이미 이 두 막대그래프와
           같은 정보라 중복이라 뺐다. GuardDuty/Inspector는 유형·리소스별
@@ -977,6 +976,9 @@ function SecurityDataMonitoringContent({
             </div>
           ) : (
             <>
+              <div className="p-4 border-b border-[#EAECF0]">
+                <SummaryCards source={source as LogSource} logs={logs} />
+              </div>
               <div className="px-4 py-3 border-b border-[#EAECF0]">
                 <p className="text-xs font-bold text-[#101828]">상세 데이터</p>
               </div>
