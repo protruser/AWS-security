@@ -204,6 +204,7 @@ function RightPanel({
   onApprove,
   onExcept,
   onBulkRequest,
+  onBulkRemediate,
   role,
   onUnauthorized,
 }: {
@@ -221,6 +222,7 @@ function RightPanel({
   onApprove: (ev: ActionEvent) => void
   onExcept: (eventIds: string[]) => void
   onBulkRequest: (eventIds: string[]) => void
+  onBulkRemediate: (eventIds: string[]) => void
   role: string
   onUnauthorized: () => void
 }) {
@@ -330,6 +332,16 @@ function RightPanel({
     setCheckedIds(new Set())
   }
 
+  // 체크박스는 자동/수동 조치 두 칼럼에 걸쳐 공유되지만, 일괄 조치는 자동
+  // 조치가 가능한 이벤트에만 적용할 수 있으므로 선택된 것 중 자동 조치분만 뽑는다.
+  const checkedAutoEvents = autoEvents.filter((ev) => checkedIds.has(ev.id))
+
+  const handleBulkRemediate = () => {
+    if (checkedAutoEvents.length === 0) return
+    onBulkRemediate(checkedAutoEvents.map((ev) => ev.id))
+    setCheckedIds(new Set())
+  }
+
   // 승인자는 탐지이력/조치필요/조치이력을 볼 필요가 없다 - 책임은 승인/반려뿐이라
   // 탭 자체를 없애고 요청 목록만 바로 보여준다.
   if (role === "승인자") {
@@ -400,6 +412,14 @@ function RightPanel({
                 >
                   선택 해제
                 </button>
+                {checkedAutoEvents.length > 0 && (
+                  <button
+                    onClick={handleBulkRemediate}
+                    className="text-[13px] font-semibold text-white bg-[#16A34A] hover:bg-[#15803D] px-2.5 py-1.5 rounded-lg transition-colors"
+                  >
+                    선택한 {checkedAutoEvents.length}건 일괄 조치
+                  </button>
+                )}
                 <button
                   onClick={handleBulkExcept}
                   className="text-[13px] font-semibold text-white bg-[#111111] hover:bg-[#262626] px-2.5 py-1.5 rounded-lg transition-colors"
@@ -432,9 +452,33 @@ function RightPanel({
               ].map(({ label, items, sortKey, setSortKey }) => (
                 <div key={label}>
                   <div className="flex items-center justify-between gap-2 mb-1.5">
-                    <p className="text-[13px] font-bold text-[#344054]">
-                      {label} ({items.length})
-                    </p>
+                    {label === "자동 조치" && items.length > 0 ? (
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={items.every((ev) => checkedIds.has(ev.id))}
+                          onChange={(e) =>
+                            setCheckedIds((prev) => {
+                              const next = new Set(prev)
+                              if (e.target.checked) {
+                                items.forEach((ev) => next.add(ev.id))
+                              } else {
+                                items.forEach((ev) => next.delete(ev.id))
+                              }
+                              return next
+                            })
+                          }
+                          className="h-3.5 w-3.5 rounded border-[#D0D5DD] accent-[#111111]"
+                        />
+                        <p className="text-[13px] font-bold text-[#344054]">
+                          {label} ({items.length}) · 전체 선택
+                        </p>
+                      </label>
+                    ) : (
+                      <p className="text-[13px] font-bold text-[#344054]">
+                        {label} ({items.length})
+                      </p>
+                    )}
                     <div className="inline-flex rounded-lg border border-[#D0D5DD] bg-white p-0.5">
                       {(["severity", "time"] as const).map((key) => (
                         <button
@@ -2007,6 +2051,42 @@ export default function App() {
     }
   }
 
+  const bulkRemediationPendingRef = useRef(false)
+
+  const handleBulkRemediation = async (eventIds: string[]) => {
+    if (eventIds.length === 0 || bulkRemediationPendingRef.current) return
+    bulkRemediationPendingRef.current = true
+    setToast("선택한 항목을 일괄 조치하고 있습니다.")
+    try {
+      // 개별 조치 API를 병렬로 호출한다(한 건이 실패해도 나머지는 계속 진행하도록 allSettled 사용).
+      const results = await Promise.allSettled(
+        eventIds.map((eventId) =>
+          fetch("/api/remediate", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ event_id: eventId }),
+          }).then(async (response) => {
+            const result = await response.json()
+            if (!response.ok || result.success !== true) {
+              throw new Error(result.message || "자동 조치 실행 실패")
+            }
+          }),
+        ),
+      )
+      const failed = results.filter((r) => r.status === "rejected").length
+      if (selectedEvent && eventIds.includes(selectedEvent.id)) clearSelection()
+      await loadDashboardData(false, true)
+      setToast(
+        failed === 0
+          ? `${eventIds.length}건 모두 자동 조치가 완료되었습니다.`
+          : `${eventIds.length - failed}건 조치 완료, ${failed}건 실패했습니다.`,
+      )
+    } finally {
+      bulkRemediationPendingRef.current = false
+    }
+  }
+
   const fmt = (d: Date) => {
     const parts = new Intl.DateTimeFormat("ko-KR", {
       timeZone: "Asia/Seoul",
@@ -2690,6 +2770,7 @@ export default function App() {
                   }}
                   onExcept={handleExceptEvents}
                   onBulkRequest={handleBulkApprovalRequests}
+                  onBulkRemediate={handleBulkRemediation}
                   role={authUser?.role ?? ""}
                   onUnauthorized={() => {
                     setAuthUser(null)
