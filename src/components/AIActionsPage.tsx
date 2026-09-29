@@ -44,6 +44,7 @@ interface PatchSummary {
 interface PatchDetail extends PatchSummary {
   content_hash?: string
   approval_hash?: string
+  review_hash?: string
   payload: {
     findings: DiagnosisResult[]
     source: {
@@ -83,6 +84,7 @@ interface PatchDetail extends PatchSummary {
       concerns: string[]
       model: string
     } | null
+    human_review_approval?: { event: string; actor: string; at: string; note: string } | null
     github_pr?: {
       branch: string
       number?: number
@@ -167,6 +169,7 @@ const PATCH_STATUS: Record<string, string> = {
   AI_REVIEWING: "2차 AI 검증 중",
   AI_REJECTED: "2차 AI 검증 반려",
   AI_NEEDS_HUMAN_REVIEW: "2차 AI 추가 확인 필요",
+  AI_HUMAN_REJECTED: "사람 검토 반려",
   AI_REVIEW_FAILED: "2차 AI 검증 오류",
   READY_FOR_PR: "PR 생성 대기",
   CHECKS_RUNNING: "GitHub 검사 중",
@@ -472,6 +475,13 @@ export function AIActionsPage({
     step("final-approval", {
       decision,
       approval_hash: fix?.approval_hash,
+      reviewed,
+      note,
+    })
+  const decideHumanReview = (decision: "approve" | "reject") =>
+    step("human-review", {
+      decision,
+      review_hash: fix?.review_hash,
       reviewed,
       note,
     })
@@ -940,7 +950,41 @@ export function AIActionsPage({
                 </p>
               )}
               {fix.status === "AI_NEEDS_HUMAN_REVIEW" && (
-                <p>코드만으로 확인할 수 없는 사항입니다. 우려사항을 확인한 뒤 근거를 보완해 새 패치를 요청하세요.</p>
+                history?.can_approve ? (
+                  <div className="space-y-3 rounded-lg bg-amber-50 p-3">
+                    <p>
+                      AI가 확인을 보류했습니다. 위 우려사항과 미해결 진단 조건을 확인하세요.
+                      승인하면 현재 수정안으로 PR 생성과 GitHub 검사 단계에 진행합니다.
+                      승인만으로 규칙이 PASS가 되거나 배포되지는 않습니다.
+                    </p>
+                    <label className="flex gap-2">
+                      <input type="checkbox" checked={reviewed} disabled={running}
+                        onChange={(e) => setReviewed(e.target.checked)} />
+                      수정 전후 코드, 2차 AI 우려사항과 미해결 조건을 확인했습니다.
+                    </label>
+                    <textarea aria-label="2차 AI 보류 검토 근거" value={note}
+                      onChange={(e) => setNote(e.target.value)} maxLength={2000}
+                      placeholder="승인 또는 반려 근거를 입력하세요"
+                      className="w-full rounded border border-gray-300 p-2" />
+                    <div className="flex gap-2">
+                      <button className={button} disabled={running || !reviewed || !note.trim() || !fix.review_hash}
+                        onClick={() => decideHumanReview("approve")}>
+                        사람 검토 승인 · 다음 단계 진행
+                      </button>
+                      <button className={button} disabled={running || !reviewed || !note.trim() || !fix.review_hash}
+                        onClick={() => decideHumanReview("reject")}>
+                        반려
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p>승인자 계정에서 우려사항과 미해결 조건을 검토한 뒤 승인 또는 반려할 수 있습니다.</p>
+                )
+              )}
+              {fix.payload.human_review_approval?.event === "HUMAN_REVIEW_APPROVED" && (
+                <p className="rounded-lg bg-amber-50 p-3">
+                  사람 검토 승인: {fix.payload.human_review_approval.actor} · {fix.payload.human_review_approval.note}
+                </p>
               )}
             </section>
           )}

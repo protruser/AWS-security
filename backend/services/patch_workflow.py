@@ -31,6 +31,12 @@ def approval_digest(patch):
     return hashlib.sha256(json.dumps(relevant, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
+def human_review_digest(patch):
+    relevant = {"patch_id": patch["id"], "content_hash": patch["content_hash"],
+                "ai_review": patch["payload"].get("ai_review")}
+    return hashlib.sha256(json.dumps(relevant, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
 class PatchWorkflow(TerraformPatches):
     def __init__(self, *args, github_factory=GitHubSource, reviewer=review_terraform_fix,
                  report_final=final_report, **kwargs):
@@ -89,10 +95,43 @@ class PatchWorkflow(TerraformPatches):
         if patch["status"] == "READY_FOR_PR" and os.getenv("PATCH_ENABLE_GITHUB_WRITES") == "true":
             self.publish(patch["id"], actor)
 
+    def decide_human_review(self, patch_id, body, actor):
+        patch = self.repo.get(patch_id)
+        if patch["requested_by"] == actor:
+            raise PatchError("SELF_APPROVAL", "요청자 본인은 2차 검증 보류를 승인할 수 없습니다.", 403)
+        if (patch["status"] != "AI_NEEDS_HUMAN_REVIEW"
+                or patch["payload"].get("ai_review", {}).get("verdict") != "NEEDS_HUMAN_REVIEW"):
+            raise PatchError("INVALID_STATE", "2차 AI가 추가 확인을 요청한 패치만 처리할 수 있습니다.", 409)
+        self._source_guard(patch)
+        review_hash = human_review_digest(patch)
+        if body.get("review_hash") != review_hash:
+            raise PatchError("STALE_APPROVAL", "검토한 코드 또는 2차 AI 의견이 변경되었습니다.", 409)
+        decision, note = body.get("decision"), body.get("note")
+        if (decision not in ("approve", "reject") or body.get("reviewed") is not True
+                or not isinstance(note, str) or not note.strip() or len(note) > 2000):
+            raise PatchError("REVIEW_REQUIRED", "우려사항을 확인하고 승인 또는 반려 근거를 입력하세요.")
+        check_sensitive(note)
+        event = "HUMAN_REVIEW_APPROVED" if decision == "approve" else "HUMAN_REVIEW_REJECTED"
+        patch["status"] = "READY_FOR_PR" if decision == "approve" else "AI_HUMAN_REJECTED"
+        audit(patch["payload"], event, actor, note=note, review_hash=review_hash,
+              content_hash=patch["content_hash"])
+        patch["payload"]["human_review_approval"] = patch["payload"]["audit"][-1]
+        self.repo.save(patch, "AI_NEEDS_HUMAN_REVIEW")
+        if patch["status"] == "READY_FOR_PR" and os.getenv("PATCH_ENABLE_GITHUB_WRITES") == "true":
+            return self.publish(patch_id, actor)
+        return self.repo.get(patch_id)
+
     def publish(self, patch_id, actor):
         patch = self.repo.get(patch_id)
-        if patch["status"] != "READY_FOR_PR" or patch["payload"].get("ai_review", {}).get("verdict") != "APPROVE":
-            raise PatchError("AI_APPROVAL_REQUIRED", "2차 AI 검증 통과 후에만 PR을 만들 수 있습니다.", 409)
+        review = patch["payload"].get("ai_review") or {}
+        human_approval = patch["payload"].get("human_review_approval") or {}
+        human_review_passed = (review.get("verdict") == "NEEDS_HUMAN_REVIEW"
+                               and human_approval.get("event") == "HUMAN_REVIEW_APPROVED"
+                               and human_approval.get("review_hash") == human_review_digest(patch)
+                               and human_approval.get("content_hash") == patch["content_hash"]
+                               and human_approval.get("actor") != patch["requested_by"])
+        if patch["status"] != "READY_FOR_PR" or not (review.get("verdict") == "APPROVE" or human_review_passed):
+            raise PatchError("AI_APPROVAL_REQUIRED", "2차 AI 검증 통과 또는 보류 건의 사람 검토 승인 후에만 PR을 만들 수 있습니다.", 409)
         self._source_guard(patch)
         github = self.github_factory()
         if not patch["payload"].get("github_pr"):

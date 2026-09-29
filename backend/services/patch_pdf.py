@@ -105,13 +105,18 @@ def render_pdf(patch, kind):
         section("2차 AI 검증")
         para(f"판정: {review.get('verdict', '미확인')} · {review.get('summary', '')}")
         bullets(review.get("concerns"))
+        human_review = payload.get("human_review_approval") or {}
+        if human_review.get("event") == "HUMAN_REVIEW_APPROVED":
+            para(f"사람 검토 승인: {human_review.get('actor', '')} · {human_review.get('note', '')}")
         checks = payload.get("checks") or {}
         section("GitHub 자동 검사")
         for name, result in (checks.get("results") or {}).items():
             para(f"{name}: {result.get('status', 'NOT_RUN')} · {result.get('url') or checks.get('url') or '실행 링크 없음'}")
         section("검증 및 재검증 이력")
         for event in payload.get("audit", []):
-            if event.get("event") in ("AI_REJECTED", "AI_APPROVED", "CHECKS_FAILED", "FINAL_REPORTING", "PR_CREATED"):
+            if event.get("event") in ("AI_REJECTED", "AI_APPROVED", "AI_NEEDS_HUMAN_REVIEW",
+                                      "HUMAN_REVIEW_APPROVED", "HUMAN_REVIEW_REJECTED",
+                                      "CHECKS_FAILED", "FINAL_REPORTING", "PR_CREATED"):
                 para(f"{event.get('at', '')} · {event.get('event', '')}")
         section("Terraform Plan")
         counts = (checks.get("plan_summary") or {}).get("counts") or {}

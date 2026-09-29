@@ -5,7 +5,7 @@ from functools import wraps
 
 from flask import Response, jsonify, request, send_file, session
 from services.patch_security import PatchError
-from services.patch_workflow import PatchWorkflow, approval_digest
+from services.patch_workflow import PatchWorkflow, approval_digest, human_review_digest
 from services.patch_pdf import render_pdf
 
 
@@ -62,6 +62,8 @@ def register_patch_routes(app, role_required):
     @guarded
     def get_patch(patch_id):
         row = service.repo.get(str(patch_id))
+        if row["status"] == "AI_NEEDS_HUMAN_REVIEW":
+            row["review_hash"] = human_review_digest(row)
         if row["status"] in ("AWAITING_FINAL_APPROVAL", "FINAL_APPROVED"):
             row["approval_hash"] = approval_digest(row)
         return row
@@ -99,6 +101,12 @@ def register_patch_routes(app, role_required):
     @guarded
     def review_patch(patch_id):
         return service.start_review(str(patch_id), actor())
+
+    @app.post("/api/ai-actions/patches/<uuid:patch_id>/human-review")
+    @approver
+    @guarded
+    def decide_human_review(patch_id):
+        return service.decide_human_review(str(patch_id), body(), actor())
 
     @app.post("/api/ai-actions/patches/<uuid:patch_id>/publish")
     @admin

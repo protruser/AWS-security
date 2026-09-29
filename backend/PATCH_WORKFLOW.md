@@ -27,7 +27,8 @@ marked `MANUAL_REVIEW`; the operator must confirm or change the file. The
 preview commit SHA is required when creating a patch, so stale mappings fail.
 
 The sequence is source snapshot → integrated proposal and first report → first
-approval → second AI review → patch branch and PR → GitHub checks and saved Plan
+approval → second AI review (a `NEEDS_HUMAN_REVIEW` result requires a separate
+approver decision with a recorded reason) → patch branch and PR → GitHub checks and saved Plan
 → final AI report → final approval → separate deployment worker → merge → apply
 → rediagnosis. A rejection or failure stops that patch. Earlier versions remain
 downloadable from encrypted DB history, regardless of GitHub branch retention.
@@ -53,6 +54,7 @@ an apply failure remains a recorded partial deployment and is never retried.
 | POST | `/terraform-fix` | First AI integrated proposal |
 | POST | `/patches/<id>/first-approval` | First approval or rejection |
 | POST | `/patches/<id>/ai-review` | Second AI after first approval |
+| POST | `/patches/<id>/human-review` | Approver decision on a bound `NEEDS_HUMAN_REVIEW` result |
 | POST | `/patches/<id>/publish` | Isolated branch and PR |
 | POST | `/patches/<id>/checks/refresh` | Record actual CI results |
 | POST | `/patches/<id>/final-approval` | Final approval or rejection |
