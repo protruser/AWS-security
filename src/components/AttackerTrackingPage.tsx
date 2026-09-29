@@ -268,9 +268,8 @@ function MitreArrowTimeline({ detail }: { detail: AttackerDetail }) {
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
         {events.map((ev, index) => {
           const tactic = SCENARIO_MITRE[ev.scenarioType]?.tactic
-          const label = tactic
-            ? (MITRE_TACTIC_LABEL[tactic] ?? tactic)
-            : (SCENARIO_LABEL[ev.scenarioType] ?? ev.scenarioType)
+          const tacticLabel = tactic ? (MITRE_TACTIC_LABEL[tactic] ?? tactic) : null
+          const scenarioName = SCENARIO_LABEL[ev.scenarioType] ?? ev.scenarioType
           const color = tactic ? (MITRE_TACTIC_COLOR[tactic] ?? MITRE_TACTIC_DEFAULT_COLOR) : MITRE_TACTIC_DEFAULT_COLOR
           return (
             <div key={ev.eventId} className="flex flex-shrink-0 items-center gap-1.5">
@@ -279,10 +278,14 @@ function MitreArrowTimeline({ detail }: { detail: AttackerDetail }) {
                 className="flex-shrink-0 rounded-lg px-2.5 py-1.5 text-center"
                 style={{ backgroundColor: `${color}14`, border: `1px solid ${color}40` }}
               >
-                <p className="whitespace-nowrap text-[12.5px] font-semibold" style={{ color }}>
-                  {label}
+                {/* "무슨 공격이었는지"가 먼저 보여야 해서 구체적인 공격
+                    유형을 크게 두고, MITRE 전술은 참고용으로 작게 붙인다 -
+                    전술 이름만 크게 쓰면(예: "영향") 뭘 한 건지 안 읽힌다. */}
+                <p className="whitespace-nowrap text-[13px] font-bold text-[#101828]">{scenarioName}</p>
+                <p className="whitespace-nowrap text-[10.5px]" style={{ color }}>
+                  {tacticLabel ? `${tacticLabel} · ` : ""}
+                  {formatTime(ev.time)}
                 </p>
-                <p className="text-[10.5px] text-[#98A2B3]">{formatTime(ev.time)}</p>
               </div>
             </div>
           )
