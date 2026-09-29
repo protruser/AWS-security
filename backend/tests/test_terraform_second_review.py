@@ -23,6 +23,23 @@ class SecondReviewTest(unittest.TestCase):
         self.assertEqual(result["proposed_content"], result["original_content"])
         self.assertFalse(result["changed"])
 
+    def test_3_2_generator_receives_verified_id_link_and_source_rule(self):
+        client = MagicMock()
+        content = 'resource "aws_security_group" "shop_alb" { ingress { cidr_blocks = ["0.0.0.0/0"] } }\n'
+        client.responses.create.return_value = SimpleNamespace(status="completed", output_text=content)
+        binding = {"rule_id": "3.2", "resource_id": "sg-selected",
+                   "file_path": "modules/network/security_groups.tf",
+                   "resource_type": "aws_security_group", "resource_name": "shop_alb",
+                   "module": "module.network"}
+        with patch.object(remediation, "OpenAI", return_value=client):
+            remediation.generate_terraform_fix(finding={"findings": [{"rule_id": "3.2"}],
+                "target_rule_ids": ["3.2"], "verified_resource_bindings": [binding]},
+                file_path=binding["file_path"], file_content=content, api_key="test-key")
+        call = client.responses.create.call_args.kwargs
+        self.assertIn('"resource_id": "sg-selected"', call["input"][0]["content"])
+        self.assertIn("3.2는 접근 소스가 ANY인지", call["instructions"])
+        self.assertIn("검증 가능한 기존 코드", call["instructions"])
+
     def test_review_receives_scope_full_code_and_pre_plan_stage(self):
         client = MagicMock()
         client.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(
@@ -30,7 +47,10 @@ class SecondReviewTest(unittest.TestCase):
         )], stop_reason="end_turn")
         finding = {"findings": [{"rule_id": "3.1", "status": "FAIL", "resource_ids": ["sg-one"],
             "remediation_scope": {"selected_resource_ids": ["sg-one"],
-                                  "deferred_resource_ids": ["sg-two"]}}]}
+                                  "deferred_resource_ids": ["sg-two"]}}],
+            "verified_resource_bindings": [{"rule_id": "3.1", "resource_id": "sg-one",
+                "file_path": "modules/network/security_groups.tf", "resource_type": "aws_security_group",
+                "resource_name": "example", "module": "module.network"}]}
         files = [{"file_path": "modules/network/security_groups.tf",
                   "original_content": "old code\n", "proposed_content": "new code\n", "diff": "-old code\n+new code"}]
         with patch.object(remediation, "Anthropic", return_value=client):
@@ -42,6 +62,7 @@ class SecondReviewTest(unittest.TestCase):
         payload = json.loads(call["messages"][0]["content"])
         self.assertEqual(payload["files"], files)
         self.assertEqual(payload["findings"][0]["remediation_scope"]["deferred_resource_ids"], ["sg-two"])
+        self.assertEqual(payload["verified_resource_bindings"], finding["verified_resource_bindings"])
         self.assertIsNone(payload["terraform_plan"])
         self.assertIn("plan이 제공되지 않았", call["system"])
         self.assertEqual(call["output_config"]["format"]["schema"]["properties"]["verdict"]["enum"],

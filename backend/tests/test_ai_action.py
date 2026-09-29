@@ -12,7 +12,7 @@ from cryptography.fernet import Fernet
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import app
 from services.patch_security import PatchError, check_sensitive, seal, unseal, safe_path
-from services.terraform_patch_service import TerraformPatches, digest
+from services.terraform_patch_service import TerraformPatches, digest, verified_resource_bindings
 from services.terraform_remediation_service import _unified_diff, validate_change_report
 
 ORIGINAL = 'resource "aws_s3_bucket" "example" {\n  force_destroy = true\n}\n'
@@ -259,6 +259,97 @@ class AIActionRouteTest(unittest.TestCase):
         self.assertEqual(row["status"], "FAILED")
         self.assertEqual(row["payload"]["error"]["code"], "NO_CHANGES")
         self.report.assert_not_called()
+
+    def test_3_2_state_binding_identifies_selected_security_group_for_generation(self):
+        path = "modules/network/security_groups.tf"
+        other_path = "modules/network/endpoints.tf"
+        original = ('resource "aws_security_group" "shop_alb" {\n'
+                    '  ingress { cidr_blocks = ["0.0.0.0/0"] }\n}\n')
+        other_original = 'resource "aws_security_group" "vpce" {}\n'
+        self.source.terraform_paths.return_value = ("a" * 40, [path, other_path])
+        self.source.snapshot.side_effect = lambda paths, check_secrets=True: {
+            "repository": "org/repo", "ref": "main", "commit_sha": "a" * 40,
+            "files": [{"file_path": other_path, "original_content": other_original, "blob_sha": "c" * 40},
+                      {"file_path": path, "original_content": original, "blob_sha": "b" * 40}]}
+        self.repo.results = {"results": [{"rule_id": "3.2", "status": "FAIL",
+            "resource_ids": ["sg-selected"], "recommendation": "승인된 소스로 제한",
+            "evidence": [{"resource": "sg-selected", "value": "0.0.0.0/0"}]}]}
+        self.gen.return_value = {"proposed_content": original.replace("0.0.0.0/0", "10.0.0.0/8")}
+        with patch("services.terraform_patch_service.state_index", return_value={
+                "sg-selected": {("aws_security_group", "shop_alb", "module.network")}}):
+            row = self.create(mapping={"3.2": [other_path, path]},
+                              remediation_constraints={"3.2": "sg-selected 인바운드 허용 소스 10.0.0.0/8"}).get_json()
+        generated = self.client.post("/api/ai-actions/terraform-fix", json={"patch_id": row["id"]}).get_json()
+        self.assertEqual(generated["status"], "AWAITING_FIRST_APPROVAL")
+        self.gen.assert_called_once()
+        binding = self.gen.call_args.kwargs["finding"]["verified_resource_bindings"][0]
+        self.assertEqual((binding["resource_id"], binding["resource_name"], binding["module"]),
+                         ("sg-selected", "shop_alb", "module.network"))
+        self.assertEqual(generated["payload"]["resource_bindings"], [binding])
+        untouched = next(file for file in generated["payload"]["files"] if file["file_path"] == other_path)
+        self.assertEqual((untouched["proposed_content"], untouched["diff"]), (other_original, ""))
+
+    def test_3_2_no_change_explains_missing_verified_mapping_and_source(self):
+        path = "modules/network/security_groups.tf"
+        self.source.terraform_paths.return_value = ("a" * 40, [path])
+        self.repo.results = {"results": [{"rule_id": "3.2", "status": "FAIL",
+            "resource_ids": ["sg-unmanaged"], "evidence": [
+                {"resource": "sg-unmanaged", "value": "0.0.0.0/0"}]}]}
+        self.gen.return_value = {"proposed_content": ORIGINAL}
+        with patch("services.terraform_patch_service.state_index", return_value={}):
+            row = self.create(mapping={"3.2": [path]}, remediation_constraints={
+                "3.2": "sg-unmanaged 인바운드 소스 10.0.0.0/8"}).get_json()
+        generated = self.client.post("/api/ai-actions/terraform-fix", json={"patch_id": row["id"]}).get_json()
+        self.assertEqual(generated["payload"]["error"]["code"], "NO_CHANGES")
+        self.assertIn("State에서 확인하지 못했습니다", generated["payload"]["error"]["message"])
+        self.assertIn("허용 소스", generated["payload"]["error"]["message"])
+        self.report.assert_not_called()
+
+    def test_3_2_requires_allowed_source_before_creating_patch(self):
+        path = "modules/network/security_groups.tf"
+        self.source.terraform_paths.return_value = ("a" * 40, [path])
+        self.repo.results = {"results": [{"rule_id": "3.2", "status": "FAIL",
+            "resource_ids": ["sg-selected"]}]}
+        response = self.create(mapping={"3.2": [path]})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "REMEDIATION_INPUT_REQUIRED")
+        self.assertIn("허용", response.get_json()["message"])
+        self.source.snapshot.assert_not_called()
+        self.gen.assert_not_called()
+
+    def test_3_2_no_change_with_verified_mapping_asks_for_allowed_source(self):
+        path = "modules/network/security_groups.tf"
+        self.source.terraform_paths.return_value = ("a" * 40, [path])
+        self.source.snapshot.side_effect = lambda paths, check_secrets=True: {
+            "repository": "org/repo", "ref": "main", "commit_sha": "a" * 40,
+            "files": [{"file_path": path,
+                       "original_content": 'resource "aws_security_group" "shop_alb" {}\n',
+                       "blob_sha": "b" * 40}]}
+        self.repo.results = {"results": [{"rule_id": "3.2", "status": "FAIL",
+            "resource_ids": ["sg-selected"], "evidence": [
+                {"resource": "sg-selected", "value": "0.0.0.0/0"}]}]}
+        self.gen.return_value = {"proposed_content": 'resource "aws_security_group" "shop_alb" {}\n'}
+        with patch("services.terraform_patch_service.state_index", return_value={
+                "sg-selected": {("aws_security_group", "shop_alb", "module.network")}}):
+            row = self.create(mapping={"3.2": [path]}, remediation_constraints={
+                "3.2": "sg-selected 인바운드 소스 10.0.0.0/8"}).get_json()
+        generated = self.client.post("/api/ai-actions/terraform-fix", json={"patch_id": row["id"]}).get_json()
+        self.assertEqual(generated["payload"]["error"]["code"], "NO_CHANGES")
+        self.assertIn("Source CIDR", generated["payload"]["error"]["message"])
+
+    def test_3_2_binding_never_links_an_unselected_id_or_wrong_file(self):
+        files = [{"file_path": "modules/network/security_groups.tf",
+                  "original_content": 'resource "aws_security_group" "shop_alb" {}'},
+                 {"file_path": "modules/network/endpoints.tf",
+                  "original_content": 'resource "aws_security_group" "vpce" {}'}]
+        bindings = verified_resource_bindings(files, [
+            {"rule_id": "3.2", "resource_ids": ["sg-selected"]}],
+            {"3.2": ["modules/network/security_groups.tf"]}, {
+                "sg-selected": {("aws_security_group", "shop_alb", "module.network")},
+                "sg-unselected": {("aws_security_group", "vpce", "module.network")}})
+        self.assertEqual([(item["resource_id"], item["file_path"], item["resource_name"])
+                          for item in bindings],
+                         [("sg-selected", "modules/network/security_groups.tf", "shop_alb")])
 
     def test_newline_only_change_is_not_a_security_patch(self):
         self.gen.return_value = {"proposed_content": ORIGINAL.rstrip("\n")}

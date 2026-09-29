@@ -60,6 +60,14 @@ interface PatchDetail extends PatchSummary {
       proposed_content?: string
       diff?: string
     }[]
+    resource_bindings?: {
+      rule_id: string
+      resource_id: string
+      file_path: string
+      resource_type: string
+      resource_name: string
+      module: string
+    }[]
     report: {
       summary: string
       changes: {
@@ -79,7 +87,7 @@ interface PatchDetail extends PatchSummary {
       at: string
       note?: string
     }[]
-    error?: { message: string }
+    error?: { code?: string; message: string }
     ai_review?: {
       verdict: string
       summary: string
@@ -606,9 +614,20 @@ export function AIActionsPage({
                 <span className="mt-2 block text-gray-600">
                   필요한 통신 요건·허용 포트·목적지 (확인된 경우 입력)
                 </span>
+                {r.rule_id === "3.2" && (
+                  <span className="mt-1 block rounded-lg bg-amber-50 p-2 text-amber-900">
+                    3.2는 누구나 접근 가능한 소스(0.0.0.0/0, ::/0)를 확인합니다.
+                    이번에 제한할 보안 그룹만 선택하고, 실제 허용할 소스 CIDR 또는 보안 그룹과
+                    적용할 인바운드 규칙을 운영 요건에 적어 주세요. 공개 접속이 필요한 규칙은
+                    임의로 좁히지 마세요. 아래 후보의 “ID 일치”로 AWS ID와 Terraform 선언의
+                    연결도 확인하세요.
+                  </span>
+                )}
                 <textarea value={constraints[r.rule_id] ?? ""} maxLength={2000} rows={2}
                   onChange={(e) => setConstraints((current) => ({ ...current, [r.rule_id]: e.target.value }))}
-                  placeholder="예: 선택한 SG의 아웃바운드는 VPC CIDR의 443/TCP가 필요합니다. 확인되지 않은 포트는 추측하지 마세요."
+                  placeholder={r.rule_id === "3.2"
+                    ? "예: sg-...의 443/TCP 인바운드 소스는 확인된 사내 CIDR 10.0.0.0/8만 허용합니다."
+                    : "예: 선택한 SG의 아웃바운드는 VPC CIDR의 443/TCP가 필요합니다. 확인되지 않은 포트는 추측하지 마세요."}
                   className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs" />
                 <input
                   value={paths[r.rule_id] ?? ""}
@@ -671,6 +690,7 @@ export function AIActionsPage({
                 !selected.length ||
                 !mappingPreview || previewRules !== selectionKey ||
                 selected.some((r) => !paths[r.rule_id]?.trim()) ||
+                selected.some((r) => r.rule_id === "3.2" && !constraints[r.rule_id]?.trim()) ||
                 selected.some((r) => !!r.resource_ids?.length && !(targetResources[r.rule_id] ?? r.resource_ids ?? []).length) ||
                 notTerraformSelected ||
                 selectedFileCount > MAX_PATCH_FILES ||
@@ -679,6 +699,12 @@ export function AIActionsPage({
             >
               {running ? "처리 중…" : "GitHub 원본 조회 · 새 패치 생성"}
             </button>
+            {selected.some((r) => r.rule_id === "3.2" && !constraints[r.rule_id]?.trim()) && (
+              <p className="text-xs text-amber-800">
+                3.2의 허용 소스가 비어 있습니다. 적용할 보안 그룹과 규칙의 허용 CIDR 또는
+                보안 그룹을 운영 통신 요건에 입력해야 새 패치를 만들 수 있습니다.
+              </p>
+            )}
             {selectedFileCount > MAX_PATCH_FILES && (
               <p className="text-xs text-amber-700">
                 한 패치는 파일 {MAX_PATCH_FILES}개까지입니다(현재 {selectedFileCount}개). 파일이나 항목을 줄이세요.
@@ -794,11 +820,33 @@ export function AIActionsPage({
               {fix.payload.source.commit_sha}
             </p>
           )}
+          {fix.payload.findings.some((finding) => finding.rule_id === "3.2") &&
+            fix.payload.resource_bindings !== undefined && (
+              <div className="rounded-lg border border-gray-200 p-3 text-xs">
+                <p className="font-semibold">3.2 · State에서 확인한 AWS ID ↔ Terraform 선언</p>
+                {fix.payload.resource_bindings.filter((binding) => binding.rule_id === "3.2").length ? (
+                  fix.payload.resource_bindings.filter((binding) => binding.rule_id === "3.2").map((binding) => (
+                    <p key={`${binding.resource_id}-${binding.file_path}-${binding.resource_name}`} className="mt-1 break-all">
+                      {binding.resource_id} → {binding.file_path} · {binding.module ? `${binding.module}.` : ""}{binding.resource_type}.{binding.resource_name}
+                    </p>
+                  ))
+                ) : (
+                  <p className="mt-1 text-amber-800">선택한 보안 그룹과 이 파일들의 State 연결을 확인하지 못했습니다. 파일과 리소스 소유권을 확인하세요.</p>
+                )}
+              </div>
+            )}
           {fix.payload.error && (
-            <p role="alert" className="text-xs text-red-700">
-              {fix.payload.error.message} 이 패치는 이력에 보존됩니다. 새 패치로
-              다시 요청하세요.
-            </p>
+            <div role="alert" className="space-y-1 text-xs text-red-700">
+              <p>{fix.payload.error.message} 이 패치는 이력에 보존됩니다. 새 패치로 다시 요청하세요.</p>
+              {fix.payload.error.code === "NO_CHANGES" &&
+                fix.payload.findings.some((finding) => finding.rule_id === "3.2") && (
+                  <p>
+                    {fix.payload.findings.find((finding) => finding.rule_id === "3.2")?.remediation_constraints?.trim()
+                      ? "3.2의 선택한 보안 그룹 ID와 Terraform 파일 연결, 입력한 허용 소스 및 위반 규칙을 확인하세요."
+                      : "3.2의 운영 통신 요건이 비어 있습니다. 새 패치에서 허용할 소스 CIDR 또는 보안 그룹과 적용할 규칙을 입력하세요."}
+                  </p>
+                )}
+            </div>
           )}
           {fix.payload.files.map((file) => (
             <div key={file.file_path} className="space-y-2">

@@ -12,7 +12,9 @@ from datetime import datetime, timezone
 from services.github_terraform_source import GitHubSource
 from services.patch_repository import PatchRepository
 from services.patch_security import PatchError, check_sensitive, cipher, safe_path
-from services.terraform_mapping import NOT_TERRAFORM_RULES, preview as mapping_preview
+from services.terraform_mapping import (
+    NOT_TERRAFORM_RULES, RESOURCE, preview as mapping_preview, state_index,
+)
 from services.terraform_remediation_service import (
     _unified_diff, generate_change_report, generate_terraform_fix, validate_change_report,
 )
@@ -21,7 +23,7 @@ from services.terraform_remediation_service import (
 def digest(payload):
     # Bind approval to exact findings, GitHub commit, source, proposal and report.
     value = {key: payload.get(key) for key in ("findings", "source", "files", "report", "mapping")}
-    for key in ("original_findings", "target_resource_ids"):
+    for key in ("original_findings", "target_resource_ids", "resource_bindings"):
         if key in payload:
             value[key] = payload[key]
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
@@ -59,6 +61,29 @@ def scope_finding(finding, selected_ids):
         scoped["resource_ids"] = selected_ids
         scoped["evidence"] = selected_evidence
     return scoped
+
+
+def verified_resource_bindings(files, findings, mapping, index):
+    """Link selected AWS IDs to declarations only when Terraform state proves ownership."""
+    if not index:
+        return []
+    declarations = {file["file_path"]: set(RESOURCE.findall(file["original_content"]))
+                    for file in files}
+    bindings = []
+    for finding in findings:
+        rule_id = finding["rule_id"]
+        for resource_id in finding.get("resource_ids") or []:
+            identities = index.get(resource_id.lower(), set())
+            for path in mapping.get(rule_id, []):
+                module = "module." + path.split("/")[1]
+                for resource_type, resource_name in sorted(declarations.get(path, set())):
+                    for state_module in (module, ""):
+                        if (resource_type, resource_name, state_module) in identities:
+                            bindings.append({"rule_id": rule_id, "resource_id": resource_id,
+                                             "file_path": path, "resource_type": resource_type,
+                                             "resource_name": resource_name, "module": state_module})
+                            break
+    return bindings
 
 
 def audit(payload, event, actor, **details):
@@ -133,6 +158,12 @@ class TerraformPatches:
         if (not isinstance(constraints, dict) or not set(constraints).issubset(set(mapping))
                 or any(not isinstance(value, str) or len(value) > 2000 for value in constraints.values())):
             raise PatchError("INVALID_CONSTRAINTS", "선택한 규칙의 운영 통신 요건을 2,000자 이내로 입력하세요.")
+        if "3.2" in mapping and not constraints.get("3.2", "").strip():
+            raise PatchError("REMEDIATION_INPUT_REQUIRED",
+                             "3.2는 ANY 접근을 제한할 허용 소스를 확인해야 합니다. "
+                             "선택한 보안 그룹의 위반 방향·규칙과 허용할 Source CIDR 또는 "
+                             "보안 그룹을 운영 통신 요건에 입력하세요. 공개 접속을 유지해야 "
+                             "하는 규칙은 이번 조치 대상에서 제외하세요.")
         for constraint in constraints.values():
             check_sensitive(constraint)
         target_resource_ids = {
@@ -167,6 +198,9 @@ class TerraformPatches:
                 raise PatchError("BASE_CHANGED", "The gyu branch changed after mapping.", 409)
             payload["source"] = {key: value for key, value in source.items() if key != "files"}
             payload["files"] = source["files"]
+            if "3.2" in payload["mapping"]:
+                payload["resource_bindings"] = verified_resource_bindings(
+                    payload["files"], payload["findings"], payload["mapping"], state_index())
             patch["status"] = "SOURCE_READY"
             audit(payload, "SOURCE_READY", actor)
         except Exception as exc:
@@ -199,9 +233,21 @@ class TerraformPatches:
             for file in payload["files"]:
                 context = {"findings": payload["findings"], "target_rule_ids": [
                     rule for rule, paths in payload["mapping"].items() if file["file_path"] in paths],
+                    "verified_resource_bindings": [binding for binding in payload.get("resource_bindings", [])
+                                                   if binding["file_path"] == file["file_path"]],
                     "related_files": [{"file_path": f["file_path"],
                                        "content": f.get("proposed_content", f["original_content"])}
                                       for f in payload["files"] if f is not file]}
+                if context["target_rule_ids"] == ["3.2"] and not context["verified_resource_bindings"]:
+                    selected = {resource_id for finding in payload["findings"]
+                                if finding["rule_id"] == "3.2"
+                                for resource_id in finding.get("resource_ids") or []}
+                    linked = {binding["resource_id"] for binding in payload.get("resource_bindings", [])
+                              if binding["rule_id"] == "3.2"}
+                    if selected and selected <= linked:
+                        file["proposed_content"] = file["original_content"]
+                        file["diff"] = ""
+                        continue
                 # One integrated generation for each unique file, never competing per-rule diffs.
                 fix = self.generate(finding=context, file_path=file["file_path"], file_content=file["original_content"])
                 proposed = fix.get("proposed_content")
@@ -222,6 +268,24 @@ class TerraformPatches:
                 file["proposed_content"] = proposed
                 file["diff"] = _unified_diff(file["original_content"], proposed, file["file_path"])
             if not any(file["diff"] for file in payload["files"]):
+                if "3.2" in payload["mapping"]:
+                    selected = {resource_id for finding in payload["findings"]
+                                if finding["rule_id"] == "3.2"
+                                for resource_id in finding.get("resource_ids") or []}
+                    linked = {binding["resource_id"] for binding in payload.get("resource_bindings", [])
+                              if binding["rule_id"] == "3.2"}
+                    if selected - linked:
+                        raise PatchError("NO_CHANGES",
+                                         "3.2 수정안에 변경이 없습니다. 선택한 보안 그룹 일부의 AWS ID와 "
+                                         "Terraform 선언 연결을 State에서 확인하지 못했습니다. "
+                                         "매핑 화면의 ID 일치 항목만 선택하거나 관리 대상 여부를 확인하세요. "
+                                         "입력한 허용 소스와 실제 위반 규칙도 다시 확인하세요.")
+                    raise PatchError("NO_CHANGES",
+                                     "3.2 수정안에 변경이 없습니다. 선택한 보안 그룹의 ANY 접근을 "
+                                     "제한할 Source CIDR 또는 보안 그룹, 실제 위반 규칙, "
+                                     "선택 파일이 서로 일치하는지 확인하세요. 공개 접속이 "
+                                     "필요한 규칙은 선택에서 제외하세요. "
+                                     "값을 추측하거나 전체 차단하는 패치는 생성하지 않습니다.")
                 raise PatchError("NO_CHANGES", "생성된 코드에 변경사항이 없어 승인할 수 없습니다.")
             report = self.report(findings=payload["findings"], files=payload["files"])
             validate_change_report(report, payload["files"])

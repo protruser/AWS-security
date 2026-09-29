@@ -65,7 +65,8 @@ class PatchWorkflow(TerraformPatches):
         try:
             diff = "\n".join(f["diff"] for f in payload["files"] if f["diff"])
             review = self.reviewer(
-                finding={"findings": payload["findings"]},
+                finding={"findings": payload["findings"],
+                         "verified_resource_bindings": payload.get("resource_bindings", [])},
                 diff_text=diff,
                 files=[{key: file.get(key) for key in
                         ("file_path", "original_content", "proposed_content", "diff")}

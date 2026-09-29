@@ -76,6 +76,9 @@ def generate_terraform_fix(
                 "related_files는 일관성 확인용이며 현재 파일 외의 코드를 출력하지 마세요. "
                 "finding의 remediation_scope가 있으면 selected_resource_ids만 이번 패치 대상으로 "
                 "삼고 deferred_resource_ids는 수정했다고 주장하지 마세요. "
+                "verified_resource_bindings는 Terraform State에서 확인한 AWS ID와 현재 파일의 "
+                "resource 선언 연결입니다. 이 연결이 있으면 해당 선언에만 선택 리소스 조치를 "
+                "적용하세요. 연결이 없는 ID를 리소스 이름이 비슷하다는 이유만으로 단정하지 마세요. "
                 "remediation_constraints에는 운영자가 확인한 통신 요건이 있을 수 있습니다. "
                 "코드와 충돌하지 않는지 확인해 필요한 포트·대상 결정에만 사용하세요.\n"
                 "[2. AI 진단 권고사항 기반 수정]\n"
@@ -101,6 +104,12 @@ def generate_terraform_fix(
                 "3) 보안 그룹 규칙은 egress = [] 또는 ingress = [] 같은 전면 차단으로 "
                 "포트 제한 요구를 대신하지 마세요. 필요한 프로토콜·포트·목적지가 근거에 "
                 "없으면 추측하지 마세요.\n"
+                "3.2는 접근 소스가 ANY인지 확인하는 항목입니다. 선택된 보안 그룹의 실제 "
+                "위반 방향과 규칙에 한해 허용 Source CIDR 또는 보안 그룹 참조를 운영 요건이나 "
+                "검증 가능한 기존 코드에서 확인한 뒤 변경하세요. 포트만 바꾸거나 관련 없는 "
+                "아웃바운드 규칙을 삭제해서 3.2를 해결했다고 주장하지 마세요. "
+                "공개 웹 접속처럼 ANY가 의도된 경우나 허용 소스를 확인할 수 없는 경우에는 "
+                "임의의 CIDR을 만들지 말고 원본을 반환하세요.\n"
                 "4) 확신이 서지 않거나 파일 안의 정보만으로 안전하게 고칠 수 없다면 "
                 "코드를 추측해서 만들어내지 말고 원본을 그대로 반환하세요.\n"
                 "5) 변경이 없을 때도 파일 끝 개행을 포함한 원본을 그대로 유지하세요. "
@@ -237,6 +246,7 @@ def review_terraform_fix(
     review_input = {
         "stage": "1차 사람 승인 후, PR 및 Terraform 검사 전 정적 코드 검토",
         "findings": finding.get("findings", finding),
+        "verified_resource_bindings": finding.get("verified_resource_bindings", []),
         "mapping": mapping,
         "files": files,
         "diff": diff_text,
@@ -258,6 +268,9 @@ def review_terraform_fix(
                 "이번 패치의 해결 대상으로 평가하고 deferred_resource_ids는 다음 패치로 남깁니다. "
                 "선택되지 않은 리소스가 여전히 취약하다는 이유만으로 이번 부분 패치를 반려하지 "
                 "마세요. 선택된 리소스와 수정 파일의 연결 근거가 부족하면 NEEDS_HUMAN_REVIEW입니다. "
+                "verified_resource_bindings는 서버가 Terraform State와 파일 선언을 대조해 "
+                "확인한 AWS ID 연결입니다. 해당 연결이 제공되면 파일과 선택 리소스의 "
+                "관계를 판단할 때 사용하세요. "
                 "이번 판정은 PR 전 정적 코드 검토 통과 여부입니다. APPROVE는 코드 검토 통과를 "
                 "뜻하며 배포 승인이나 실제 AWS 조치 완료를 뜻하지 않습니다. "
                 "Terraform plan과 GitHub 검사는 이 단계 다음에 실행됩니다. plan이 제공되지 "
