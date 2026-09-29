@@ -73,6 +73,7 @@ const RANGES: { value: RangePreset, label: string }[] = [
 ]
 
 const SEVERITIES = ["Critical", "High", "Medium", "Low"]
+const HISTORY_PAGE_SIZE = 10
 const PRESET_MS: Record<Exclude<RangePreset, "custom">, number> = {
   "15m": 15 * 60 * 1000,
   "1h": 60 * 60 * 1000,
@@ -339,7 +340,7 @@ function MonitoringAnalytics({ source, range, window, logs }: { source: LogSourc
   const severityData = SEVERITIES.map((label) => ({ label, value: severityCounts.get(label) ?? 0, color: SEVERITY_COLORS[label] }))
 
   return (
-    <div className="p-4 space-y-3 border-t border-[#EAECF0]">
+    <div className="p-4 space-y-3 border-b border-[#EAECF0]">
       <LineChart title={source === "waf" ? "시간대별 공격 탐지 건수" : "시간대별 Finding 발생 건수"} data={trend} />
       {/* WAF는 위 요약 카드(총 탐지/BLOCK/ALLOW)가 이미 이 두 막대그래프와
           같은 정보라 중복이라 뺐다. GuardDuty/Inspector는 유형·리소스별
@@ -535,6 +536,7 @@ function SecurityDataMonitoringContent({
   const [validationError, setValidationError] = useState<string | null>(null)
   const [logs, setLogs] = useState<SecurityLog[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [historyPage, setHistoryPage] = useState(1)
   const [lastWindow, setLastWindow] = useState<QueryWindow | null>(null)
   const [knownValues, setKnownValues] = useState<{
     attackerIps: string[]
@@ -567,9 +569,24 @@ function SecurityDataMonitoringContent({
       ? allOptions.filter(([value]) => knownValues.scenarioTypes.includes(value))
       : allOptions
 
+  const historyPageCount = Math.ceil(logs.length / HISTORY_PAGE_SIZE)
+  const historyStart = (historyPage - 1) * HISTORY_PAGE_SIZE
+  const visibleLogs = logs.slice(historyStart, historyStart + HISTORY_PAGE_SIZE)
+  const pageNumbers = Array.from(
+    { length: Math.min(5, historyPageCount) },
+    (_, index) =>
+      Math.max(1, Math.min(historyPage - 2, historyPageCount - 4)) + index,
+  )
+
+  const goToHistoryPage = (page: number) => {
+    setHistoryPage(page)
+    setExpandedId(null)
+  }
+
   const resetResults = () => {
     setLogs([])
     setExpandedId(null)
+    setHistoryPage(1)
     setLastWindow(null)
     setQueryState("idle")
     setValidationError(null)
@@ -618,6 +635,7 @@ function SecurityDataMonitoringContent({
     setValidationError(null)
     setLogs([])
     setExpandedId(null)
+    setHistoryPage(1)
     setQueryState("idle")
     if (nextRange === "custom") {
       if (!startAt || !endAt) {
@@ -693,6 +711,7 @@ function SecurityDataMonitoringContent({
 
     setQueryState("loading")
     setExpandedId(null)
+    setHistoryPage(1)
     try {
       const response = await fetch(`/api/logs?${params.toString()}`, {
         credentials: "include",
@@ -979,8 +998,21 @@ function SecurityDataMonitoringContent({
               <div className="p-4 border-b border-[#EAECF0]">
                 <SummaryCards source={source as LogSource} logs={logs} />
               </div>
+              {lastWindow && (
+                <MonitoringAnalytics
+                  source={source as LogSource}
+                  range={range as RangePreset}
+                  window={lastWindow}
+                  logs={logs}
+                />
+              )}
               <div className="px-4 py-3 border-b border-[#EAECF0]">
-                <p className="text-xs font-bold text-[#101828]">상세 데이터</p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-bold text-[#101828]">상세 데이터</p>
+                  <span className="text-[12px] text-[#667085]">
+                    {historyStart + 1}–{Math.min(historyStart + HISTORY_PAGE_SIZE, logs.length)} / {logs.length}건
+                  </span>
+                </div>
               </div>
               <div className="overflow-x-auto">
               <table className="w-full text-left min-w-[860px]">
@@ -1005,7 +1037,7 @@ function SecurityDataMonitoringContent({
                   </tr>
                 </thead>
                 <tbody>
-                  {logs.map((log) => (
+                  {visibleLogs.map((log) => (
                     <LogRow
                       key={log.id}
                       log={log}
@@ -1021,13 +1053,37 @@ function SecurityDataMonitoringContent({
                 </tbody>
               </table>
               </div>
-              {lastWindow && (
-                <MonitoringAnalytics
-                  source={source as LogSource}
-                  range={range as RangePreset}
-                  window={lastWindow}
-                  logs={logs}
-                />
+              {historyPageCount > 1 && (
+                <nav aria-label="상세 데이터 페이지" className="flex flex-wrap items-center justify-center gap-1.5 border-t border-[#EAECF0] px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => goToHistoryPage(historyPage - 1)}
+                    disabled={historyPage === 1}
+                    className="rounded-lg border border-[#D0D5DD] px-3 py-1.5 text-[12px] font-semibold text-[#344054] hover:bg-[#F2F4F7] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    이전
+                  </button>
+                  {pageNumbers.map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      aria-label={`${page}페이지`}
+                      aria-current={historyPage === page ? "page" : undefined}
+                      onClick={() => goToHistoryPage(page)}
+                      className={`min-w-8 rounded-lg px-2 py-1.5 text-[12px] font-semibold ${historyPage === page ? "bg-[#101828] text-white" : "text-[#475467] hover:bg-[#F2F4F7]"}`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => goToHistoryPage(historyPage + 1)}
+                    disabled={historyPage === historyPageCount}
+                    className="rounded-lg border border-[#D0D5DD] px-3 py-1.5 text-[12px] font-semibold text-[#344054] hover:bg-[#F2F4F7] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    다음
+                  </button>
+                </nav>
               )}
             </>
           )}
