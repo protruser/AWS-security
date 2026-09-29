@@ -140,6 +140,10 @@ class PatchWorkflowTest(unittest.TestCase):
     def test_review_then_isolated_pr(self):
         self.stage_checks()
         self.reviewer.assert_called_once()
+        review_input = self.reviewer.call_args.kwargs
+        self.assertEqual(review_input["files"][0]["original_content"], ORIGINAL)
+        self.assertEqual(review_input["files"][0]["proposed_content"], PROPOSED)
+        self.assertEqual(review_input["mapping"], {"3.7": [review_input["files"][0]["file_path"]]})
         row = self.repo.get(self.patch_id)
         self.assertEqual(row["payload"]["github_pr"]["branch"], f"ai-patch/{self.patch_id}")
         self.assertEqual(self.github.writes, 2)
@@ -154,6 +158,16 @@ class PatchWorkflowTest(unittest.TestCase):
         row = self.repo.get(self.patch_id)
         row["status"] = "AWAITING_FIRST_APPROVAL"; self.repo._store(row)
         with self.assertRaises(PatchError): self.flow.start_review(self.patch_id, "operator")
+
+    def test_uncertain_review_is_distinct_and_cannot_publish(self):
+        self.reviewer.return_value = {"verdict": "NEEDS_HUMAN_REVIEW", "summary": "대상 연결 불명",
+                                      "concerns": ["sg-one의 Terraform state 연결 확인 필요"]}
+        self.flow.start_review(self.patch_id, "operator")
+        row = self.repo.get(self.patch_id)
+        self.assertEqual(row["status"], "AI_NEEDS_HUMAN_REVIEW")
+        self.assertEqual(self.github.writes, 0)
+        with self.assertRaises(PatchError):
+            self.flow.publish(self.patch_id, "operator")
 
     def test_changed_code_invalidates_review(self):
         row = self.repo.get(self.patch_id)

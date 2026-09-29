@@ -18,6 +18,7 @@ interface DiagnosisResult {
   evidence?: DiagnosisEvidence[]
   reason?: string
   recommendation?: string
+  remediation_constraints?: string
 }
 
 interface DiagnosisStatus {
@@ -143,7 +144,8 @@ interface MappingPreview {
   mapping: Record<string, {
     status: "MATCHED" | "MANUAL_REVIEW" | "NOT_TERRAFORM" | "NO_CANDIDATE"
     reason: string
-    candidates: { file_path: string; identity_match: boolean; resources: { type: string; name: string }[] }[]
+    candidates: { file_path: string; identity_match: boolean; covered_resource_ids?: string[]; resources: { type: string; name: string }[] }[]
+    unmapped_resource_ids?: string[]
     // 자동 입력할 파일(한 패치 한도 5개까지)과 전체 후보 수
     suggested?: string[]
     total_candidates?: number
@@ -164,6 +166,7 @@ const PATCH_STATUS: Record<string, string> = {
   FAILED: "실패",
   AI_REVIEWING: "2차 AI 검증 중",
   AI_REJECTED: "2차 AI 검증 반려",
+  AI_NEEDS_HUMAN_REVIEW: "2차 AI 추가 확인 필요",
   AI_REVIEW_FAILED: "2차 AI 검증 오류",
   READY_FOR_PR: "PR 생성 대기",
   CHECKS_RUNNING: "GitHub 검사 중",
@@ -239,6 +242,8 @@ export function AIActionsPage({
     initialSelection?.ruleIds ?? [],
   )
   const [paths, setPaths] = useState<Record<string, string>>({})
+  const [targetResources, setTargetResources] = useState<Record<string, string[]>>({})
+  const [constraints, setConstraints] = useState<Record<string, string>>({})
   const [mappingPreview, setMappingPreview] = useState<MappingPreview | null>(null)
   const [previewRules, setPreviewRules] = useState("")
   const [running, setRunning] = useState(false)
@@ -380,6 +385,15 @@ export function AIActionsPage({
       })
       setMappingPreview(result)
       setPreviewRules(selectionKey)
+      setTargetResources(Object.fromEntries(selected.map((r) => {
+        const item = result.mapping[r.rule_id]
+        const suggested = item?.suggested ?? []
+        const covered = new Set(item?.candidates
+          .filter((candidate) => suggested.includes(candidate.file_path))
+          .flatMap((candidate) => candidate.covered_resource_ids ?? []) ?? [])
+        const verified = (r.resource_ids ?? []).filter((id) => covered.has(id))
+        return [r.rule_id, verified.length ? verified : r.resource_ids ?? []]
+      })))
       setPaths(Object.fromEntries(selected.map((r) => {
         const item = result.mapping[r.rule_id]
         const files = item?.suggested ?? (item?.candidates[0] ? [item.candidates[0].file_path] : [])
@@ -408,6 +422,10 @@ export function AIActionsPage({
       const data = await api<PatchDetail>("/api/ai-actions/patches", {
         diagnosis_run_id: initialSelection?.runId ?? diagnosis?.id,
         mapping,
+        target_resource_ids: Object.fromEntries(selected.map((r) => [
+          r.rule_id, targetResources[r.rule_id] ?? r.resource_ids ?? [],
+        ])),
+        remediation_constraints: Object.fromEntries(selected.map((r) => [r.rule_id, constraints[r.rule_id] ?? ""])),
         source_commit_sha: mappingPreview?.commit_sha,
       })
       selectDetail(data)
@@ -543,6 +561,32 @@ export function AIActionsPage({
               <label key={r.rule_id} className="block text-xs">
                 <span className="font-semibold">{r.rule_id}</span> ·{" "}
                 {r.recommendation}
+                {!!r.resource_ids?.length && (
+                  <span className="mt-2 block rounded-lg border border-amber-200 bg-amber-50 p-2">
+                    <span className="block font-semibold">이번 패치에서 조치할 리소스</span>
+                    <span className="block text-amber-800">
+                      선택하지 않은 리소스는 다음 패치 대상으로 남습니다. 선택한 ID와 Terraform 파일의 연결을 확인하세요.
+                    </span>
+                    {r.resource_ids.map((id) => (
+                      <span key={id} className="mt-1 flex items-center gap-2 font-mono">
+                        <input type="checkbox" checked={(targetResources[r.rule_id] ?? r.resource_ids ?? []).includes(id)}
+                          onChange={() => setTargetResources((current) => {
+                            const chosen = current[r.rule_id] ?? r.resource_ids ?? []
+                            return { ...current, [r.rule_id]: chosen.includes(id)
+                              ? chosen.filter((value) => value !== id) : [...chosen, id] }
+                          })} />
+                        {id}
+                      </span>
+                    ))}
+                  </span>
+                )}
+                <span className="mt-2 block text-gray-600">
+                  필요한 통신 요건·허용 포트·목적지 (확인된 경우 입력)
+                </span>
+                <textarea value={constraints[r.rule_id] ?? ""} maxLength={2000} rows={2}
+                  onChange={(e) => setConstraints((current) => ({ ...current, [r.rule_id]: e.target.value }))}
+                  placeholder="예: 선택한 SG의 아웃바운드는 VPC CIDR의 443/TCP가 필요합니다. 확인되지 않은 포트는 추측하지 마세요."
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs" />
                 <input
                   value={paths[r.rule_id] ?? ""}
                   disabled={running}
@@ -577,12 +621,18 @@ export function AIActionsPage({
                           나머지는 다음 패치로 처리하세요.
                         </span>
                       )}
+                      {!!item.unmapped_resource_ids?.length && (
+                        <span className="block text-amber-700">
+                          Terraform State에서 연결을 확인하지 못한 리소스: {item.unmapped_resource_ids.join(", ")}
+                        </span>
+                      )}
                       {item.candidates.map((candidate) => (
                         <button key={candidate.file_path} type="button"
                           className={`ml-2 underline ${chosen.includes(candidate.file_path) ? "font-semibold text-[#101828]" : ""}`}
                           onClick={() => toggleCandidate(r.rule_id, candidate.file_path)}>
                           {chosen.includes(candidate.file_path) ? "✓ " : "+ "}
-                          {candidate.file_path}{candidate.identity_match ? " (ID 일치)" : ""}
+                          {candidate.file_path}{candidate.identity_match
+                            ? ` (ID 일치: ${candidate.covered_resource_ids?.join(", ")})` : ""}
                         </button>
                       ))}
                     </span>
@@ -598,6 +648,7 @@ export function AIActionsPage({
                 !selected.length ||
                 !mappingPreview || previewRules !== selectionKey ||
                 selected.some((r) => !paths[r.rule_id]?.trim()) ||
+                selected.some((r) => !!r.resource_ids?.length && !(targetResources[r.rule_id] ?? r.resource_ids ?? []).length) ||
                 notTerraformSelected ||
                 selectedFileCount > MAX_PATCH_FILES ||
                 !!(initialSelection && initialSelection.runId !== diagnosis?.id)
@@ -887,6 +938,9 @@ export function AIActionsPage({
                   수정이 필요하면 새 패치에서 코드·보고서를 다시 생성하고 1차
                   승인을 받으세요.
                 </p>
+              )}
+              {fix.status === "AI_NEEDS_HUMAN_REVIEW" && (
+                <p>코드만으로 확인할 수 없는 사항입니다. 우려사항을 확인한 뒤 근거를 보완해 새 패치를 요청하세요.</p>
               )}
             </section>
           )}

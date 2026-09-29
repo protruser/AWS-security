@@ -559,6 +559,7 @@ class AWSCollector:
                         "private_ip_address": instance.get("PrivateIpAddress"),
                         "public_ip_address": instance.get("PublicIpAddress"),
                         "key_name": instance.get("KeyName"),
+                        "key_pair_status": "ATTACHED" if instance.get("KeyName") else "ABSENT",
                         "security_groups": instance.get("SecurityGroups", []),
                         "iam_instance_profile": instance.get("IamInstanceProfile"),
                         "tags": instance.get("Tags", []),
@@ -724,6 +725,7 @@ class AWSCollector:
                 "bucket_acl": None,
                 "public_access_block": None,
                 "bucket_encryption": None,
+                "bucket_encryption_status": "UNKNOWN",
             }
 
             try:
@@ -762,12 +764,17 @@ class AWSCollector:
                 item["bucket_encryption"] = s3.get_bucket_encryption(Bucket=name).get(
                     "ServerSideEncryptionConfiguration"
                 )
+                item["bucket_encryption_status"] = (
+                    "CONFIGURED" if item["bucket_encryption"] is not None else "UNKNOWN"
+                )
             except ClientError as exc:
-                if exc.response.get("Error", {}).get("Code") not in {
-                    "ServerSideEncryptionConfigurationNotFoundError"
-                }:
+                if exc.response.get("Error", {}).get("Code") == "ServerSideEncryptionConfigurationNotFoundError":
+                    item["bucket_encryption_status"] = "ABSENT"
+                else:
+                    item["bucket_encryption_status"] = "ERROR"
                     self._record_error("s3.get_bucket_encryption", exc, name)
             except Exception as exc:
+                item["bucket_encryption_status"] = "ERROR"
                 self._record_error("s3.get_bucket_encryption", exc, name)
 
             result["buckets"].append(item)
@@ -791,6 +798,7 @@ class AWSCollector:
         result["bucket_acl"] = {b["name"]: b.get("bucket_acl") for b in result["buckets"]}
         result["public_access_block"] = {b["name"]: b.get("public_access_block") for b in result["buckets"]}
         result["bucket_encryption"] = {b["name"]: b.get("bucket_encryption") for b in result["buckets"]}
+        result["bucket_encryption_status"] = {b["name"]: b.get("bucket_encryption_status") for b in result["buckets"]}
         return result
 
     # ------------------------------------------------------------------

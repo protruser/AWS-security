@@ -40,6 +40,23 @@ class MappingTest(unittest.TestCase):
         source.snapshot.assert_called_once_with(
             ["modules/compute/iam_permissions.tf", "modules/network/security_groups.tf"], check_secrets=False)
 
+    def test_multi_resource_finding_shows_which_ids_each_file_covers(self):
+        source = source_with({
+            "modules/network/a.tf": 'resource "aws_security_group" "a" {}\n',
+            "modules/network/b.tf": 'resource "aws_security_group" "b" {}\n',
+        })
+        index = {
+            "sg-one": {("aws_security_group", "a", "module.network")},
+            "sg-two": {("aws_security_group", "b", "module.network")},
+        }
+        item = preview(source, [{"rule_id": "3.1", "resource_ids": ["sg-one", "sg-two", "sg-three"]}],
+                       index=index)["mapping"]["3.1"]
+        self.assertEqual(item["status"], "MANUAL_REVIEW")
+        self.assertEqual(item["unmapped_resource_ids"], ["sg-three"])
+        covered = {candidate["file_path"]: candidate["covered_resource_ids"] for candidate in item["candidates"]}
+        self.assertEqual(covered["modules/network/a.tf"], ["sg-one"])
+        self.assertEqual(covered["modules/network/b.tf"], ["sg-two"])
+
     def test_rule_table_ignores_misleading_keywords(self):
         # 4.11 진단 문장에 WAF 로그 그룹 이름이 들어 있어도 WAF 파일이 아니라 로그 그룹 파일을 고른다.
         source = source_with({

@@ -1,8 +1,10 @@
 """Phase 1 only: immutable proposals and explicit human decisions. No deployment."""
 import hashlib
+import copy
 import json
 import logging
 import os
+import re
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -19,7 +21,44 @@ from services.terraform_remediation_service import (
 def digest(payload):
     # Bind approval to exact findings, GitHub commit, source, proposal and report.
     value = {key: payload.get(key) for key in ("findings", "source", "files", "report", "mapping")}
+    for key in ("original_findings", "target_resource_ids"):
+        if key in payload:
+            value[key] = payload[key]
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def scope_finding(finding, selected_ids):
+    """Keep the original diagnosis while defining exactly what one patch claims to fix."""
+    scoped = copy.deepcopy(finding)
+    available = finding.get("resource_ids") or []
+    if not isinstance(available, list) or not all(isinstance(item, str) and item for item in available):
+        raise PatchError("INVALID_RESOURCE_SCOPE", "진단 리소스 ID 형식이 올바르지 않습니다.")
+    if not available:
+        if selected_ids:
+            raise PatchError("INVALID_RESOURCE_SCOPE", "이 진단에는 선택 가능한 리소스 ID가 없습니다.")
+        return scoped
+    if (not isinstance(selected_ids, list) or not selected_ids
+            or not all(isinstance(item, str) and item for item in selected_ids)
+            or len(set(selected_ids)) != len(selected_ids)
+            or not set(selected_ids).issubset(set(available))):
+        raise PatchError("INVALID_RESOURCE_SCOPE", "진단에 실제 존재하는 리소스 ID를 하나 이상 선택하세요.")
+    deferred = [item for item in available if item not in selected_ids]
+    scoped["remediation_scope"] = {
+        "selected_resource_ids": selected_ids,
+        "deferred_resource_ids": deferred,
+        "rule_result_may_remain_fail_until_deferred_resources_are_fixed": bool(deferred),
+    }
+    if deferred:
+        evidence = scoped.get("evidence") or []
+        if not isinstance(evidence, list):
+            raise PatchError("INVALID_RESOURCE_SCOPE", "진단 근거 형식이 올바르지 않습니다.")
+        selected_evidence = [item for item in evidence if isinstance(item, dict)
+                             and item.get("resource") in selected_ids]
+        if {item["resource"] for item in selected_evidence} != set(selected_ids):
+            raise PatchError("RESOURCE_EVIDENCE_MISSING", "선택한 리소스와 연결된 실제 진단 근거가 없습니다.")
+        scoped["resource_ids"] = selected_ids
+        scoped["evidence"] = selected_evidence
+    return scoped
 
 
 def audit(payload, event, actor, **details):
@@ -86,9 +125,29 @@ class TerraformPatches:
             raise PatchError("BASE_CHANGED", "The gyu branch changed after mapping. Preview again.", 409)
         if not set(paths).issubset(valid_paths):
             raise PatchError("INVALID_FILE_PATH", "A selected file is absent from the gyu Terraform modules.")
-        findings = [failures[rule] for rule in sorted(mapping)]
-        check_sensitive(json.dumps(findings, ensure_ascii=False))
-        payload = {"findings": findings, "mapping": mapping, "source_commit_sha": current_sha,
+        original_findings = [failures[rule] for rule in sorted(mapping)]
+        requested_targets = body.get("target_resource_ids") or {}
+        if not isinstance(requested_targets, dict) or not set(requested_targets).issubset(set(mapping)):
+            raise PatchError("INVALID_RESOURCE_SCOPE", "선택한 규칙의 리소스 ID만 지정하세요.")
+        constraints = body.get("remediation_constraints") or {}
+        if (not isinstance(constraints, dict) or not set(constraints).issubset(set(mapping))
+                or any(not isinstance(value, str) or len(value) > 2000 for value in constraints.values())):
+            raise PatchError("INVALID_CONSTRAINTS", "선택한 규칙의 운영 통신 요건을 2,000자 이내로 입력하세요.")
+        for constraint in constraints.values():
+            check_sensitive(constraint)
+        target_resource_ids = {
+            rule: requested_targets.get(rule, failures[rule].get("resource_ids") or [])
+            for rule in sorted(mapping)
+        }
+        findings = [scope_finding(failures[rule], target_resource_ids[rule]) for rule in sorted(mapping)]
+        for finding in findings:
+            constraint = constraints.get(finding["rule_id"], "").strip()
+            if constraint:
+                finding["remediation_constraints"] = constraint
+        check_sensitive(json.dumps(original_findings, ensure_ascii=False))
+        payload = {"findings": findings, "original_findings": original_findings,
+                   "target_resource_ids": target_resource_ids,
+                   "mapping": mapping, "source_commit_sha": current_sha,
                    "audit": [], "files": [], "source": None,
                    "report": None, "first_approval": None, "ai_review": None, "final_approval": None,
                    "github_pr": None, "checks": None, "deployment": None, "rediagnosis": None}
@@ -148,6 +207,17 @@ class TerraformPatches:
                 proposed = fix.get("proposed_content")
                 if not isinstance(proposed, str) or not proposed.strip() or len(proposed.encode()) > 50_000 or "```" in proposed:
                     raise PatchError("INVALID_PROPOSAL", "수정안이 비어 있거나 파일 형식/크기 제한을 위반했습니다.")
+                # The model response must preserve the file boundary. A trailing
+                # newline-only edit is not a security remediation.
+                if proposed.strip("\r\n") == file["original_content"].strip("\r\n"):
+                    proposed = file["original_content"]
+                if any(rule in {"3.1", "3.2", "3.3"} for rule in context["target_rule_ids"]):
+                    for direction in ("egress", "ingress"):
+                        empty_rule = rf"(?m)^\s*{direction}\s*=\s*\[\s*\]\s*$"
+                        if (re.search(empty_rule, proposed)
+                                and not re.search(empty_rule, file["original_content"])):
+                            raise PatchError("UNSAFE_PROPOSAL",
+                                             f"{direction} 전체 삭제는 포트 제한 조치가 아닙니다. 필요한 통신 범위를 확인해 새 수정안을 요청하세요.")
                 check_sensitive(proposed)
                 file["proposed_content"] = proposed
                 file["diff"] = _unified_diff(file["original_content"], proposed, file["file_path"])

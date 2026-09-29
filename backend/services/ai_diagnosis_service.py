@@ -36,6 +36,21 @@ CATEGORY_ORDER: Sequence[str] = (
 )
 
 VALID_STATUS: Set[str] = {"PASS", "FAIL", "REVIEW", "N/A"}
+TARGET_RULE_IDS: Set[str] = {"1.1", "1.5", "2.1", "2.2", "2.3", "3.1", "4.3"}
+ADMINISTRATOR_ACCESS_ARN = "arn:aws:iam::aws:policy/AdministratorAccess"
+
+# These are project classification hints for the source service families, not
+# a claim that Shieldus published an exhaustive machine-readable policy list.
+POLICY_NAME_MARKERS: Mapping[str, Sequence[str]] = {
+    "2.1": ("ec2", "ecs", "ecr", "eks", "elasticfilesystem", "efs", "rds", "s3", "containerregistry"),
+    "2.2": ("vpc", "cloudfront", "route53", "apigateway", "directconnect", "appmesh", "cloudmap", "servicediscovery"),
+    "2.3": ("organizations", "cloudwatch", "autoscaling", "cloudformation", "cloudtrail", "config", "ssm", "systemsmanager", "guardduty", "inspector", "sso", "certificate", "kms", "waf", "shield", "securityhub", "datapipeline", "glue", "msk", "backup"),
+}
+POLICY_ACTION_PREFIXES: Mapping[str, Sequence[str]] = {
+    "2.1": ("ec2", "ecs", "ecr", "eks", "elasticfilesystem", "rds", "s3"),
+    "2.2": ("cloudfront", "route53", "apigateway", "directconnect", "appmesh", "servicediscovery"),
+    "2.3": ("organizations", "cloudwatch", "autoscaling", "cloudformation", "cloudtrail", "config", "ssm", "guardduty", "inspector", "sso", "acm", "kms", "waf", "wafv2", "shield", "securityhub", "datapipeline", "glue", "kafka", "backup"),
+}
 
 # Only the AWS sections needed by each category are sent to the model.
 # This keeps the prompt smaller while preserving the evidence required by the
@@ -151,6 +166,108 @@ class DiagnosisError(RuntimeError):
     """Raised when an AI diagnosis response cannot be trusted structurally."""
 
 
+def _evidence(resource: str, path: str, value: Any) -> Dict[str, str]:
+    return {
+        "resource": resource,
+        "path": path,
+        "value": value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str, sort_keys=True),
+    }
+
+
+def _diagnosis_row(
+    rule: Mapping[str, Any], status: str, resource_ids: Sequence[str],
+    evidence: Sequence[Mapping[str, str]], current_value: str, reason: str,
+    *, recommendation: str = "설정 및 수집 근거를 검토하세요.",
+    extra: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    row = {
+        "rule_id": str(rule["id"]),
+        "status": status,
+        "severity": str(rule["severity"]),
+        "resource_ids": list(dict.fromkeys(resource_ids)),
+        "current_value": current_value,
+        "expected_value": str((rule.get("ai_judgement") or {}).get("PASS") or ""),
+        "evidence": list(evidence),
+        "reason": reason,
+        "recommendation": recommendation,
+    }
+    if extra:
+        row.update(extra)
+    return row
+
+
+def _collection_errors(state: Mapping[str, Any], *sources: str) -> List[Mapping[str, Any]]:
+    return [
+        error for error in state.get("collection_errors", [])
+        if isinstance(error, dict) and any(str(error.get("source", "")).startswith(source) for source in sources)
+    ]
+
+
+def _policy_document_scopes(document: Any) -> Set[str]:
+    if not isinstance(document, dict):
+        return set()
+    statements = document.get("Statement", [])
+    if isinstance(statements, dict):
+        statements = [statements]
+    scopes: Set[str] = set()
+    for statement in statements if isinstance(statements, list) else []:
+        if not isinstance(statement, dict) or statement.get("Effect") != "Allow":
+            continue
+        resources = statement.get("Resource", [])
+        if "*" not in (resources if isinstance(resources, list) else [resources]):
+            continue
+        actions = statement.get("Action", [])
+        actions = actions if isinstance(actions, list) else [actions]
+        for rule_id, prefixes in POLICY_ACTION_PREFIXES.items():
+            if any(str(action).lower() == f"{prefix}:*" for action in actions for prefix in prefixes):
+                scopes.add(rule_id)
+    return scopes
+
+
+def _high_privilege_scopes(policy: Mapping[str, Any]) -> tuple[Set[str], bool]:
+    name = str(policy.get("PolicyName") or "")
+    arn = str(policy.get("PolicyArn") or "")
+    if not name or not arn:
+        return set(), True
+    lowered = name.lower()
+    name_scopes = {
+        rule_id for rule_id, markers in POLICY_NAME_MARKERS.items()
+        if any(marker in lowered for marker in markers)
+    }
+    detail = policy.get("policy_detail") or {}
+    document = detail.get("document") if isinstance(detail, dict) else None
+    document_scopes = _policy_document_scopes(document)
+    aws_managed = arn.startswith("arn:aws:iam::aws:policy/")
+    named_full_access = lowered.endswith(("fullaccess", "administrator"))
+    if aws_managed and lowered in {"administratoraccess", "poweruseraccess", "iamfullaccess", "readonlyaccess"}:
+        # These account/IAM-wide policies are not a named service-family
+        # managed policy in the three source items.
+        return set(), False
+    if aws_managed and named_full_access:
+        # Some network policies grant ec2:* for VPC operations. Their named
+        # service family takes precedence over that shared action prefix.
+        return name_scopes or document_scopes, not bool(name_scopes or document_scopes)
+    if document is None:
+        # An arbitrary customer policy name cannot establish its permissions.
+        return set(), not (aws_managed and lowered.endswith("readonlyaccess"))
+    if not isinstance(document, dict) or not isinstance(document.get("Statement"), (dict, list)):
+        return set(), True
+    statements = document.get("Statement", []) if isinstance(document, dict) else []
+    statements = [statements] if isinstance(statements, dict) else statements
+    if isinstance(statements, list) and any(
+        isinstance(statement, dict) and statement.get("Effect") == "Allow"
+        and "*" in (statement.get("Action") if isinstance(statement.get("Action"), list)
+                    else [statement.get("Action")])
+        for statement in statements
+    ):
+        # An account-wide wildcard cannot be assigned to one of the source's
+        # three service families without an unpublished classification rule.
+        return set(), True
+    if name_scopes == {"2.2"} and document_scopes == {"2.1"} and "vpc" in lowered:
+        return {"2.2"}, False
+    return document_scopes, False
+
+
 class AIDiagnosisService:
     def __init__(
         self,
@@ -196,6 +313,390 @@ class AIDiagnosisService:
         if not isinstance(data, dict):
             raise DiagnosisError(f"JSON 최상위 값은 object여야 합니다: {path}")
         return data
+
+    @staticmethod
+    def _evaluate_iam_admin(rule: Mapping[str, Any], state: Mapping[str, Any]) -> Dict[str, Any]:
+        iam = state.get("iam") or {}
+        users = iam.get("users")
+        attachments = iam.get("user_attached_policies")
+        if not isinstance(users, list) or not isinstance(attachments, dict):
+            return _diagnosis_row(
+                rule, "REVIEW", [], [_evidence("iam", "iam.users,iam.user_attached_policies", "필수 수집값 없음")],
+                "직접 연결 정책 확인 불가", "IAM 사용자 또는 직접 연결 정책 목록을 수집하지 못했습니다.",
+            )
+        if not users:
+            if _collection_errors(state, "iam.collect", "iam.list_users"):
+                return _diagnosis_row(rule, "REVIEW", [], [_evidence("iam", "collection_errors", "IAM 사용자 목록 조회 실패")],
+                                      "IAM 사용자 목록 확인 불가", "사용자 목록 수집 오류로 직접 연결 정책을 확인할 수 없습니다.")
+            return _diagnosis_row(rule, "N/A", [], [], "IAM 사용자 없음", "진단 대상 IAM 사용자가 없습니다.")
+
+        evidence: List[Dict[str, str]] = []
+        resource_ids: List[str] = []
+        direct: List[str] = []
+        incomplete = bool(_collection_errors(state, "iam.collect", "iam.list_attached_user_policies"))
+        group_members = iam.get("group_users") or {}
+        group_policies = iam.get("groups_policies") or {}
+        for user in users:
+            if not isinstance(user, dict):
+                incomplete = True
+                continue
+            name, arn = user.get("user_name"), user.get("arn")
+            if not name or not arn or not isinstance(attachments.get(name), list):
+                incomplete = True
+                continue
+            resource_ids.append(arn)
+            policies = attachments[name]
+            direct_policies = []
+            for policy in policies:
+                if not isinstance(policy, dict) or not policy.get("PolicyName") or not policy.get("PolicyArn"):
+                    incomplete = True
+                    continue
+                direct_policies.append({"policy_name": policy["PolicyName"], "policy_arn": policy["PolicyArn"]})
+                if policy["PolicyName"] == "AdministratorAccess" and policy["PolicyArn"] == ADMINISTRATOR_ACCESS_ARN:
+                    direct.append(arn)
+            evidence.append(_evidence(arn, f"iam.user_attached_policies.{name}", {
+                "user_name": name, "user_arn": arn, "attachment_type": "direct",
+                "policies": direct_policies,
+            }))
+            if isinstance(group_members, dict) and isinstance(group_policies, dict):
+                for group_name, members in group_members.items():
+                    if not isinstance(members, list) or name not in members:
+                        continue
+                    group_attached = (group_policies.get(group_name) or {}).get("attached", [])
+                    for policy in group_attached if isinstance(group_attached, list) else []:
+                        if isinstance(policy, dict) and policy.get("PolicyArn") == ADMINISTRATOR_ACCESS_ARN:
+                            evidence.append(_evidence(arn, f"iam.groups_policies.{group_name}.attached", {
+                                "user_name": name, "user_arn": arn, "group_name": group_name,
+                                "policy_name": policy.get("PolicyName"), "policy_arn": policy["PolicyArn"],
+                                "attachment_type": "via_group_not_counted",
+                            }))
+
+        if direct:
+            status, reason = "FAIL", "IAM 사용자에게 AWS 관리형 AdministratorAccess가 직접 연결되어 있습니다."
+        elif incomplete:
+            status, reason = "REVIEW", "사용자 ARN 또는 직접 연결 관리형 정책 수집값이 부족합니다."
+        else:
+            status, reason = "PASS", "직접 연결된 AWS 관리형 AdministratorAccess가 없습니다. 그룹 상속과 인라인 정책은 이 탐지에 포함하지 않습니다."
+        if incomplete:
+            evidence.append(_evidence("iam", "collection_errors,iam.user_attached_policies", "일부 사용자·정책 연결 정보 확인 불가"))
+        return _diagnosis_row(
+            rule, status, resource_ids, evidence, f"직접 연결 사용자 {len(set(direct))}명",
+            reason, recommendation="해당 IAM 사용자의 직접 연결 AdministratorAccess 정책을 검토하세요.",
+        )
+
+    @staticmethod
+    def _evaluate_key_pair(rule: Mapping[str, Any], state: Mapping[str, Any]) -> Dict[str, Any]:
+        ec2 = state.get("ec2") or {}
+        instances = ec2.get("instances")
+        if not isinstance(instances, list) or _collection_errors(state, "ec2.collect"):
+            return _diagnosis_row(
+                rule, "REVIEW", [], [_evidence("ec2", "ec2.instances", "EC2 인스턴스 조회 불가")],
+                "Key Pair 할당 상태 확인 불가", "EC2 인스턴스 목록 수집에 실패했습니다.",
+            )
+        if not instances:
+            return _diagnosis_row(rule, "N/A", [], [], "EC2 인스턴스 없음", "진단 대상 EC2 인스턴스가 없습니다.")
+
+        evidence: List[Dict[str, str]] = []
+        resource_ids: List[str] = []
+        resource_results: List[Dict[str, Any]] = []
+        absent = unknown = 0
+        managed = {item.get("InstanceId") for item in (state.get("ssm") or {}).get("managed_instances", []) if isinstance(item, dict)}
+        for instance in instances:
+            if not isinstance(instance, dict) or not instance.get("instance_id"):
+                unknown += 1
+                continue
+            instance_id = instance["instance_id"]
+            resource_ids.append(instance_id)
+            key_name = instance.get("key_name")
+            pair_state = instance.get("key_pair_status")
+            if pair_state is None and "key_name" in instance:
+                pair_state = "ATTACHED" if key_name else "ABSENT"
+            if pair_state == "ABSENT":
+                status = "FAIL"
+                absent += 1
+            elif pair_state == "ATTACHED" and key_name:
+                status = "PASS"
+            else:
+                status = "REVIEW"
+                unknown += 1
+            evidence.append(_evidence(instance_id, f"ec2.instances.{instance_id}.key_name", {
+                "instance_id": instance_id, "key_name": key_name, "key_pair_status": pair_state,
+            }))
+            resource_results.append({"resource_id": instance_id, "status": status, "key_name": key_name})
+        if unknown:
+            evidence.append(_evidence("ec2", "ec2.instances", "일부 인스턴스 ID 또는 Key Pair 상태 확인 불가"))
+        status = "FAIL" if absent else "REVIEW" if unknown else "PASS"
+        return _diagnosis_row(
+            rule, status, resource_ids, evidence,
+            f"Key Pair 미할당 {absent}개, 확인 불가 {unknown}개",
+            "Key Pair 미할당은 원본 탐지 조건입니다. SSM 관리 여부는 판정에 사용하지 않았습니다." if absent
+            else "모든 인스턴스의 Key Pair 할당을 확인했습니다." if not unknown
+            else "일부 EC2 인스턴스의 Key Pair 상태를 확인할 수 없습니다.",
+            recommendation="Key Pair 미할당 인스턴스를 확인하고 접속 정책을 별도로 검토하세요.",
+            extra={
+                "resource_results": resource_results,
+                "operational_context": {
+                    "ssm_managed_instance_ids": sorted(item for item in managed if item in resource_ids),
+                    "ssm_session_manager_usage": "수집하지 않음",
+                    "key_pairless_access_policy": (state.get("project_policy") or {}).get("key_pairless_access_policy"),
+                },
+            },
+        )
+
+    @staticmethod
+    def _evaluate_privileged_policy(rule: Mapping[str, Any], state: Mapping[str, Any]) -> Dict[str, Any]:
+        rule_id = str(rule["id"])
+        iam = state.get("iam") or {}
+        principal_sources = (
+            ("user", "users", "user_name", "users_policies"),
+            ("group", "groups", "group_name", "groups_policies"),
+            ("role", "roles", "role_name", "roles_policies"),
+        )
+        observed: Dict[str, Dict[str, Any]] = {}
+        incomplete: List[str] = []
+        if _collection_errors(state, "iam.collect", "iam.list_attached_user_policies", "iam.list_attached_group_policies", "iam.list_attached_role_policies"):
+            incomplete.append("IAM 주체 또는 관리형 정책 연결 API 오류")
+
+        for principal_type, list_key, name_key, policies_key in principal_sources:
+            principals = iam.get(list_key)
+            policies_by_name = iam.get(policies_key)
+            if not isinstance(principals, list) or not isinstance(policies_by_name, dict):
+                incomplete.append(f"iam.{list_key}/iam.{policies_key} 누락")
+                continue
+            for principal in principals:
+                if not isinstance(principal, dict):
+                    incomplete.append(f"iam.{list_key} 주체 형식 오류")
+                    continue
+                name, arn = principal.get(name_key), principal.get("arn")
+                if not name or not arn:
+                    incomplete.append(f"iam.{list_key} 이름/ARN 누락")
+                    continue
+                entry = policies_by_name.get(name)
+                if not isinstance(entry, dict) or not isinstance(entry.get("attached"), list):
+                    incomplete.append(f"{principal_type} {name}의 직접 연결 정책 목록 누락")
+                    continue
+                for policy in entry["attached"]:
+                    if not isinstance(policy, dict):
+                        incomplete.append(f"{principal_type} {name}의 정책 형식 오류")
+                        continue
+                    scopes, uncertain = _high_privilege_scopes(policy)
+                    if uncertain:
+                        incomplete.append(f"{principal_type} {name}의 정책 권한 확인 불가")
+                    if rule_id not in scopes:
+                        continue
+                    current = observed.setdefault(arn, {
+                        "principal_name": name,
+                        "principal_arn": arn,
+                        "principal_type": principal_type,
+                        "policy_arns": set(),
+                        "paths": set(),
+                    })
+                    current["policy_arns"].add(policy["PolicyArn"])
+                    current["paths"].add(f"iam.{policies_key}.{name}.attached")
+
+        evidence = [
+            _evidence(arn, ",".join(sorted(item["paths"])), {
+                "principal_name": item["principal_name"],
+                "principal_arn": arn,
+                "principal_type": item["principal_type"],
+                "attachment_type": "direct",
+                "high_privilege_policy_arns": sorted(item["policy_arns"]),
+            })
+            for arn, item in sorted(observed.items())
+        ]
+        if incomplete:
+            evidence.append(_evidence("iam", "iam.policy_inventory,collection_errors", sorted(set(incomplete))))
+        if not evidence:
+            evidence.append(_evidence("iam", "iam.users_policies,iam.groups_policies,iam.roles_policies", {
+                "observed_unique_high_privilege_principals": 0,
+            }))
+
+        count = len(observed)
+        threshold = (rule.get("project_custom_threshold") or {}).get("minimum_unique_principals_for_fail", 3)
+        status = "REVIEW" if incomplete else "FAIL" if count >= threshold else "PASS"
+        reason = (
+            f"프로젝트 Custom 기준: 고유 IAM 주체 {count}개, FAIL 임계값 {threshold}개. "
+            "SK쉴더스 원본은 서비스 관리형 정책 연결 탐지를 기술하며 이 숫자 임계값을 제시하지 않습니다."
+        )
+        if incomplete:
+            reason += " 필수 수집값 누락으로 정확한 최종 집계는 불가능합니다."
+        return _diagnosis_row(
+            rule, status, sorted(observed), evidence,
+            f"직접 연결된 고권한 정책의 고유 IAM 주체 {count}개" + (" (집계 미완료)" if incomplete else ""),
+            reason,
+            recommendation="주체별 직접 연결 고권한 정책과 업무 필요성을 검토하세요.",
+            extra={
+                "assessment_basis": {
+                    "shieldus_source_detection": rule.get("source_detection_summary"),
+                    "project_custom_threshold": rule.get("project_custom_threshold"),
+                    "policy_classification": "서비스별 AWS 관리형 FullAccess/Administrator 명칭 또는 확인된 서비스:* 고객 관리형 정책; 원본 전체 정책 목록은 미공개",
+                },
+                "observed_unique_principal_count": count,
+            },
+        )
+
+    @staticmethod
+    def _evaluate_security_group_any(rule: Mapping[str, Any], state: Mapping[str, Any]) -> Dict[str, Any]:
+        ec2 = state.get("ec2") or {}
+        groups = ec2.get("security_groups")
+        if not isinstance(groups, list) or _collection_errors(state, "ec2.collect", "ec2.describe_security_groups"):
+            return _diagnosis_row(rule, "REVIEW", [], [_evidence("ec2", "ec2.security_groups", "보안 그룹 목록 조회 불가")],
+                                  "PORT ANY 확인 불가", "보안 그룹 수집 정보가 부족합니다.")
+        if not groups:
+            return _diagnosis_row(rule, "N/A", [], [], "보안 그룹 없음", "진단 대상 보안 그룹이 없습니다.")
+
+        evidence: List[Dict[str, str]] = []
+        resource_ids: List[str] = []
+        resource_results: List[Dict[str, Any]] = []
+        incomplete = False
+        for group in groups:
+            if not isinstance(group, dict) or not group.get("group_id"):
+                incomplete = True
+                continue
+            group_id = group["group_id"]
+            resource_ids.append(group_id)
+            group_candidate = False
+            group_evidence_start = len(evidence)
+            for direction, key in (("inbound", "ip_permissions"), ("outbound", "ip_permissions_egress")):
+                permissions = group.get(key)
+                if not isinstance(permissions, list):
+                    incomplete = True
+                    continue
+                for index, permission in enumerate(permissions):
+                    if not isinstance(permission, dict):
+                        incomplete = True
+                        continue
+                    protocol = permission.get("ip_protocol")
+                    start, end = permission.get("from_port"), permission.get("to_port")
+                    if protocol is None:
+                        incomplete = True
+                    all_protocols = str(protocol) == "-1"
+                    all_ports = str(protocol).lower() in {"6", "17", "tcp", "udp"} and start == 0 and end == 65535
+                    candidate = all_protocols or all_ports
+                    group_candidate |= candidate
+                    range_keys = ("ip_ranges", "ipv6_ranges", "prefix_list_ids", "user_id_group_pairs")
+                    if any(not isinstance(permission.get(range_key), list) for range_key in range_keys):
+                        incomplete = True
+                    ipv4 = permission.get("ip_ranges")
+                    ipv6 = permission.get("ipv6_ranges")
+                    prefix_lists = permission.get("prefix_list_ids")
+                    group_pairs = permission.get("user_id_group_pairs")
+                    destinations = {
+                        "ipv4": [item.get("cidr_ip") for item in ipv4 if isinstance(item, dict)] if isinstance(ipv4, list) else None,
+                        "ipv6": [item.get("cidr_ipv6") for item in ipv6 if isinstance(item, dict)] if isinstance(ipv6, list) else None,
+                        "prefix_lists": [item.get("PrefixListId") for item in prefix_lists if isinstance(item, dict)] if isinstance(prefix_lists, list) else None,
+                        "security_groups": [item.get("GroupId") for item in group_pairs if isinstance(item, dict)] if isinstance(group_pairs, list) else None,
+                    }
+                    evidence.append(_evidence(group_id, f"ec2.security_groups.{group_id}.{key}.{index}", {
+                        "security_group_id": group_id,
+                        "direction": direction,
+                        "protocol": protocol,
+                        "from_port": start,
+                        "to_port": end,
+                        "source_or_destination": destinations,
+                        "all_protocols": all_protocols,
+                        "all_port_range": all_ports,
+                        "project_interpretation_candidate": candidate,
+                    }))
+            if len(evidence) == group_evidence_start:
+                evidence.append(_evidence(group_id, f"ec2.security_groups.{group_id}", {
+                    "security_group_id": group_id,
+                    "ip_permissions": group.get("ip_permissions"),
+                    "ip_permissions_egress": group.get("ip_permissions_egress"),
+                }))
+            resource_results.append({"resource_id": group_id, "status": "REVIEW", "project_interpretation_candidate": group_candidate})
+        if incomplete:
+            evidence.append(_evidence("ec2", "ec2.security_groups", "일부 보안 그룹 ID, 프로토콜 또는 규칙 목록 누락"))
+        # The source gives the default port list but does not publish the
+        # Custom expression. A broad AWS permission alone cannot prove that
+        # the original proprietary detector would return FAIL or PASS.
+        return _diagnosis_row(
+            rule, "REVIEW", resource_ids, evidence or [_evidence("ec2", "ec2.security_groups", "규칙 없음")],
+            f"보안 그룹 {len(resource_ids)}개, 프로젝트 해석상 PORT ANY 후보 {sum(x['project_interpretation_candidate'] for x in resource_results)}개",
+            "SK쉴더스 원본 Custom 검사식이 공개되지 않아 원본 PASS/FAIL을 확정할 수 없습니다.",
+            recommendation="원본 Custom 검사식을 확인한 후 수집된 방향·프로토콜·포트·대상을 대조하세요.",
+            extra={
+                "resource_results": resource_results,
+                "assessment_basis": {
+                    "shieldus_source_detection": rule.get("source_detection_summary"),
+                    "shieldus_default_ports": rule.get("source_default_ports"),
+                    "project_interpretation": rule.get("project_interpretation"),
+                    "source_custom_expression_verified": False,
+                },
+            },
+        )
+
+    @staticmethod
+    def _evaluate_s3_encryption(rule: Mapping[str, Any], state: Mapping[str, Any]) -> Dict[str, Any]:
+        s3 = state.get("s3") or {}
+        buckets = s3.get("buckets")
+        if not isinstance(buckets, list) or _collection_errors(state, "s3.list_buckets"):
+            return _diagnosis_row(rule, "REVIEW", [], [_evidence("s3", "s3.buckets", "버킷 목록 조회 불가")],
+                                  "S3 기본 암호화 확인 불가", "버킷 목록 수집 실패로 기본 암호화를 확인할 수 없습니다.")
+        if not buckets:
+            return _diagnosis_row(rule, "N/A", [], [], "S3 버킷 없음", "진단 대상 S3 버킷이 없습니다.")
+
+        evidence: List[Dict[str, str]] = []
+        resource_ids: List[str] = []
+        resource_results: List[Dict[str, Any]] = []
+        for bucket in buckets:
+            if not isinstance(bucket, dict) or not bucket.get("name"):
+                resource_results.append({"resource_id": None, "status": "REVIEW", "reason": "버킷 이름 누락"})
+                continue
+            name = bucket["name"]
+            resource_ids.append(name)
+            configuration = bucket.get("bucket_encryption")
+            collection_status = bucket.get("bucket_encryption_status")
+            if collection_status is None:
+                collection_status = (s3.get("bucket_encryption_status") or {}).get(name)
+            errors = [error for error in _collection_errors(state, "s3.get_bucket_encryption")
+                      if error.get("resource") == name]
+            types: List[str] = []
+            if collection_status == "CONFIGURED" and isinstance(configuration, dict):
+                rules = configuration.get("Rules")
+                if isinstance(rules, list):
+                    types = [str(rule_item.get("ApplyServerSideEncryptionByDefault", {}).get("SSEAlgorithm"))
+                             for rule_item in rules if isinstance(rule_item, dict)
+                             and isinstance(rule_item.get("ApplyServerSideEncryptionByDefault"), dict)]
+            if errors or collection_status in {"ERROR", "UNKNOWN", None}:
+                status = "REVIEW"
+            elif collection_status == "ABSENT":
+                status = "FAIL"
+            elif collection_status == "CONFIGURED" and types and all(kind in {"AES256", "aws:kms"} for kind in types):
+                status = "PASS"
+            else:
+                status = "REVIEW"
+            evidence.append(_evidence(name, f"s3.buckets.{name}.bucket_encryption", {
+                "bucket_name": name,
+                "api_result": collection_status,
+                "encryption_types": types,
+                "configuration": configuration,
+                "collection_errors": errors,
+            }))
+            resource_results.append({"resource_id": name, "status": status, "encryption_types": types})
+        statuses = {item["status"] for item in resource_results}
+        overall = "REVIEW" if "REVIEW" in statuses else "FAIL" if "FAIL" in statuses else "PASS"
+        return _diagnosis_row(
+            rule, overall, resource_ids, evidence or [_evidence("s3", "s3.buckets", "버킷 이름 누락")],
+            f"암호화 확인 {sum(x['status'] == 'PASS' for x in resource_results)}개, 설정 없음 {sum(x['status'] == 'FAIL' for x in resource_results)}개, 확인 불가 {sum(x['status'] == 'REVIEW' for x in resource_results)}개",
+            "실제 GetBucketEncryption 조회값과 오류 상태를 버킷별로 판정했습니다.",
+            recommendation="설정 없음으로 확인된 버킷의 기본 암호화를 검토하고, 조회 오류는 권한·API 상태를 확인하세요.",
+            extra={"resource_results": resource_results},
+        )
+
+    @staticmethod
+    def _evaluate_target(rule: Mapping[str, Any], state: Mapping[str, Any]) -> Dict[str, Any]:
+        rule_id = str(rule["id"])
+        evaluators = {
+            "1.1": AIDiagnosisService._evaluate_iam_admin,
+            "1.5": AIDiagnosisService._evaluate_key_pair,
+            "2.1": AIDiagnosisService._evaluate_privileged_policy,
+            "2.2": AIDiagnosisService._evaluate_privileged_policy,
+            "2.3": AIDiagnosisService._evaluate_privileged_policy,
+            "3.1": AIDiagnosisService._evaluate_security_group_any,
+            "4.3": AIDiagnosisService._evaluate_s3_encryption,
+        }
+        return evaluators[rule_id](rule, state)
 
     def _rules_for_category(self, category: str) -> List[Dict[str, Any]]:
         rules = [r for r in self.rules if r.get("category") == category]
@@ -329,32 +830,49 @@ class AIDiagnosisService:
         self, category: str, aws_state: Mapping[str, Any]
     ) -> Dict[str, Any]:
         rules = self._rules_for_category(category)
-        state = self._state_for_category(category, aws_state)
-        input_text = self._request_payload(
-            category=category,
-            rules=rules,
-            aws_state=state,
-            diagnosis_contract=self.rule_bundle.get("diagnosis_contract") or {},
-        )
-
-        try:
-            response = self.client.responses.create(
-                model=self.model,
-                instructions=self.instructions,
-                input=[{"role": "user", "content": input_text}],
-                text={"format": DIAGNOSIS_TEXT_FORMAT},
-                store=False,
-                max_output_tokens=self.max_output_tokens,
+        model_rules = [rule for rule in rules if str(rule["id"]) not in TARGET_RULE_IDS]
+        model_rows: List[Dict[str, Any]] = []
+        if model_rules:
+            state = self._state_for_category(category, aws_state)
+            input_text = self._request_payload(
+                category=category,
+                rules=model_rules,
+                aws_state=state,
+                diagnosis_contract=self.rule_bundle.get("diagnosis_contract") or {},
             )
-        except Exception as exc:
-            raise DiagnosisError(f"OpenAI 진단 요청 실패({category}): {exc}") from exc
 
-        output_text = (getattr(response, "output_text", None) or "").strip()
-        if not output_text:
-            raise DiagnosisError(f"OpenAI가 빈 진단 결과를 반환했습니다: {category}")
+            try:
+                response = self.client.responses.create(
+                    model=self.model,
+                    instructions=self.instructions,
+                    input=[{"role": "user", "content": input_text}],
+                    text={"format": DIAGNOSIS_TEXT_FORMAT},
+                    store=False,
+                    max_output_tokens=self.max_output_tokens,
+                )
+            except Exception as exc:
+                raise DiagnosisError(f"OpenAI 진단 요청 실패({category}): {exc}") from exc
 
-        result = self._parse_response_text(output_text)
+            output_text = (getattr(response, "output_text", None) or "").strip()
+            if not output_text:
+                raise DiagnosisError(f"OpenAI가 빈 진단 결과를 반환했습니다: {category}")
+
+            model_result = self._parse_response_text(output_text)
+            self._validate_category_result(category, model_rules, model_result)
+            model_rows = model_result["results"]
+
+        rows_by_id = {str(row["rule_id"]): row for row in model_rows}
+        for rule in rules:
+            if str(rule["id"]) in TARGET_RULE_IDS:
+                rows_by_id[str(rule["id"])] = self._evaluate_target(rule, aws_state)
+        result = {"category": category, "results": [rows_by_id[str(rule["id"])] for rule in rules]}
         self._validate_category_result(category, rules, result)
+        for row in result["results"]:
+            if str(row["rule_id"]) in TARGET_RULE_IDS:
+                resource_ids = set(row["resource_ids"])
+                evidence_resources = {item["resource"] for item in row["evidence"]}
+                if not resource_ids.issubset(evidence_resources):
+                    raise DiagnosisError(f"{row['rule_id']}: resource_ids와 evidence 리소스가 일치하지 않습니다")
         return result
 
     @staticmethod

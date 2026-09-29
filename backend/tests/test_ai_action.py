@@ -241,6 +241,56 @@ class AIActionRouteTest(unittest.TestCase):
         self.assertEqual(row["payload"]["error"]["code"], "NO_CHANGES")
         self.report.assert_not_called()
 
+    def test_newline_only_change_is_not_a_security_patch(self):
+        self.gen.return_value = {"proposed_content": ORIGINAL.rstrip("\n")}
+        row = self.generated()
+        self.assertEqual(row["status"], "FAILED")
+        self.assertEqual(row["payload"]["error"]["code"], "NO_CHANGES")
+        self.report.assert_not_called()
+
+    def test_partial_resource_scope_keeps_only_selected_evidence(self):
+        self.repo.results = {"results": [{
+            "rule_id": "3.7", "status": "FAIL", "resource_ids": ["sg-one", "sg-two"],
+            "evidence": [{"resource": "sg-one", "path": "p1", "value": "v1"},
+                         {"resource": "sg-two", "path": "p2", "value": "v2"}],
+            "reason": "two resources", "recommendation": "fix both",
+        }]}
+        response = self.create(mapping={"3.7": ["modules/security/a.tf"]},
+                               target_resource_ids={"3.7": ["sg-one"]},
+                               remediation_constraints={"3.7": "443/TCP to VPC CIDR"})
+        self.assertEqual(response.status_code, 200)
+        finding = response.get_json()["payload"]["findings"][0]
+        self.assertEqual(finding["resource_ids"], ["sg-one"])
+        self.assertEqual([item["resource"] for item in finding["evidence"]], ["sg-one"])
+        self.assertEqual(finding["remediation_scope"]["deferred_resource_ids"], ["sg-two"])
+        self.assertEqual(finding["remediation_constraints"], "443/TCP to VPC CIDR")
+        self.assertEqual(response.get_json()["payload"]["original_findings"][0]["resource_ids"], ["sg-one", "sg-two"])
+
+    def test_partial_scope_requires_real_diagnosis_evidence(self):
+        self.repo.results = {"results": [{"rule_id": "3.7", "status": "FAIL",
+            "resource_ids": ["sg-one", "sg-two"], "evidence": [{"resource": "sg-two", "path": "p", "value": "v"}]}]}
+        response = self.create(mapping={"3.7": ["modules/security/a.tf"]},
+                               target_resource_ids={"3.7": ["sg-one"]})
+        self.assertEqual((response.status_code, response.get_json()["error"]), (400, "RESOURCE_EVIDENCE_MISSING"))
+
+    def test_remediation_constraints_reject_credentials(self):
+        response = self.create(remediation_constraints={"3.7": 'api_key = "do-not-store-this"'})
+        self.assertEqual((response.status_code, response.get_json()["error"]), (400, "SENSITIVE_CONTENT"))
+
+    def test_security_group_egress_delete_is_blocked_before_approval(self):
+        self.repo.results = {"results": [{"rule_id": "3.1", "status": "FAIL"}]}
+        original = 'resource "aws_security_group" "endpoint" {\n  name = "endpoint"\n}\n'
+        self.source.snapshot.side_effect = lambda paths, check_secrets=True: {
+            "repository": "org/repo", "ref": "main", "commit_sha": "a" * 40,
+            "files": [{"file_path": path, "original_content": original, "blob_sha": "b" * 40}
+                      for path in paths]}
+        self.gen.return_value = {"proposed_content": original.replace("\n}", "\n  egress = []\n}")}
+        row = self.create(mapping={"3.1": ["modules/security/a.tf"]}).get_json()
+        result = self.client.post("/api/ai-actions/terraform-fix", json={"patch_id": row["id"]}).get_json()
+        self.assertEqual(result["status"], "FAILED")
+        self.assertEqual(result["payload"]["error"]["code"], "UNSAFE_PROPOSAL")
+        self.report.assert_not_called()
+
     def test_provider_errors_are_not_exposed(self):
         self.gen.side_effect = RuntimeError("secret-provider-content")
         row = self.generated()

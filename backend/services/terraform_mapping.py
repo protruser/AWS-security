@@ -152,31 +152,35 @@ def preview(source, findings, index=None):
         resource_ids = finding.get("resource_ids") or []
         identifiers = [str(value).lower() for value in resource_ids if isinstance(value, str)]
         candidates = []
-        state_matches = [(index or {}).get(resource_id, set()) for resource_id in identifiers]
         for path, file in catalog.items():
             matches = [{"type": kind, "name": name} for kind, name in file["resources"]
                        if (kind in targets if targets else any(kind.startswith(prefix) for prefix in prefixes))]
             if not matches:
                 continue
-            exact = bool(state_matches) and all(any(
-                (kind, name, module) in matches
-                for kind, name in file["resources"]
-                for module in ("module." + path.split("/")[1], ""))
-                for matches in state_matches)
+            modules = ("module." + path.split("/")[1], "")
+            covered_ids = [resource_id for resource_id in identifiers
+                           if any((kind, name, module) in (index or {}).get(resource_id, set())
+                                  for kind, name in ((item["type"], item["name"]) for item in matches)
+                                  for module in modules)]
             # A literal ID in code is useful context but is not proof of state ownership.
             candidates.append({"file_path": path, "resources": matches,
-                               "identity_match": exact})
+                               "identity_match": bool(covered_ids),
+                               "covered_resource_ids": covered_ids})
         # State 로 확인된 파일, 대상 리소스가 많은 파일 순. 자동 입력은 한 패치 한도(5개)까지.
         candidates.sort(key=lambda item: (not item["identity_match"], -len(item["resources"]), item["file_path"]))
         if not candidates:
             status, reason = "NO_CANDIDATE", "이 항목의 대상 리소스가 선언된 Terraform 파일이 없습니다."
-        elif any(item["identity_match"] for item in candidates):
+        elif identifiers and all(any(resource_id in item["covered_resource_ids"]
+                                 for item in candidates) for resource_id in identifiers):
             status, reason = "MATCHED", "Terraform state links an AWS resource to this declaration. Confirm before patching."
         else:
             status, reason = "MANUAL_REVIEW", "State ownership was not established; manual confirmation is required."
+        unmapped_resource_ids = [resource_id for resource_id in identifiers
+                                 if not any(resource_id in item["covered_resource_ids"] for item in candidates)]
         results[rule_id] = {
             "status": status,
             "candidates": candidates[:10],
+            "unmapped_resource_ids": unmapped_resource_ids,
             "suggested": [item["file_path"] for item in candidates[:MAX_PATCH_FILES]],
             "total_candidates": len(candidates),
             "reason": reason,
