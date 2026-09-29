@@ -259,15 +259,14 @@ function MitreArrowTimeline({ detail }: { detail: AttackerDetail }) {
           return (
             <div key={ev.eventId} className="flex flex-shrink-0 items-center gap-1.5">
               {index > 0 && <span className="text-[14px] text-[#D0D5DD]">→</span>}
-              <div
-                className="flex-shrink-0 rounded-lg px-2.5 py-1.5 text-center"
-                style={{ backgroundColor: `${color}14`, border: `1px solid ${color}40` }}
-              >
-                {/* "무슨 공격이었는지"가 먼저 보여야 해서 구체적인 공격
-                    유형을 크게 두고, MITRE 전술은 참고용으로 작게 붙인다 -
-                    전술 이름만 크게 쓰면(예: "영향") 뭘 한 건지 안 읽힌다. */}
+              {/* 박스 전체(배경 틴트+테두리+글자색)를 다 물들이면 여러 개
+                  나란히 있을 때 알록달록해 보인다는 피드백 - 박스는 다른
+                  카드처럼 차분한 회색 테두리/흰 배경으로 두고, 전술 색은
+                  이름 앞 작은 점 하나로만 표시한다. */}
+              <div className="flex-shrink-0 rounded-lg border border-[#EAECF0] bg-white px-2.5 py-1.5 text-center">
                 <p className="whitespace-nowrap text-[13px] font-bold text-[#101828]">{scenarioName}</p>
-                <p className="whitespace-nowrap text-[10.5px]" style={{ color }}>
+                <p className="flex items-center justify-center gap-1 whitespace-nowrap text-[10.5px] text-[#98A2B3]">
+                  {tacticLabel && <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />}
                   {tacticLabel ? `${tacticLabel} · ` : ""}
                   {formatTime(ev.time)}
                 </p>
