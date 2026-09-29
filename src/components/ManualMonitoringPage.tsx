@@ -429,8 +429,8 @@ function LogDetail({ log, source }: { log: SecurityLog, source: LogSource }) {
             <DetailField label="공격 IP" value={log.attackerIp ?? "-"} />
             <DetailField label="Method" value={method ?? "-"} />
             <DetailField label="URI" value={uri ?? "-"} />
-            <DetailField label="Rule" value={log.ruleName ?? "-"} />
-            <DetailField label="Action" value={action} />
+            <DetailField label="규칙" value={log.ruleName ?? "-"} />
+            <DetailField label="처리 결과" value={action} />
             <DetailField
               label="BLOCK 여부"
               value={log.blocked === null ? "-" : log.blocked ? "예" : "아니요"}
@@ -440,8 +440,8 @@ function LogDetail({ log, source }: { log: SecurityLog, source: LogSource }) {
         )}
         {source === "guardduty" && (
           <>
-            <DetailField label="Finding Type" value={findingType} />
-            <DetailField label="Severity" value={log.severity} />
+            <DetailField label="Finding 유형" value={findingType} />
+            <DetailField label="위험도" value={log.severity} />
             <DetailField
               label="공격 IP"
               value={
@@ -461,8 +461,8 @@ function LogDetail({ log, source }: { log: SecurityLog, source: LogSource }) {
         {source === "inspector" && (
           <>
             <DetailField label="CVE" value={findCve(log)} />
-            <DetailField label="Severity" value={log.severity} />
-            <DetailField label="Finding Type" value={findingType} />
+            <DetailField label="위험도" value={log.severity} />
+            <DetailField label="Finding 유형" value={findingType} />
             <DetailField label="대상 리소스" value={findingResource} />
             <DetailField label="대상 이미지" value={inspectorImage} />
             <DetailField label="취약 패키지" value={vulnerablePackage} />
@@ -478,17 +478,17 @@ function LogDetail({ log, source }: { log: SecurityLog, source: LogSource }) {
 
       <div className="border-t border-[#EAECF0] pt-3">
         <dl className="grid grid-cols-2 lg:grid-cols-4 gap-x-5 gap-y-3">
-          <DetailField label="Title" value={log.title} />
-          <DetailField label="Attacker IP" value={log.attackerIp} />
-          <DetailField label="Request URL" value={log.requestUrl} />
-          <DetailField label="Rule Name" value={log.ruleName} />
+          <DetailField label="제목" value={log.title} />
+          <DetailField label="공격자 IP" value={log.attackerIp} />
+          <DetailField label="요청 URL" value={log.requestUrl} />
+          <DetailField label="규칙 이름" value={log.ruleName} />
           <DetailField
-            label="Blocked"
+            label="차단 여부"
             value={
               log.blocked === null ? null : log.blocked ? "BLOCK" : "ALLOW"
             }
           />
-          <DetailField label="Recommendation" value={log.recommendation} />
+          <DetailField label="권장 조치" value={log.recommendation} />
         </dl>
         {log.attackPath.length > 0 && (
           <div className="mt-3">
@@ -540,6 +540,21 @@ function SecurityDataMonitoringContent({
   const [logs, setLogs] = useState<SecurityLog[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [lastWindow, setLastWindow] = useState<QueryWindow | null>(null)
+
+  // 직접 입력하기 어려운 공격 IP/자산 값을, 방금 조회된 로그에서 실제로 나온
+  // 값들로 목록을 만들어 datalist로 골라 쓸 수 있게 한다.
+  const attackerIpOptions = Array.from(
+    new Set(
+      logs
+        .map((log) => log.attackerIp)
+        .filter((ip): ip is string => Boolean(ip)),
+    ),
+  )
+  const assetOptions = Array.from(
+    new Set(
+      logs.map((log) => log.asset).filter((asset): asset is string => Boolean(asset)),
+    ),
+  )
 
   const resetResults = () => {
     setLogs([])
@@ -771,9 +786,10 @@ function SecurityDataMonitoringContent({
                   value={filters.attackerIp}
                   onChange={(value) => setFilter("attackerIp", value)}
                   placeholder="예: 203.0.113.45"
+                  options={attackerIpOptions}
                 />
                 <SelectField
-                  label="Action"
+                  label="처리 결과"
                   value={filters.action}
                   onChange={(value) => setFilter("action", value)}
                   options={[
@@ -795,7 +811,7 @@ function SecurityDataMonitoringContent({
                   ]}
                 />
                 <SelectField
-                  label="Severity"
+                  label="위험도"
                   value={filters.severity}
                   onChange={(value) => setFilter("severity", value)}
                   options={SEVERITIES.map((value) => [value, value])}
@@ -805,19 +821,21 @@ function SecurityDataMonitoringContent({
                   value={filters.attackerIp}
                   onChange={(value) => setFilter("attackerIp", value)}
                   placeholder="예: 203.0.113.45"
+                  options={attackerIpOptions}
                 />
                 <InputField
                   label="대상 자산"
                   value={filters.asset}
                   onChange={(value) => setFilter("asset", value)}
                   placeholder="자산 이름 검색"
+                  options={assetOptions}
                 />
               </>
             )}
             {source === "inspector" && (
               <>
                 <SelectField
-                  label="Severity"
+                  label="위험도"
                   value={filters.severity}
                   onChange={(value) => setFilter("severity", value)}
                   options={SEVERITIES.map((value) => [value, value])}
@@ -833,6 +851,7 @@ function SecurityDataMonitoringContent({
                   value={filters.asset}
                   onChange={(value) => setFilter("asset", value)}
                   placeholder="이미지 또는 리소스 검색"
+                  options={assetOptions}
                 />
               </>
             )}
@@ -926,7 +945,7 @@ function SecurityDataMonitoringContent({
                       "탐지 시간",
                       "서비스",
                       "공격/Finding 유형",
-                      "Severity",
+                      "위험도",
                       "공격 IP",
                       "대상 자산",
                       "상태",
@@ -1017,12 +1036,16 @@ function InputField({
   value,
   onChange,
   placeholder,
+  options,
 }: {
   label: string
   value: string
   onChange: (value: string) => void
   placeholder: string
+  options?: string[]
 }) {
+  // 필드마다(라벨마다) 하나씩만 렌더되므로 라벨을 그대로 id로 써도 충돌하지 않는다.
+  const listId = options ? `input-options-${label.replace(/\W/g, "")}` : undefined
   return (
     <label className="text-[12px] font-semibold text-[#475467]">
       {label}
@@ -1030,8 +1053,16 @@ function InputField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
+        list={listId}
         className="block w-full mt-1 text-[13px] font-normal text-[#101828] placeholder:text-[#98A2B3] bg-white border border-[#D0D5DD] rounded-lg px-3 py-2 outline-none focus:border-[#101828]"
       />
+      {listId && options && options.length > 0 && (
+        <datalist id={listId}>
+          {options.map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
+      )}
     </label>
   )
 }
