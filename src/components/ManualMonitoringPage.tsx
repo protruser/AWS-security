@@ -342,27 +342,24 @@ function MonitoringAnalytics({ source, range, window, logs }: { source: LogSourc
     <div className="p-4 space-y-3 border-b border-[#EAECF0]">
       <SummaryCards source={source} logs={logs} />
       <LineChart title={source === "waf" ? "시간대별 공격 탐지 건수" : "시간대별 Finding 발생 건수"} data={trend} />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {source === "waf" ? (
-          <>
-            <BarChart title="공격 유형별 탐지 건수" data={scenarioData} />
-            <BarChart title="BLOCK / ALLOW 비교" data={[
-              { label: "BLOCK", value: countMatching(logs, (log) => log.blocked === true), color: "#16A34A" },
-              { label: "ALLOW", value: countMatching(logs, (log) => log.blocked === false), color: "#D92D20" },
-            ]} />
-          </>
-        ) : source === "guardduty" ? (
-          <>
-            <BarChart title="Severity별 Finding 수" data={severityData} />
-            <BarChart title="Finding 유형별 발생 건수" data={scenarioData} />
-          </>
-        ) : (
-          <>
-            <BarChart title="Severity별 취약점 수" data={severityData} />
-            <BarChart title="리소스별 취약점 수" data={resourceCounts} />
-          </>
-        )}
-      </div>
+      {/* WAF는 위 요약 카드(총 탐지/BLOCK/ALLOW)가 이미 이 두 막대그래프와
+          같은 정보라 중복이라 뺐다. GuardDuty/Inspector는 유형·리소스별
+          분포처럼 카드에 없는 정보라 남겨둔다. */}
+      {source !== "waf" && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {source === "guardduty" ? (
+            <>
+              <BarChart title="Severity별 Finding 수" data={severityData} />
+              <BarChart title="Finding 유형별 발생 건수" data={scenarioData} />
+            </>
+          ) : (
+            <>
+              <BarChart title="Severity별 취약점 수" data={severityData} />
+              <BarChart title="리소스별 취약점 수" data={resourceCounts} />
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
