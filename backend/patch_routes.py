@@ -91,7 +91,7 @@ def register_patch_routes(app, role_required):
         return service.generate_proposal(patch_id, actor())
 
     @app.post("/api/ai-actions/patches/<uuid:patch_id>/first-approval")
-    @approver
+    @admin
     @guarded
     def approve_patch(patch_id):
         return service.decide(str(patch_id), body(), actor())
@@ -103,7 +103,7 @@ def register_patch_routes(app, role_required):
         return service.start_review(str(patch_id), actor())
 
     @app.post("/api/ai-actions/patches/<uuid:patch_id>/human-review")
-    @approver
+    @admin
     @guarded
     def decide_human_review(patch_id):
         return service.decide_human_review(str(patch_id), body(), actor())

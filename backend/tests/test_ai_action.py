@@ -177,28 +177,31 @@ class AIActionRouteTest(unittest.TestCase):
 
     def test_approval_persisted_without_followup_execution(self):
         row = self.generated()
-        self.login("승인자", "reviewer")
+        permissions = self.client.get("/api/ai-actions/patches").get_json()
+        self.assertTrue(permissions["can_create"])
+        self.assertFalse(permissions["can_approve"])
         response = self.decision(row)
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         self.assertEqual(data["status"], "FIRST_APPROVED")
         self.assertEqual(data["payload"]["first_approval"]["content_hash"], row["content_hash"])
-        self.assertEqual(data["payload"]["first_approval"]["actor"], "reviewer")
+        self.assertEqual(data["payload"]["first_approval"]["actor"], "operator")
         self.rev.assert_not_called()
         self.assertEqual(self.decision(row).status_code, 409)
         self.assertEqual(self.client.get(f'/api/ai-actions/patches/{row["id"]}').get_json()["status"], "FIRST_APPROVED")
 
     def test_rejection_remains_in_history(self):
         row = self.generated()
-        self.login("승인자", "reviewer")
         self.assertEqual(self.decision(row, decision="reject").status_code, 400)
         self.assertEqual(self.decision(row, decision="reject", note="범위 재검토").get_json()["status"], "REJECTED")
         self.assertEqual(self.client.get("/api/ai-actions/patches").get_json()["patches"][0]["status"], "REJECTED")
 
-    def test_admin_cannot_approve(self):
-        self.assertEqual(self.decision(self.generated()).status_code, 403)
+    def test_approver_cannot_make_first_decision(self):
+        row = self.generated()
+        self.login("승인자", "reviewer")
+        self.assertEqual(self.decision(row).status_code, 403)
 
-    def test_self_approval_blocked_even_after_role_change(self):
+    def test_first_decision_requires_admin_role_even_for_requester(self):
         row = self.generated()
         self.login("승인자", "operator")
         self.assertEqual(self.decision(row).status_code, 403)
@@ -240,7 +243,6 @@ class AIActionRouteTest(unittest.TestCase):
 
     def test_stale_hash_and_tampered_content_cannot_be_approved(self):
         row = self.generated()
-        self.login("승인자", "reviewer")
         self.assertEqual(self.decision(row, content_hash="stale").status_code, 409)
         edited = self.repo.get(row["id"])
         edited["payload"]["files"][0]["proposed_content"] += "\n# changed"
@@ -249,7 +251,6 @@ class AIActionRouteTest(unittest.TestCase):
 
     def test_review_acknowledgement_required(self):
         row = self.generated()
-        self.login("승인자", "reviewer")
         self.assertEqual(self.decision(row, reviewed=False).status_code, 400)
 
     def test_no_changes_is_retained_failure(self):

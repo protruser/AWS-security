@@ -86,6 +86,9 @@ class PatchRepository:
             payload = unseal(row.pop("payload_encrypted"))
             row["rule_ids"] = [r["rule_id"] for r in payload.get("findings", [])]
             row["first_approval"] = bool(payload.get("first_approval"))
+            first_event = (payload.get("first_approval") or {}).get("event")
+            row["first_decision"] = ("approve" if first_event == "FIRST_APPROVED"
+                                     else "reject" if first_event == "REJECTED" else None)
             row["ai_verdict"] = (payload.get("ai_review") or {}).get("verdict")
             check_states = [item.get("status") for item in
                             (payload.get("checks") or {}).get("results", {}).values()]
@@ -96,6 +99,9 @@ class PatchRepository:
                 else "RUNNING" if row["status"] == "CHECKS_RUNNING" or "RUNNING" in check_states
                 else "NOT_RUN")
             row["final_approval"] = bool(payload.get("final_approval"))
+            final_event = (payload.get("final_approval") or {}).get("event")
+            row["final_decision"] = ("approve" if final_event == "FINAL_APPROVED"
+                                     else "reject" if final_event == "FINAL_REJECTED" else None)
             row["deployment_status"] = (payload.get("deployment") or {}).get("status")
         return rows
 

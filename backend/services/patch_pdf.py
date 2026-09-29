@@ -101,6 +101,26 @@ def render_pdf(patch, kind):
 
     if kind == "final":
         final = payload["final_report"]
+        assessment = final.get("ai_assessment") or {}
+        first = payload.get("report") or {}
+        section("한눈에 보기")
+        para(final.get("report_notice") or "배포 전 예상입니다. 실제 변경과 보안 문제 해결 여부는 배포 후 재진단으로 확인합니다.")
+        para(assessment.get("assessment"))
+        section("무엇이 바뀌나요?")
+        para(assessment.get("change_explanation") or first.get("summary"))
+        counts = ((payload.get("checks") or {}).get("plan_summary") or {}).get("counts") or {}
+        para(f"배포 계획: 새로 생성 {counts.get('create', '미확인')}개 · 설정 변경 {counts.get('update', '미확인')}개 · "
+             f"삭제 {counts.get('delete', '미확인')}개 · 교체 {counts.get('replace', '미확인')}개")
+        section("이용자와 서비스에 미칠 영향")
+        para(assessment.get("user_impact") or first.get("impact"))
+        para(f"서비스 중단 가능성: {assessment.get('service_disruption') or first.get('service_disruption') or '확인 필요'}")
+        para(f"리소스 교체 가능성: {assessment.get('resource_replacement') or first.get('resource_replacement') or '확인 필요'}")
+        section("남은 위험")
+        bullets(assessment.get("risks"))
+        section("최종 승인 전에 확인할 것")
+        bullets(assessment.get("decision_points") or first.get("checks"))
+        section("배포 후 확인할 것")
+        bullets(assessment.get("post_deploy_checks"))
         review = payload.get("ai_review") or {}
         section("2차 AI 검증")
         para(f"판정: {review.get('verdict', '미확인')} · {review.get('summary', '')}")
@@ -124,12 +144,6 @@ def render_pdf(patch, kind):
             (checks.get("plan_summary") or {}).get("resources") or {})
         for key in ("create", "update", "delete", "replace"):
             para(f"{key}: {counts.get(key, '미확인')} · {', '.join(resources.get(key, [])) or '해당 없음'}")
-        section("배포 영향 및 남은 위험")
-        assessment = final.get("ai_assessment") or {}
-        para(assessment.get("assessment"))
-        bullets(assessment.get("risks"))
-        section("배포 후 확인사항")
-        bullets(assessment.get("post_deploy_checks"))
         section("PR 및 검사 실행 링크")
         para((payload.get("github_pr") or {}).get("url"))
         para(checks.get("url"))

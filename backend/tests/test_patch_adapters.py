@@ -161,6 +161,20 @@ class PersistenceAdapterTest(unittest.TestCase):
         self.assertEqual(unseal(params[2]), self.row["payload"])
         self.assertEqual(self.row["revision"], 4)
 
+    def test_history_distinguishes_final_approval_from_rejection(self):
+        self.cursor.fetchall.return_value = [
+            {"id": "approved", "status": "FINAL_APPROVED", "payload_encrypted": seal({
+                "findings": [], "first_approval": {"event": "FIRST_APPROVED"},
+                "final_approval": {"event": "FINAL_APPROVED"}})},
+            {"id": "rejected", "status": "FINAL_REJECTED", "payload_encrypted": seal({
+                "findings": [], "first_approval": {"event": "FIRST_APPROVED"},
+                "final_approval": {"event": "FINAL_REJECTED"}})},
+        ]
+        rows = self.repo.list(50, 0)
+        self.assertEqual([row["final_decision"] for row in rows], ["approve", "reject"])
+        self.assertEqual([row["first_decision"] for row in rows], ["approve", "approve"])
+        self.assertTrue(all(row["final_approval"] for row in rows))
+
     def test_lost_race_is_conflict(self):
         self.cursor.rowcount = 0
         with self.assertRaises(PatchError) as error:

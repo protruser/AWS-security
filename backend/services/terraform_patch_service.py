@@ -236,8 +236,6 @@ class TerraformPatches:
 
     def decide(self, patch_id, body, actor):
         patch = self.repo.get(patch_id)
-        if patch["requested_by"] == actor:
-            raise PatchError("SELF_APPROVAL", "요청자 본인은 승인·반려할 수 없습니다.", 403)
         if patch["status"] != "AWAITING_FIRST_APPROVAL":
             raise PatchError("INVALID_STATE", "1차 승인 대기 패치만 처리할 수 있습니다.", 409)
         if body.get("content_hash") != patch["content_hash"] or digest(patch["payload"]) != patch["content_hash"]:

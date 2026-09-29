@@ -36,9 +36,11 @@ interface PatchSummary {
   created_at?: string
   rule_ids?: string[]
   first_approval?: boolean
+  first_decision?: "approve" | "reject" | null
   ai_verdict?: string | null
   checks_status?: string
   final_approval?: boolean
+  final_decision?: "approve" | "reject" | null
   deployment_status?: string | null
 }
 interface PatchDetail extends PatchSummary {
@@ -106,14 +108,20 @@ interface PatchDetail extends PatchSummary {
     } | null
     final_report?: {
       version: string
+      report_notice?: string
       ai_assessment: {
         assessment: string
+        change_explanation?: string
+        user_impact?: string
+        service_disruption?: string
+        resource_replacement?: string
         risks: string[]
+        decision_points?: string[]
         post_deploy_checks: string[]
       }
     } | null
     first_approval?: { actor: string; at: string } | null
-    final_approval?: { actor: string; at: string } | null
+    final_approval?: { event: string; actor: string; at: string } | null
     deployment?: {
       status: string
       url?: string
@@ -177,7 +185,7 @@ const PATCH_STATUS: Record<string, string> = {
   FINAL_REPORTING: "최종 보고서 작성 중",
   FINAL_REPORT_FAILED: "최종 보고서 작성 오류",
   AWAITING_FINAL_APPROVAL: "최종 승인 대기",
-  FINAL_APPROVED: "최종 승인 완료",
+  FINAL_APPROVED: "최종 승인",
   REVALIDATION_REQUIRED: "기준 변경 · 새 패치와 재승인 필요",
   FINAL_REJECTED: "최종 승인 반려",
   DEPLOYING: "Terraform 배포 중",
@@ -726,10 +734,10 @@ export function AIActionsPage({
                   </td>
                   <td>{PATCH_STATUS[p.status] ?? p.status}</td>
                   <td>{p.rule_ids?.join(", ") ?? "-"}</td>
-                  <td>{p.first_approval ? "완료" : "-"}</td>
+                  <td>{p.first_decision === "approve" ? "승인" : p.first_decision === "reject" ? "반려" : "-"}</td>
                   <td>{p.ai_verdict ?? "-"}</td>
                   <td>{p.checks_status ?? "-"}</td>
-                  <td>{p.final_approval ? "완료" : "-"}</td>
+                  <td>{p.final_decision === "approve" ? "승인" : p.final_decision === "reject" ? "반려" : "-"}</td>
                   <td>{p.deployment_status ?? "-"}</td>
                   <td>{p.requested_by}</td>
                   <td>{p.created_at}</td>
@@ -849,7 +857,7 @@ export function AIActionsPage({
             </div>
           )}
           {fix.status === "AWAITING_FIRST_APPROVAL" &&
-            (history?.can_approve ? (
+            (history?.can_create ? (
               <div className="space-y-3 rounded-lg bg-amber-50 p-3 text-xs">
                 <label className="flex gap-2">
                   <input
@@ -874,7 +882,7 @@ export function AIActionsPage({
                     disabled={running || !reviewed}
                     onClick={() => decide("approve")}
                   >
-                    사람의 1차 승인
+                    관리자의 1차 승인
                   </button>
                   <button
                     className={button}
@@ -885,13 +893,13 @@ export function AIActionsPage({
                   </button>
                 </div>
                 <p>
-                  1차 승인은 배포 승인이 아닙니다. 이후 2차 AI가 변경 내용을
+                  관리자 1차 승인은 배포 승인이 아닙니다. 이후 2차 AI가 변경 내용을
                   검증합니다.
                 </p>
               </div>
             ) : (
               <p className="text-xs text-amber-700">
-                승인자 계정으로 코드·보고서를 검토한 뒤 1차 승인 또는 반려할 수
+                관리자 계정으로 코드·보고서를 검토한 뒤 1차 승인 또는 반려할 수
                 있습니다.
               </p>
             ))}
@@ -950,7 +958,7 @@ export function AIActionsPage({
                 </p>
               )}
               {fix.status === "AI_NEEDS_HUMAN_REVIEW" && (
-                history?.can_approve ? (
+                history?.can_create ? (
                   <div className="space-y-3 rounded-lg bg-amber-50 p-3">
                     <p>
                       AI가 확인을 보류했습니다. 위 우려사항과 미해결 진단 조건을 확인하세요.
@@ -978,7 +986,7 @@ export function AIActionsPage({
                     </div>
                   </div>
                 ) : (
-                  <p>승인자 계정에서 우려사항과 미해결 조건을 검토한 뒤 승인 또는 반려할 수 있습니다.</p>
+                  <p>관리자 계정에서 우려사항과 미해결 조건을 검토한 뒤 승인 또는 반려할 수 있습니다.</p>
                 )
               )}
               {fix.payload.human_review_approval?.event === "HUMAN_REVIEW_APPROVED" && (
@@ -1059,25 +1067,70 @@ export function AIActionsPage({
             </section>
           )}
           {fix.payload.final_report && (
-            <section className="rounded-lg border p-3 text-xs space-y-2">
-              <h3 className="font-semibold">
+            <section className="space-y-4 rounded-lg border p-4 text-sm">
+              <h3 className="font-semibold text-[#101828]">
                 AI 최종 변경 보고서 · {fix.payload.final_report.version}
               </h3>
-              <p>{fix.payload.final_report.ai_assessment.assessment}</p>
-              <p className="font-semibold">남은 위험</p>
-              <ul className="list-disc pl-4">
+              <p className="rounded-lg bg-amber-50 p-3 text-amber-900">
+                {fix.payload.final_report.report_notice ??
+                  "이 보고서는 배포 전 예상입니다. 실제 보안 문제 해결 여부는 배포 후 재진단으로 확인합니다."}
+              </p>
+              <div>
+                <h4 className="font-semibold">한눈에 보기</h4>
+                <p className="mt-1 whitespace-pre-wrap">{fix.payload.final_report.ai_assessment.assessment}</p>
+              </div>
+              <div>
+                <h4 className="font-semibold">무엇이 바뀌나요?</h4>
+                <p className="mt-1 whitespace-pre-wrap">
+                  {fix.payload.final_report.ai_assessment.change_explanation ?? fix.payload.report?.summary ?? "변경 내용을 확인할 수 없습니다."}
+                </p>
+                {fix.payload.checks?.plan_summary?.counts && (
+                  <p className="mt-2 text-[#475467]">
+                    배포 계획: 새로 생성 {fix.payload.checks.plan_summary.counts.create ?? 0}개 ·
+                    설정 변경 {fix.payload.checks.plan_summary.counts.update ?? 0}개 ·
+                    삭제 {fix.payload.checks.plan_summary.counts.delete ?? 0}개 ·
+                    교체 {fix.payload.checks.plan_summary.counts.replace ?? 0}개
+                  </p>
+                )}
+              </div>
+              <div>
+                <h4 className="font-semibold">이용자와 서비스에 미칠 영향</h4>
+                <p className="mt-1 whitespace-pre-wrap">
+                  {fix.payload.final_report.ai_assessment.user_impact ?? fix.payload.report?.impact ?? "이용자 영향은 확인되지 않았습니다."}
+                </p>
+                <p className="mt-2 whitespace-pre-wrap">
+                  <strong>서비스 중단 가능성:</strong> {fix.payload.final_report.ai_assessment.service_disruption ?? fix.payload.report?.service_disruption ?? "배포 전 확인이 필요합니다."}
+                </p>
+                <p className="mt-2 whitespace-pre-wrap">
+                  <strong>리소스 교체 가능성:</strong> {fix.payload.final_report.ai_assessment.resource_replacement ?? fix.payload.report?.resource_replacement ?? "Terraform Plan 확인이 필요합니다."}
+                </p>
+              </div>
+              <div>
+                <h4 className="font-semibold">남은 위험</h4>
+                <ul className="mt-1 list-disc pl-5">
                 {fix.payload.final_report.ai_assessment.risks.map((r, i) => (
                   <li key={i}>{r}</li>
                 ))}
-              </ul>
-              <p className="font-semibold">배포 후 확인</p>
-              <ul className="list-disc pl-4">
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-semibold">최종 승인 전에 확인할 것</h4>
+                <ul className="mt-1 list-disc pl-5">
+                  {(fix.payload.final_report.ai_assessment.decision_points ?? fix.payload.report?.checks ?? []).map((item, i) => (
+                    <li key={i}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-semibold">배포 후 확인할 것</h4>
+                <ul className="mt-1 list-disc pl-5">
                 {fix.payload.final_report.ai_assessment.post_deploy_checks.map(
                   (r, i) => (
                     <li key={i}>{r}</li>
                   ),
                 )}
-              </ul>
+                </ul>
+              </div>
             </section>
           )}
           {fix.status === "AWAITING_FINAL_APPROVAL" &&

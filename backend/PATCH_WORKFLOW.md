@@ -30,13 +30,15 @@ resource types (1.2 targets IAM access keys and login profiles). When the live `
 returns `NO_CANDIDATE` and permits an operator to choose a file manually;
 it never claims that an existing IAM resource is owned by Terraform.
 
-The sequence is source snapshot → integrated proposal and first report → first
-approval → second AI review (a `NEEDS_HUMAN_REVIEW` result requires a separate
-approver decision with a recorded reason) → patch branch and PR → GitHub checks and saved Plan
-→ final AI report → final approval → separate deployment worker → merge → apply
+The sequence is source snapshot → integrated proposal and first report → admin
+first approval → second AI review (a `NEEDS_HUMAN_REVIEW` result requires an
+admin decision with a recorded reason) → patch branch and PR → GitHub checks and saved Plan
+→ final AI report → separate approver final decision → deployment worker → merge → apply
 → rediagnosis. A rejection or failure stops that patch. Earlier versions remain
 downloadable from encrypted DB history, regardless of GitHub branch retention.
 
+The final report explains the planned change, user impact, interruption and
+replacement risk in plain Korean, with unverified conditions clearly marked.
 Final approval records the decision only. Run `backend/run_patch_deploy_worker.py`
 as a separate managed process. It polls GitHub checks, dispatches approved
 deployments when apply is enabled, and records completed deployment runs even
@@ -56,12 +58,12 @@ an apply failure remains a recorded partial deployment and is never retried.
 | GET/POST | `/patches` | History / create patch from confirmed mapping |
 | GET | `/patches/<id>` | Full encrypted-history detail |
 | POST | `/terraform-fix` | First AI integrated proposal |
-| POST | `/patches/<id>/first-approval` | First approval or rejection |
+| POST | `/patches/<id>/first-approval` | Admin first approval or rejection |
 | POST | `/patches/<id>/ai-review` | Second AI after first approval |
-| POST | `/patches/<id>/human-review` | Approver decision on a bound `NEEDS_HUMAN_REVIEW` result |
+| POST | `/patches/<id>/human-review` | Admin decision on a bound `NEEDS_HUMAN_REVIEW` result |
 | POST | `/patches/<id>/publish` | Isolated branch and PR |
 | POST | `/patches/<id>/checks/refresh` | Record actual CI results |
-| POST | `/patches/<id>/final-approval` | Final approval or rejection |
+| POST | `/patches/<id>/final-approval` | Separate approver final approval or rejection |
 | POST | `/patches/<id>/deployment/refresh` | Record deployment and rediagnose |
 | GET | `/patches/<id>/download/{patch,first,final,results}` | Historical artifacts |
 

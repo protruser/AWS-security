@@ -176,12 +176,12 @@ class PatchWorkflowTest(unittest.TestCase):
         row = self.repo.get(self.patch_id)
         approved = self.flow.decide_human_review(self.patch_id, {
             "decision": "approve", "review_hash": human_review_digest(row), "reviewed": True,
-            "note": "HTTP 조건은 남아 있으며 별도 HTTPS 조치가 필요함을 확인"}, "reviewer")
+            "note": "HTTP 조건은 남아 있으며 별도 HTTPS 조치가 필요함을 확인"}, "operator")
         self.assertEqual(approved["status"], "CHECKS_RUNNING")
         self.assertEqual(approved["payload"]["ai_review"]["verdict"], "NEEDS_HUMAN_REVIEW")
         human = approved["payload"]["human_review_approval"]
         self.assertEqual(human["event"], "HUMAN_REVIEW_APPROVED")
-        self.assertEqual(human["actor"], "reviewer")
+        self.assertEqual(human["actor"], "operator")
         self.assertEqual(self.github.writes, 2)
         self.assertIsNone(approved["payload"]["deployment"])
         self.assertEqual(self.flow.refresh_checks(self.patch_id, "operator")["status"],
@@ -195,13 +195,11 @@ class PatchWorkflowTest(unittest.TestCase):
         row = self.repo.get(self.patch_id)
         review_hash = human_review_digest(row)
         for actor, body in [
+            ("operator", {"decision": "approve", "review_hash": "wrong",
+                          "reviewed": True, "note": "확인"}),
             ("operator", {"decision": "approve", "review_hash": review_hash,
-                          "reviewed": True, "note": "확인"}),
-            ("reviewer", {"decision": "approve", "review_hash": "wrong",
-                          "reviewed": True, "note": "확인"}),
-            ("reviewer", {"decision": "approve", "review_hash": review_hash,
                           "reviewed": False, "note": "확인"}),
-            ("reviewer", {"decision": "approve", "review_hash": review_hash,
+            ("operator", {"decision": "approve", "review_hash": review_hash,
                           "reviewed": True, "note": " "}),
         ]:
             with self.assertRaises(PatchError):
@@ -214,7 +212,7 @@ class PatchWorkflowTest(unittest.TestCase):
         with self.assertRaises(PatchError):
             self.flow.decide_human_review(self.patch_id, {
                 "decision": "approve", "review_hash": review_hash,
-                "reviewed": True, "note": "확인"}, "reviewer")
+                "reviewed": True, "note": "확인"}, "operator")
         self.assertEqual(self.github.writes, 0)
 
     def test_human_review_rejection_stops_patch(self):
@@ -264,6 +262,14 @@ class PatchWorkflowTest(unittest.TestCase):
             "approval_hash": approval_digest(row), "reviewed": True}, "reviewer")
         self.assertEqual(approved["status"], "FINAL_APPROVED")
         self.assertEqual(self.github.dispatches, [])
+
+    def test_final_approval_still_requires_other_person(self):
+        row = self.stage_final()
+        with self.assertRaises(PatchError) as error:
+            self.flow.decide_final(self.patch_id, {"decision": "approve",
+                "approval_hash": approval_digest(row), "reviewed": True}, "operator")
+        self.assertEqual(error.exception.code, "SELF_APPROVAL")
+        self.assertEqual(self.repo.get(self.patch_id)["status"], "AWAITING_FINAL_APPROVAL")
 
     def test_ready_pr_before_approval_requires_new_validation(self):
         row = self.stage_final()
@@ -342,7 +348,7 @@ class PatchWorkflowTest(unittest.TestCase):
 
 
 class PatchRoutesTest(unittest.TestCase):
-    def test_human_review_route_exposes_binding_only_to_approver(self):
+    def test_human_review_route_exposes_binding_only_to_admin(self):
         app.app.config.update(TESTING=True, SECRET_KEY="route-review-test")
         client = app.app.test_client()
         patch_id = "11111111-1111-1111-1111-111111111111"
@@ -359,13 +365,28 @@ class PatchRoutesTest(unittest.TestCase):
             body = {"decision": "approve", "review_hash": detail["review_hash"],
                     "reviewed": True, "note": "우려사항 확인"}
             self.assertEqual(client.post(f"/api/ai-actions/patches/{patch_id}/human-review",
-                                         json=body).status_code, 403)
-            decide.assert_not_called()
+                                         json=body).status_code, 200)
+            decide.assert_called_once_with(patch_id, body, "operator")
             with client.session_transaction() as session:
                 session.update(authenticated=True, role="승인자", username="reviewer")
             self.assertEqual(client.post(f"/api/ai-actions/patches/{patch_id}/human-review",
-                                         json=body).status_code, 200)
-            decide.assert_called_once_with(patch_id, body, "reviewer")
+                                         json=body).status_code, 403)
+
+    def test_final_approval_route_remains_approver_only(self):
+        app.app.config.update(TESTING=True, SECRET_KEY="route-final-test")
+        client = app.app.test_client()
+        patch_id = "11111111-1111-1111-1111-111111111111"
+        service = app.app.extensions["terraform_patches"]
+        with patch.object(service, "decide_final", return_value={"status": "FINAL_APPROVED"}) as decide:
+            with client.session_transaction() as session:
+                session.update(authenticated=True, role="관리자", username="operator")
+            self.assertEqual(client.post(f"/api/ai-actions/patches/{patch_id}/final-approval",
+                                         json={"decision": "approve"}).status_code, 403)
+            with client.session_transaction() as session:
+                session.update(authenticated=True, role="승인자", username="reviewer")
+            self.assertEqual(client.post(f"/api/ai-actions/patches/{patch_id}/final-approval",
+                                         json={"decision": "approve"}).status_code, 200)
+            decide.assert_called_once()
 
     def test_download_uses_saved_diff_and_auth(self):
         env = patch.dict(os.environ, {"PATCH_ENCRYPTION_KEY": Fernet.generate_key().decode()})

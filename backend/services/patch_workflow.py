@@ -97,8 +97,6 @@ class PatchWorkflow(TerraformPatches):
 
     def decide_human_review(self, patch_id, body, actor):
         patch = self.repo.get(patch_id)
-        if patch["requested_by"] == actor:
-            raise PatchError("SELF_APPROVAL", "요청자 본인은 2차 검증 보류를 승인할 수 없습니다.", 403)
         if (patch["status"] != "AI_NEEDS_HUMAN_REVIEW"
                 or patch["payload"].get("ai_review", {}).get("verdict") != "NEEDS_HUMAN_REVIEW"):
             raise PatchError("INVALID_STATE", "2차 AI가 추가 확인을 요청한 패치만 처리할 수 있습니다.", 409)
@@ -128,8 +126,7 @@ class PatchWorkflow(TerraformPatches):
         human_review_passed = (review.get("verdict") == "NEEDS_HUMAN_REVIEW"
                                and human_approval.get("event") == "HUMAN_REVIEW_APPROVED"
                                and human_approval.get("review_hash") == human_review_digest(patch)
-                               and human_approval.get("content_hash") == patch["content_hash"]
-                               and human_approval.get("actor") != patch["requested_by"])
+                               and human_approval.get("content_hash") == patch["content_hash"])
         if patch["status"] != "READY_FOR_PR" or not (review.get("verdict") == "APPROVE" or human_review_passed):
             raise PatchError("AI_APPROVAL_REQUIRED", "2차 AI 검증 통과 또는 보류 건의 사람 검토 승인 후에만 PR을 만들 수 있습니다.", 409)
         self._source_guard(patch)
