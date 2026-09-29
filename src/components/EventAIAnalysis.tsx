@@ -132,7 +132,7 @@ export function OriginalEventLogs({ logs }: { logs: string }) {
       <summary className="cursor-pointer font-semibold text-[#344054]">
         원본 로그 보기
       </summary>
-      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-white p-2 font-mono text-[10px] text-[#667085]">
+      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-white p-2 font-mono text-[12px] text-[#667085]">
         {logs || "원본 로그 없음"}
       </pre>
     </details>

@@ -31,13 +31,13 @@ function ZoneLabel({ z }: { z: Zone }) {
       className="absolute flex items-center gap-1.5 whitespace-nowrap"
       style={pos}
     >
-      <strong className="text-[12px] font-bold" style={{ color: z.ink }}>
+      <strong className="text-[14px] font-bold" style={{ color: z.ink }}>
         {z.label}
       </strong>
       {z.badges?.map((b) => (
         <span
           key={b}
-          className="rounded-full bg-white px-1.5 py-px text-[10px] font-medium"
+          className="rounded-full bg-white px-1.5 py-px text-[12px] font-medium"
           style={{ color: z.ink, border: `1px solid ${z.border}` }}
         >
           {b}
@@ -152,7 +152,7 @@ export function ArchitectureMap({
             {LEGEND.map((l) => (
               <div
                 key={l.kind}
-                className="flex items-center gap-1 py-0.5 text-[10px] text-[#667085]"
+                className="flex items-center gap-1 py-0.5 text-[12px] text-[#667085]"
               >
                 <span
                   style={{
@@ -164,7 +164,7 @@ export function ArchitectureMap({
               </div>
             ))}
             {estimatedAssets.length > 0 && (
-              <div className="flex items-center gap-1 py-0.5 text-[10px] text-[#667085]">
+              <div className="flex items-center gap-1 py-0.5 text-[12px] text-[#667085]">
                 <span
                   className="inline-block h-2.5 w-2.5 rounded-sm"
                   style={{ outline: "1.5px dashed #F79009", outlineOffset: 1 }}
@@ -172,7 +172,7 @@ export function ArchitectureMap({
                 추정 도달
               </div>
             )}
-            <div className="mt-1 flex items-center gap-1 border-t border-[#F2F4F7] pt-1.5 text-[10px] font-semibold text-[#B42318]">
+            <div className="mt-1 flex items-center gap-1 border-t border-[#F2F4F7] pt-1.5 text-[12px] font-semibold text-[#B42318]">
               <span className="inline-block h-2 w-2 rounded-full bg-[#D92D20]" />
               비상
             </div>

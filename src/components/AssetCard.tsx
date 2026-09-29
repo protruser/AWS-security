@@ -113,11 +113,11 @@ export function AssetCard({
         )}
       </div>
       <div className="mt-1 rounded bg-white/90 px-1 text-center leading-tight">
-        <p className="text-[12px] font-semibold text-[#101828] whitespace-nowrap">
+        <p className="text-[14px] font-semibold text-[#101828] whitespace-nowrap">
           {asset.label}
         </p>
         {asset.sub && (
-          <p className="text-[10.5px] text-[#667085] whitespace-nowrap">
+          <p className="text-[12.5px] text-[#667085] whitespace-nowrap">
             {asset.sub}
           </p>
         )}

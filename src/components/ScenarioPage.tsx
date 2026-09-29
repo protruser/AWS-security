@@ -19,7 +19,7 @@ function StatusPill({ tone, label }: { tone: Tone; label: string }) {
   const t = TONE[tone]
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] font-semibold"
       style={{ backgroundColor: t.bg, color: t.fg }}
     >
       <span
@@ -43,7 +43,7 @@ function Panel({
   return (
     <section className="bg-white rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.06)] ring-1 ring-[#EAECF0]">
       <div className="flex items-center justify-between px-5 pt-4 pb-3">
-        <h3 className="text-[13px] font-bold text-[#101828]">{title}</h3>
+        <h3 className="text-[15px] font-bold text-[#101828]">{title}</h3>
         {right}
       </div>
       <div className="px-5 pb-5">{children}</div>
@@ -109,7 +109,7 @@ export function ScenarioPage({
                 <button
                   key={c.id}
                   onClick={() => onNavigate(c.id)}
-                  className={`text-[11px] font-medium rounded-full px-2.5 py-1 transition-colors ${
+                  className={`text-[13px] font-medium rounded-full px-2.5 py-1 transition-colors ${
                     active
                       ? "bg-[#101828] text-white"
                       : "bg-white text-[#475467] ring-1 ring-[#E4E7EC] hover:bg-[#F2F4F7]"
@@ -133,14 +133,14 @@ export function ScenarioPage({
             <p className="text-xs text-[#667085] mt-1">{d.source}</p>
           </div>
           <div className="text-right">
-            <p className="text-[11px] text-[#667085]">조치 진행</p>
+            <p className="text-[13px] text-[#667085]">조치 진행</p>
             <p className="text-sm font-bold text-[#101828]">
               {doneCount} / {d.actions.length} 완료
             </p>
           </div>
         </div>
 
-        <p className="text-[13px] leading-relaxed text-[#344054] bg-white ring-1 ring-[#EAECF0] rounded-xl px-4 py-3">
+        <p className="text-[15px] leading-relaxed text-[#344054] bg-white ring-1 ring-[#EAECF0] rounded-xl px-4 py-3">
           {d.summary}
         </p>
 
@@ -151,7 +151,7 @@ export function ScenarioPage({
               key={k.label}
               className="bg-white rounded-xl ring-1 ring-[#EAECF0] px-4 py-3"
             >
-              <p className="text-[11px] text-[#667085]">{k.label}</p>
+              <p className="text-[13px] text-[#667085]">{k.label}</p>
               <p
                 className="text-2xl font-bold mt-0.5 leading-tight"
                 style={{ color: k.tone ? TONE[k.tone].dot : "#101828" }}
@@ -159,7 +159,7 @@ export function ScenarioPage({
                 {k.value}
               </p>
               {k.sub && (
-                <p className="text-[11px] text-[#98A2B3] mt-0.5">{k.sub}</p>
+                <p className="text-[13px] text-[#98A2B3] mt-0.5">{k.sub}</p>
               )}
             </div>
           ))}
@@ -217,14 +217,14 @@ export function ScenarioPage({
               right={
                 <button
                   onClick={() => setShowLog((v) => !v)}
-                  className="text-[11px] font-medium text-[#475467] hover:text-[#101828]"
+                  className="text-[13px] font-medium text-[#475467] hover:text-[#101828]"
                 >
                   {showLog ? "접기" : "펼치기"}
                 </button>
               }
             >
               {showLog ? (
-                <pre className="text-[11px] leading-relaxed font-mono bg-[#F9FAFB] rounded-lg p-3 overflow-x-auto text-[#344054]">
+                <pre className="text-[13px] leading-relaxed font-mono bg-[#F9FAFB] rounded-lg p-3 overflow-x-auto text-[#344054]">
                   {d.logSample}
                 </pre>
               ) : (
@@ -251,11 +251,11 @@ export function ScenarioPage({
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <p className="text-[13px] font-bold text-[#101828] leading-snug">
+                        <p className="text-[15px] font-bold text-[#101828] leading-snug">
                           {a.title}
                         </p>
                         <span
-                          className="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white flex-shrink-0"
+                          className="text-[12px] font-bold px-1.5 py-0.5 rounded-full text-white flex-shrink-0"
                           style={{ backgroundColor: SEV_COLOR[a.risk] }}
                         >
                           {a.risk}
@@ -264,7 +264,7 @@ export function ScenarioPage({
                       <p className="text-xs text-[#667085] mt-1 leading-relaxed">
                         {a.desc}
                       </p>
-                      <p className="text-[11px] text-[#98A2B3] mt-1.5">
+                      <p className="text-[13px] text-[#98A2B3] mt-1.5">
                         대상 · {a.target}
                       </p>
                       <div className="mt-3">
@@ -292,7 +292,7 @@ export function ScenarioPage({
                 {d.relatedAssets.map((a) => (
                   <span
                     key={a}
-                    className="text-[11px] font-medium text-[#344054] bg-[#F2F4F7] rounded-md px-2 py-1"
+                    className="text-[13px] font-medium text-[#344054] bg-[#F2F4F7] rounded-md px-2 py-1"
                   >
                     {a}
                   </span>
@@ -334,7 +334,7 @@ function EventTable({ d }: { d: ScenarioDetail }) {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
-              <tr className="text-[11px] text-[#667085]">
+              <tr className="text-[13px] text-[#667085]">
                 {d.eventColumns.map((c) => (
                   <th key={c} className="py-2 pr-3 font-medium">
                     {c}
@@ -350,7 +350,7 @@ function EventTable({ d }: { d: ScenarioDetail }) {
                       key={j}
                       className={`py-2 pr-3 ${
                         j === 0 ? "font-mono text-[#667085]" : "text-[#101828]"
-                      } ${j === 2 ? "font-mono text-[11px]" : ""}`}
+                      } ${j === 2 ? "font-mono text-[13px]" : ""}`}
                     >
                       {j === e.cells.length - 1 ? (
                         <StatusPill tone={e.tone ?? "neutral"} label={c} />
@@ -388,7 +388,7 @@ function CveTable({ d }: { d: ScenarioDetail }) {
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead>
-            <tr className="text-[11px] text-[#667085]">
+            <tr className="text-[13px] text-[#667085]">
               <th className="py-2 pr-3 font-medium">CVE</th>
               <th className="py-2 pr-3 font-medium">등급</th>
               <th className="py-2 pr-3 font-medium">패키지</th>
@@ -398,14 +398,14 @@ function CveTable({ d }: { d: ScenarioDetail }) {
           <tbody>
             {cves.map((c) => (
               <tr key={c.id} className="border-t border-[#F2F4F7]">
-                <td className="py-2 pr-3 font-mono text-[11px] text-[#101828]">
+                <td className="py-2 pr-3 font-mono text-[13px] text-[#101828]">
                   {c.id}
                 </td>
                 <td className="py-2 pr-3">
                   <SeverityBadge sev={c.sev} small />
                 </td>
                 <td className="py-2 pr-3 text-[#344054]">{c.pkg}</td>
-                <td className="py-2 pr-3 font-mono text-[11px] text-[#667085]">
+                <td className="py-2 pr-3 font-mono text-[13px] text-[#667085]">
                   {c.installed} → {c.fixed}
                 </td>
               </tr>

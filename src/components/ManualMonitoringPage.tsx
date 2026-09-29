@@ -261,8 +261,8 @@ function SummaryCards({ source, logs }: { source: LogSource, logs: SecurityLog[]
     <div className={`grid gap-2 ${items.length === 3 ? "grid-cols-3" : "grid-cols-2 lg:grid-cols-4"}`}>
       {items.map((item) => (
         <div key={item.label} className="rounded-xl border border-[#EAECF0] bg-[#FAFAFA] px-4 py-3">
-          <p className="text-[10px] text-[#667085]">{item.label}</p>
-          <p className="text-[22px] font-bold leading-tight mt-1" style={{ color: item.color }}>{item.value}</p>
+          <p className="text-[12px] text-[#667085]">{item.label}</p>
+          <p className="text-[24px] font-bold leading-tight mt-1" style={{ color: item.color }}>{item.value}</p>
         </div>
       ))}
     </div>
@@ -313,7 +313,7 @@ function BarChart({ title, data }: { title: string, data: ChartDatum[] }) {
       <div className="space-y-3">
         {data.map((item) => (
           <div key={item.label}>
-            <div className="flex items-center justify-between gap-3 text-[10px] mb-1">
+            <div className="flex items-center justify-between gap-3 text-[12px] mb-1">
               <span className="font-medium text-[#475467] truncate">{item.label}</span>
               <span className="font-bold text-[#101828]">{item.value}</span>
             </div>
@@ -371,10 +371,10 @@ function DetailField({ label, value }: { label: string, value: unknown }) {
   if (value === null || value === undefined || value === "") return null
   return (
     <div className="min-w-0">
-      <dt className="text-[9px] font-semibold text-[#98A2B3] uppercase tracking-wide">
+      <dt className="text-[11px] font-semibold text-[#98A2B3] uppercase tracking-wide">
         {label}
       </dt>
-      <dd className="text-[11px] text-[#344054] mt-0.5 break-words">
+      <dd className="text-[13px] text-[#344054] mt-0.5 break-words">
         {String(value)}
       </dd>
     </div>
@@ -492,16 +492,16 @@ function LogDetail({ log, source }: { log: SecurityLog, source: LogSource }) {
         </dl>
         {log.attackPath.length > 0 && (
           <div className="mt-3">
-            <p className="text-[9px] font-semibold text-[#98A2B3] uppercase tracking-wide">
+            <p className="text-[11px] font-semibold text-[#98A2B3] uppercase tracking-wide">
               Attack Path
             </p>
             <div className="flex flex-wrap items-center gap-1 mt-1">
               {log.attackPath.map((asset, index) => (
                 <span key={`${asset}-${index}`} className="contents">
                   {index > 0 && (
-                    <span className="text-[10px] text-[#98A2B3]">→</span>
+                    <span className="text-[12px] text-[#98A2B3]">→</span>
                   )}
-                  <span className="text-[10px] font-mono text-[#344054] bg-white border border-[#D0D5DD] rounded px-1.5 py-0.5">
+                  <span className="text-[12px] font-mono text-[#344054] bg-white border border-[#D0D5DD] rounded px-1.5 py-0.5">
                     {asset}
                   </span>
                 </span>
@@ -513,10 +513,10 @@ function LogDetail({ log, source }: { log: SecurityLog, source: LogSource }) {
 
       {log.logs && (
         <details>
-          <summary className="w-fit cursor-pointer text-[10px] font-semibold text-[#475467] hover:text-[#101828]">
+          <summary className="w-fit cursor-pointer text-[12px] font-semibold text-[#475467] hover:text-[#101828]">
             원본 데이터 보기
           </summary>
-          <pre className="mt-2 max-h-[320px] overflow-auto whitespace-pre-wrap break-words bg-[#101828] text-[#EAECF0] rounded-xl p-3 text-[10px] leading-relaxed font-mono">
+          <pre className="mt-2 max-h-[320px] overflow-auto whitespace-pre-wrap break-words bg-[#101828] text-[#EAECF0] rounded-xl p-3 text-[12px] leading-relaxed font-mono">
             {prettyLogs(log.logs)}
           </pre>
         </details>
@@ -662,7 +662,7 @@ function SecurityDataMonitoringContent({
     <div className="space-y-3">
       <section className="bg-white border border-[#EAECF0] rounded-2xl p-4">
         <div className="flex items-center gap-2 mb-3">
-          <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[10px] font-bold flex items-center justify-center">
+          <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[12px] font-bold flex items-center justify-center">
             1
           </span>
           <p className="text-xs font-bold text-[#101828]">조회 대상</p>
@@ -681,7 +681,7 @@ function SecurityDataMonitoringContent({
               <span className="text-xs font-bold text-[#101828]">
                 {item.label}
               </span>
-              <span className="block text-[10px] text-[#667085] mt-0.5">
+              <span className="block text-[12px] text-[#667085] mt-0.5">
                 {item.description}
               </span>
             </button>
@@ -692,7 +692,7 @@ function SecurityDataMonitoringContent({
       {source && (
         <section className="bg-white border border-[#EAECF0] rounded-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
-            <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[10px] font-bold flex items-center justify-center">
+            <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[12px] font-bold flex items-center justify-center">
               2
             </span>
             <p className="text-xs font-bold text-[#101828]">기간 선택</p>
@@ -702,7 +702,7 @@ function SecurityDataMonitoringContent({
               <button
                 key={item.value}
                 onClick={() => selectRange(item.value)}
-                className={`text-[11px] font-semibold px-3 py-2 rounded-lg border transition-colors ${
+                className={`text-[13px] font-semibold px-3 py-2 rounded-lg border transition-colors ${
                   range === item.value
                     ? "bg-[#101828] border-[#101828] text-white"
                     : "bg-white border-[#D0D5DD] text-[#475467] hover:bg-[#F9FAFB]"
@@ -714,28 +714,28 @@ function SecurityDataMonitoringContent({
           </div>
           {range === "custom" && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 max-w-2xl">
-              <label className="text-[10px] font-semibold text-[#475467]">
+              <label className="text-[12px] font-semibold text-[#475467]">
                 시작 날짜/시간
                 <input
                   type="datetime-local"
                   value={startAt}
                   onChange={(event) => setStartAt(event.target.value)}
-                  className="block w-full mt-1 text-[11px] font-normal text-[#101828] bg-white border border-[#D0D5DD] rounded-lg px-3 py-2 outline-none focus:border-[#101828]"
+                  className="block w-full mt-1 text-[13px] font-normal text-[#101828] bg-white border border-[#D0D5DD] rounded-lg px-3 py-2 outline-none focus:border-[#101828]"
                 />
               </label>
-              <label className="text-[10px] font-semibold text-[#475467]">
+              <label className="text-[12px] font-semibold text-[#475467]">
                 종료 날짜/시간
                 <input
                   type="datetime-local"
                   value={endAt}
                   onChange={(event) => setEndAt(event.target.value)}
-                  className="block w-full mt-1 text-[11px] font-normal text-[#101828] bg-white border border-[#D0D5DD] rounded-lg px-3 py-2 outline-none focus:border-[#101828]"
+                  className="block w-full mt-1 text-[13px] font-normal text-[#101828] bg-white border border-[#D0D5DD] rounded-lg px-3 py-2 outline-none focus:border-[#101828]"
                 />
               </label>
             </div>
           )}
           {validationError && (
-            <p className="text-[10px] font-semibold text-[#D92D20] mt-2">
+            <p className="text-[12px] font-semibold text-[#D92D20] mt-2">
               {validationError}
             </p>
           )}
@@ -745,11 +745,11 @@ function SecurityDataMonitoringContent({
       {source && range && (
         <section className="bg-white border border-[#EAECF0] rounded-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
-            <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[10px] font-bold flex items-center justify-center">
+            <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[12px] font-bold flex items-center justify-center">
               3
             </span>
             <p className="text-xs font-bold text-[#101828]">추가 검색 조건</p>
-            <span className="text-[10px] text-[#98A2B3]">선택 사항</span>
+            <span className="text-[12px] text-[#98A2B3]">선택 사항</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {source === "waf" && (
@@ -844,12 +844,12 @@ function SecurityDataMonitoringContent({
         <section className="bg-white border border-[#EAECF0] rounded-2xl p-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[10px] font-bold flex items-center justify-center">
+              <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[12px] font-bold flex items-center justify-center">
                 4
               </span>
               <div>
                 <p className="text-xs font-bold text-[#101828]">보안 데이터 조회</p>
-                <p className="text-[10px] text-[#667085] mt-0.5">
+                <p className="text-[12px] text-[#667085] mt-0.5">
                   선택한 한 종류의 보안 데이터만 조회합니다.
                 </p>
               </div>
@@ -857,7 +857,7 @@ function SecurityDataMonitoringContent({
             <button
               onClick={() => void search()}
               disabled={queryState === "loading"}
-              className="text-[11px] font-bold text-white bg-[#101828] hover:bg-[#1D2939] disabled:opacity-50 px-4 py-2 rounded-lg transition-colors"
+              className="text-[13px] font-bold text-white bg-[#101828] hover:bg-[#1D2939] disabled:opacity-50 px-4 py-2 rounded-lg transition-colors"
             >
               {queryState === "loading" ? "조회 중..." : "조회"}
             </button>
@@ -869,20 +869,20 @@ function SecurityDataMonitoringContent({
         <section className="bg-white border border-[#EAECF0] rounded-2xl overflow-hidden">
           <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[#EAECF0]">
             <div className="flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[10px] font-bold flex items-center justify-center">
+              <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[12px] font-bold flex items-center justify-center">
                 5
               </span>
               <p className="text-xs font-bold text-[#101828]">조회 결과</p>
             </div>
             {queryState === "success" && (
-              <span className="text-[10px] text-[#667085]">
+              <span className="text-[12px] text-[#667085]">
                 최신순 · {logs.length}건
               </span>
             )}
           </div>
 
           {queryState === "loading" ? (
-            <div className="h-32 flex items-center justify-center gap-2 text-[11px] text-[#667085]">
+            <div className="h-32 flex items-center justify-center gap-2 text-[13px] text-[#667085]">
               <span className="w-4 h-4 rounded-full border-2 border-[#D0D5DD] border-t-[#101828] animate-spin" />
               실제 DB 로그를 조회하고 있습니다.
             </div>
@@ -891,18 +891,18 @@ function SecurityDataMonitoringContent({
               <p className="text-xs font-bold text-[#101828]">
                 데이터를 불러오지 못했습니다.
               </p>
-              <p className="text-[10px] text-[#667085] mt-1">
+              <p className="text-[12px] text-[#667085] mt-1">
                 DB 또는 API 연결 상태를 확인해주세요.
               </p>
               <button
                 onClick={() => void search()}
-                className="mt-3 text-[10px] font-semibold text-white bg-[#101828] hover:bg-[#1D2939] px-3 py-1.5 rounded-lg transition-colors"
+                className="mt-3 text-[12px] font-semibold text-white bg-[#101828] hover:bg-[#1D2939] px-3 py-1.5 rounded-lg transition-colors"
               >
                 다시 시도
               </button>
             </div>
           ) : logs.length === 0 ? (
-            <div className="h-32 flex items-center justify-center text-[11px] text-[#667085]">
+            <div className="h-32 flex items-center justify-center text-[13px] text-[#667085]">
               조건에 해당하는 보안 데이터가 없습니다.
             </div>
           ) : (
@@ -933,7 +933,7 @@ function SecurityDataMonitoringContent({
                     ].map((label) => (
                       <th
                         key={label}
-                        className="px-3 py-2.5 text-[10px] font-semibold text-[#667085]"
+                        className="px-3 py-2.5 text-[12px] font-semibold text-[#667085]"
                       >
                         {label}
                       </th>
@@ -975,8 +975,8 @@ export function ManualMonitoringPage({
   return (
     <div className="min-h-full p-4 space-y-3">
       <div>
-        <p className="text-[18px] font-bold text-[#101828]">수동 모니터링</p>
-        <p className="text-[11px] text-[#667085] mt-0.5">
+        <p className="text-[20px] font-bold text-[#101828]">수동 모니터링</p>
+        <p className="text-[13px] text-[#667085] mt-0.5">
           {activeView === "security"
             ? "WAF, GuardDuty, Inspector의 기간별 보안 데이터를 조회합니다."
             : "메인 대시보드와 동일한 운영 지표의 기간별 추이를 조회합니다."}
@@ -991,7 +991,7 @@ export function ManualMonitoringPage({
           <button
             key={value}
             onClick={() => setActiveView(value as "security" | "operations")}
-            className={`text-[11px] font-semibold px-4 py-2 rounded-lg transition-colors ${
+            className={`text-[13px] font-semibold px-4 py-2 rounded-lg transition-colors ${
               activeView === value
                 ? "bg-[#101828] text-white shadow-sm"
                 : "text-[#475467] hover:bg-[#F2F4F7]"
@@ -1024,13 +1024,13 @@ function InputField({
   placeholder: string
 }) {
   return (
-    <label className="text-[10px] font-semibold text-[#475467]">
+    <label className="text-[12px] font-semibold text-[#475467]">
       {label}
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="block w-full mt-1 text-[11px] font-normal text-[#101828] placeholder:text-[#98A2B3] bg-white border border-[#D0D5DD] rounded-lg px-3 py-2 outline-none focus:border-[#101828]"
+        className="block w-full mt-1 text-[13px] font-normal text-[#101828] placeholder:text-[#98A2B3] bg-white border border-[#D0D5DD] rounded-lg px-3 py-2 outline-none focus:border-[#101828]"
       />
     </label>
   )
@@ -1048,12 +1048,12 @@ function SelectField({
   options: string[][]
 }) {
   return (
-    <label className="text-[10px] font-semibold text-[#475467]">
+    <label className="text-[12px] font-semibold text-[#475467]">
       {label}
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="block w-full mt-1 text-[11px] font-normal text-[#101828] bg-white border border-[#D0D5DD] rounded-lg px-3 py-2 outline-none focus:border-[#101828]"
+        className="block w-full mt-1 text-[13px] font-normal text-[#101828] bg-white border border-[#D0D5DD] rounded-lg px-3 py-2 outline-none focus:border-[#101828]"
       >
         <option value="">전체</option>
         {options.map(([optionValue, optionLabel]) => (
@@ -1083,25 +1083,25 @@ function LogRow({
         onClick={onToggle}
         className="border-b border-[#F2F4F7] hover:bg-[#FAFAFA] cursor-pointer"
       >
-        <td className="px-3 py-2.5 text-[10px] font-mono text-[#475467] whitespace-nowrap">
+        <td className="px-3 py-2.5 text-[12px] font-mono text-[#475467] whitespace-nowrap">
           {formatDetectedAt(log.detectedAt)}
         </td>
-        <td className="px-3 py-2.5 text-[10px] font-semibold text-[#344054]">
+        <td className="px-3 py-2.5 text-[12px] font-semibold text-[#344054]">
           {log.service}
         </td>
-        <td className="px-3 py-2.5 text-[10px] text-[#344054]">
+        <td className="px-3 py-2.5 text-[12px] text-[#344054]">
           {log.scenarioType || "-"}
         </td>
         <td className="px-3 py-2.5">
           <SeverityBadge sev={log.severity} small />
         </td>
-        <td className="px-3 py-2.5 text-[10px] font-mono text-[#475467]">
+        <td className="px-3 py-2.5 text-[12px] font-mono text-[#475467]">
           {log.attackerIp ?? "-"}
         </td>
-        <td className="px-3 py-2.5 text-[10px] text-[#344054]">
+        <td className="px-3 py-2.5 text-[12px] text-[#344054]">
           {log.asset ?? "-"}
         </td>
-        <td className="px-3 py-2.5 text-[10px] text-[#475467]">
+        <td className="px-3 py-2.5 text-[12px] text-[#475467]">
           <span className="inline-flex items-center gap-2">
             {log.status}
             <span

@@ -201,7 +201,7 @@ async function fetchJson<T>(
 
 function DiffView({ diff }: { diff: string }) {
   return (
-    <pre className="max-h-[320px] overflow-auto rounded-lg border border-[#E4E7EC] bg-[#0C111D] p-3 text-[11.5px] leading-relaxed">
+    <pre className="max-h-[320px] overflow-auto rounded-lg border border-[#E4E7EC] bg-[#0C111D] p-3 text-[13.5px] leading-relaxed">
       {diff.split("\n").map((line, i) => {
         let color = "#C2C9D6"
         if (line.startsWith("+") && !line.startsWith("+++")) color = "#6CE9A6"

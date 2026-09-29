@@ -31,7 +31,7 @@ export function ApprovalEventTitle({
   eventId: string
 }) {
   return (
-    <p className="text-[12px] font-bold text-[#101828]">
+    <p className="text-[14px] font-bold text-[#101828]">
       {title
         ? eventDisplayTitle({ title, scenarioType: scenarioType ?? undefined })
         : eventId}
@@ -247,7 +247,7 @@ export function ApprovalRequestList({
     <div className={compact ? "space-y-2" : "space-y-3"}>
       <div className="flex items-center justify-between gap-3 flex-wrap">
         {!compact && (
-          <p className="text-[11px] text-[#667085]">
+          <p className="text-[13px] text-[#667085]">
             관리자가 보낸 수동/자동 조치 요청을 승인하거나 반려합니다.
             {!isApprover && " (현재 계정은 승인자가 아니라 조회만 가능합니다.)"}
           </p>
@@ -263,7 +263,7 @@ export function ApprovalRequestList({
                 setShowHistory(value as boolean)
                 setCheckedIds(new Set())
               }}
-              className={`text-[11px] font-semibold px-3 py-1.5 rounded-lg transition-colors ${
+              className={`text-[13px] font-semibold px-3 py-1.5 rounded-lg transition-colors ${
                 showHistory === value
                   ? "bg-[#101828] text-white shadow-sm"
                   : "text-[#475467] hover:bg-[#F2F4F7]"
@@ -290,7 +290,7 @@ export function ApprovalRequestList({
               }
               className="h-3.5 w-3.5 rounded border-[#D0D5DD] accent-[#111111]"
             />
-            <span className="text-[11px] font-semibold text-[#344054]">
+            <span className="text-[13px] font-semibold text-[#344054]">
               전체 선택 (대기 중 {pendingRequests.length}건)
             </span>
           </label>
@@ -299,14 +299,14 @@ export function ApprovalRequestList({
               <button
                 onClick={bulkApprove}
                 disabled={busy}
-                className="text-[11px] font-bold text-white bg-[#101828] hover:bg-[#1D2939] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
+                className="text-[13px] font-bold text-white bg-[#101828] hover:bg-[#1D2939] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
               >
                 선택한 {checkedIds.size}건 일괄 승인
               </button>
               <button
                 onClick={() => setBulkRejectOpen(true)}
                 disabled={busy}
-                className="text-[11px] font-bold text-[#B42318] bg-white ring-1 ring-[#FECDCA] hover:bg-[#FEF3F2] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
+                className="text-[13px] font-bold text-[#B42318] bg-white ring-1 ring-[#FECDCA] hover:bg-[#FEF3F2] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
               >
                 선택한 {checkedIds.size}건 일괄 반려
               </button>
@@ -322,12 +322,12 @@ export function ApprovalRequestList({
             value={bulkRejectReason}
             onChange={(e) => setBulkRejectReason(e.target.value)}
             placeholder={`반려 사유(선택) - 선택한 ${checkedIds.size}건 전체에 적용됩니다`}
-            className="flex-1 text-[11px] rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 outline-none focus:border-[#101828] bg-white"
+            className="flex-1 text-[13px] rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 outline-none focus:border-[#101828] bg-white"
           />
           <button
             onClick={bulkReject}
             disabled={busy}
-            className="text-[11px] font-bold text-white bg-[#B42318] hover:bg-[#912018] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
+            className="text-[13px] font-bold text-white bg-[#B42318] hover:bg-[#912018] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
           >
             반려 확정
           </button>
@@ -336,7 +336,7 @@ export function ApprovalRequestList({
               setBulkRejectOpen(false)
               setBulkRejectReason("")
             }}
-            className="text-[11px] text-[#475467] hover:bg-[#F2F4F7] rounded-lg px-3 py-1.5 transition-colors"
+            className="text-[13px] text-[#475467] hover:bg-[#F2F4F7] rounded-lg px-3 py-1.5 transition-colors"
           >
             취소
           </button>
@@ -344,7 +344,7 @@ export function ApprovalRequestList({
       )}
 
       {loadError && (
-        <p className="text-[11px] text-[#B42318] bg-[#FEF3F2] ring-1 ring-[#FECDCA] rounded-lg px-3 py-2">
+        <p className="text-[13px] text-[#B42318] bg-[#FEF3F2] ring-1 ring-[#FECDCA] rounded-lg px-3 py-2">
           {loadError}
         </p>
       )}
@@ -382,7 +382,7 @@ export function ApprovalRequestList({
                     <div className="flex items-center gap-1.5 flex-wrap mb-1">
                       {req.eventSeverity && (
                         <span
-                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                          className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${
                             SEVERITY_STYLE[req.eventSeverity] ??
                             "bg-[#F2F4F7] text-[#667085]"
                           }`}
@@ -390,11 +390,11 @@ export function ApprovalRequestList({
                           {req.eventSeverity}
                         </span>
                       )}
-                      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#F2F4F7] text-[#475467]">
+                      <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-[#F2F4F7] text-[#475467]">
                         {req.requestType === "auto" ? "자동 조치" : "수동 조치"}
                       </span>
                       <span
-                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                        className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${
                           req.status === "대기"
                             ? "bg-[#FFFAEB] text-[#B54708]"
                             : req.status === "승인"
@@ -410,12 +410,12 @@ export function ApprovalRequestList({
                       scenarioType={req.eventScenarioType}
                       eventId={req.eventId}
                     />
-                    <p className="text-[10px] text-[#667085] mt-0.5">
+                    <p className="text-[12px] text-[#667085] mt-0.5">
                       {req.eventAsset ?? "-"} · 요청자 {req.requestedBy ?? "-"}{" "}
                       · {req.requestedAt}
                     </p>
                     {req.note && (
-                      <p className="text-[10px] text-[#344054] mt-1 bg-[#F9FAFB] rounded-lg px-2 py-1.5 whitespace-pre-wrap">
+                      <p className="text-[12px] text-[#344054] mt-1 bg-[#F9FAFB] rounded-lg px-2 py-1.5 whitespace-pre-wrap">
                         <span className="font-semibold text-[#667085]">
                           수동 조치 계획
                         </span>{" "}
@@ -423,7 +423,7 @@ export function ApprovalRequestList({
                       </p>
                     )}
                     {req.status !== "대기" && (
-                      <p className="text-[10px] text-[#667085] mt-0.5">
+                      <p className="text-[12px] text-[#667085] mt-0.5">
                         처리자 {req.reviewedBy ?? "-"} · {req.reviewedAt}
                         {req.rejectReason && ` · 사유: ${req.rejectReason}`}
                       </p>
@@ -436,14 +436,14 @@ export function ApprovalRequestList({
                     <button
                       onClick={() => approve(req.id)}
                       disabled={busy}
-                      className="text-[11px] font-bold text-white bg-[#101828] hover:bg-[#1D2939] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
+                      className="text-[13px] font-bold text-white bg-[#101828] hover:bg-[#1D2939] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
                     >
                       승인
                     </button>
                     <button
                       onClick={() => setRejectTargetId(req.id)}
                       disabled={busy}
-                      className="text-[11px] font-bold text-[#B42318] bg-white ring-1 ring-[#FECDCA] hover:bg-[#FEF3F2] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
+                      className="text-[13px] font-bold text-[#B42318] bg-white ring-1 ring-[#FECDCA] hover:bg-[#FEF3F2] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
                     >
                       반려
                     </button>
@@ -454,7 +454,7 @@ export function ApprovalRequestList({
                   <button
                     onClick={() => complete(req.id)}
                     disabled={busy}
-                    className="text-[11px] font-bold text-white bg-[#067647] hover:bg-[#05603A] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors flex-shrink-0"
+                    className="text-[13px] font-bold text-white bg-[#067647] hover:bg-[#05603A] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors flex-shrink-0"
                   >
                     수동 조치 완료 처리
                   </button>
@@ -468,12 +468,12 @@ export function ApprovalRequestList({
                     value={rejectReason}
                     onChange={(e) => setRejectReason(e.target.value)}
                     placeholder="반려 사유(선택)"
-                    className="flex-1 text-[11px] rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 outline-none focus:border-[#101828]"
+                    className="flex-1 text-[13px] rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 outline-none focus:border-[#101828]"
                   />
                   <button
                     onClick={() => reject(req.id)}
                     disabled={busy}
-                    className="text-[11px] font-bold text-white bg-[#B42318] hover:bg-[#912018] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
+                    className="text-[13px] font-bold text-white bg-[#B42318] hover:bg-[#912018] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
                   >
                     반려 확정
                   </button>
@@ -482,7 +482,7 @@ export function ApprovalRequestList({
                       setRejectTargetId(null)
                       setRejectReason("")
                     }}
-                    className="text-[11px] text-[#475467] hover:bg-[#F2F4F7] rounded-lg px-3 py-1.5 transition-colors"
+                    className="text-[13px] text-[#475467] hover:bg-[#F2F4F7] rounded-lg px-3 py-1.5 transition-colors"
                   >
                     취소
                   </button>
@@ -536,7 +536,7 @@ export function ApprovalQueuePage({
   return (
     <div className="min-h-full p-4 space-y-3">
       <div>
-        <p className="text-[18px] font-bold text-[#101828]">승인 관리</p>
+        <p className="text-[20px] font-bold text-[#101828]">승인 관리</p>
       </div>
       <ApprovalRequestList role={role} onUnauthorized={onUnauthorized} />
       <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 text-xs space-y-2">

@@ -156,20 +156,20 @@ function ActionCard({
             />
             <SeverityBadge sev={ev.severity} small />
             {ev.autoRemediation && (
-              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#F5F5F5] text-[#111111]">
+              <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-[#F5F5F5] text-[#111111]">
                 자동 조치 가능
               </span>
             )}
             {(ev.occurrenceCount ?? 1) > 1 && (
               <span
-                className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#FEF0C7] text-[#B54708]"
+                className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-[#FEF0C7] text-[#B54708]"
                 title="같은 종류로 반복 감지된 것을 최신 1건으로 합쳐서 보여주고 있어요"
               >
                 {ev.occurrenceCount}번 반복 감지
               </span>
             )}
           </div>
-          <span className="text-[10px] text-[#6B6B6B] whitespace-nowrap">
+          <span className="text-[12px] text-[#6B6B6B] whitespace-nowrap">
             미조치 {ev.elapsed}
           </span>
         </div>
@@ -177,12 +177,12 @@ function ActionCard({
           {eventDisplayTitle(ev)}
         </p>
         <div className="flex items-center gap-2 mb-1 flex-wrap">
-          <span className="text-[10px] text-[#111111] font-medium">
+          <span className="text-[12px] text-[#111111] font-medium">
             {ev.service}
           </span>
-          <span className="text-[10px] text-[#6B6B6B]">{ev.asset}</span>
+          <span className="text-[12px] text-[#6B6B6B]">{ev.asset}</span>
         </div>
-        <p className="text-[10px] text-[#6B6B6B]">
+        <p className="text-[12px] text-[#6B6B6B]">
           {ev.detectedAt} ·{" "}
           <span className="text-[#F79009] font-semibold">{ev.status}</span>
         </p>
@@ -335,7 +335,7 @@ function RightPanel({
   if (role === "승인자") {
     return (
       <div className="flex flex-col min-h-full p-3">
-        <p className="text-[11px] font-bold text-[#101828] mb-2">
+        <p className="text-[13px] font-bold text-[#101828] mb-2">
           승인 대기 목록
         </p>
         <ApprovalRequestList role={role} onUnauthorized={onUnauthorized} />
@@ -371,7 +371,7 @@ function RightPanel({
               {t.label}
               {t.count !== undefined && (
                 <span
-                  className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                  className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${
                     tab === t.key
                       ? "bg-[#D92D20] text-white"
                       : "bg-[#D0D5DD] text-white"
@@ -390,19 +390,19 @@ function RightPanel({
         <div className="p-3">
           {checkedIds.size > 0 && (
             <div className="flex items-center justify-between gap-2 mb-2.5 rounded-lg bg-[#F2F4F7] px-2.5 py-1.5">
-              <span className="text-[11px] font-medium text-[#344054]">
+              <span className="text-[13px] font-medium text-[#344054]">
                 {checkedIds.size}개 선택됨
               </span>
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setCheckedIds(new Set())}
-                  className="text-[10px] text-[#6B6B6B] hover:text-[#111111] px-2 py-1"
+                  className="text-[12px] text-[#6B6B6B] hover:text-[#111111] px-2 py-1"
                 >
                   선택 해제
                 </button>
                 <button
                   onClick={handleBulkExcept}
-                  className="text-[11px] font-semibold text-white bg-[#111111] hover:bg-[#262626] px-2.5 py-1.5 rounded-lg transition-colors"
+                  className="text-[13px] font-semibold text-white bg-[#111111] hover:bg-[#262626] px-2.5 py-1.5 rounded-lg transition-colors"
                 >
                   선택 항목 일괄 예외 처리
                 </button>
@@ -432,7 +432,7 @@ function RightPanel({
               ].map(({ label, items, sortKey, setSortKey }) => (
                 <div key={label}>
                   <div className="flex items-center justify-between gap-2 mb-1.5">
-                    <p className="text-[11px] font-bold text-[#344054]">
+                    <p className="text-[13px] font-bold text-[#344054]">
                       {label} ({items.length})
                     </p>
                     <div className="inline-flex rounded-lg border border-[#D0D5DD] bg-white p-0.5">
@@ -440,7 +440,7 @@ function RightPanel({
                         <button
                           key={key}
                           onClick={() => setSortKey(key)}
-                          className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-colors ${
+                          className={`text-[12px] font-semibold px-2 py-1 rounded-md transition-colors ${
                             sortKey === key
                               ? "bg-[#101828] text-white"
                               : "text-[#667085] hover:text-[#101828]"
@@ -453,7 +453,7 @@ function RightPanel({
                   </div>
                   {items.length === 0 ? (
                     <div className="flex items-center justify-center h-16 text-[#98A2B3]">
-                      <p className="text-[11px] font-medium">항목 없음</p>
+                      <p className="text-[13px] font-medium">항목 없음</p>
                     </div>
                   ) : (
                     <div
@@ -510,14 +510,14 @@ function RightPanel({
                   disabled={requestableEvents.length === 0}
                   className="h-3.5 w-3.5 rounded border-[#D0D5DD] accent-[#111111]"
                 />
-                <p className="text-[11px] font-bold text-[#101828]">
+                <p className="text-[13px] font-bold text-[#101828]">
                   요청 대기 중인 항목 ({requestableEvents.length}) · 전체 선택
                 </p>
               </label>
               {requestCheckedIds.size > 0 && (
                 <button
                   onClick={handleBulkRequest}
-                  className="text-[11px] font-bold text-white bg-[#111111] hover:bg-[#262626] rounded-lg px-2.5 py-1.5"
+                  className="text-[13px] font-bold text-white bg-[#111111] hover:bg-[#262626] rounded-lg px-2.5 py-1.5"
                 >
                   선택한 {requestCheckedIds.size}건 승인 요청 보내기
                 </button>
@@ -543,7 +543,7 @@ function RightPanel({
                       className="h-3.5 w-3.5 rounded border-[#D0D5DD] accent-[#111111]"
                     />
                     <SeverityBadge sev={ev.severity} small />
-                    <span className="text-[11px] font-semibold text-[#101828] flex-1 truncate">
+                    <span className="text-[13px] font-semibold text-[#101828] flex-1 truncate">
                       {eventDisplayTitle(ev)}
                     </span>
                     <button
@@ -552,7 +552,7 @@ function RightPanel({
                         e.stopPropagation()
                         onApprove(ev)
                       }}
-                      className="text-[10px] font-bold text-[#475467] hover:text-[#101828] flex-shrink-0"
+                      className="text-[12px] font-bold text-[#475467] hover:text-[#101828] flex-shrink-0"
                     >
                       개별 요청
                     </button>
@@ -563,7 +563,7 @@ function RightPanel({
           </div>
 
           <div className="pt-3 border-t border-[#EAECF0]">
-            <p className="text-[11px] font-bold text-[#101828] mb-2">
+            <p className="text-[13px] font-bold text-[#101828] mb-2">
               보낸 요청 현황
             </p>
             <ApprovalRequestList
@@ -583,7 +583,12 @@ function RightPanel({
               <div
                 key={r.id}
                 onClick={() => onSelectEvent(remediationToEvent(r))}
-                className="rounded-xl border border-[#EAECF0] bg-white p-3 cursor-pointer hover:bg-[#FAFAFA] transition-colors"
+                aria-selected={selectedEvent?.id === remediationToEvent(r).id}
+                className={`rounded-xl border p-3 cursor-pointer transition-all active:scale-[0.98] active:bg-[#F2F4F7] ${
+                  selectedEvent?.id === remediationToEvent(r).id
+                    ? "border-[#101828] ring-2 ring-[#101828]/10 shadow-sm bg-white"
+                    : "border-[#EAECF0] bg-white hover:bg-[#FAFAFA]"
+                }`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-bold text-[#0D0D0D]">
@@ -595,31 +600,31 @@ function RightPanel({
                   <div className="flex items-center gap-1 flex-shrink-0">
                     {(r.occurrenceCount ?? 1) > 1 && (
                       <span
-                        className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#FEF0C7] text-[#B54708]"
+                        className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-[#FEF0C7] text-[#B54708]"
                         title="같은 종류로 반복된 조치를 최신 1건으로 합쳐서 보여주고 있어요"
                       >
                         {r.occurrenceCount}건
                       </span>
                     )}
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#16A34A] text-white">
+                    <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-[#16A34A] text-white">
                       {r.result}
                     </span>
                   </div>
                 </div>
-                <p className="text-[10px] text-[#6B6B6B] mt-1">{r.asset}</p>
+                <p className="text-[12px] text-[#6B6B6B] mt-1">{r.asset}</p>
                 <div className="flex flex-wrap gap-1 mt-1.5">
                   {r.ip && (
-                    <span className="text-[10px] font-mono bg-[#FEF3F2] text-[#B42318] rounded px-1.5 py-0.5">
+                    <span className="text-[12px] font-mono bg-[#FEF3F2] text-[#B42318] rounded px-1.5 py-0.5">
                       {r.ip}
                     </span>
                   )}
-                  <span className="text-[10px] bg-[#F2F4F7] text-[#475467] rounded px-1.5 py-0.5">
+                  <span className="text-[12px] bg-[#F2F4F7] text-[#475467] rounded px-1.5 py-0.5">
                     {r.method} 조치
                   </span>
-                  <span className="text-[10px] bg-[#F2F4F7] text-[#475467] rounded px-1.5 py-0.5">
+                  <span className="text-[12px] bg-[#F2F4F7] text-[#475467] rounded px-1.5 py-0.5">
                     승인 {r.approver}
                   </span>
-                  <span className="text-[10px] bg-[#F2F4F7] text-[#475467] rounded px-1.5 py-0.5 font-mono">
+                  <span className="text-[12px] bg-[#F2F4F7] text-[#475467] rounded px-1.5 py-0.5 font-mono">
                     {r.completedAt}
                   </span>
                 </div>
@@ -637,7 +642,7 @@ function RightPanel({
               <button
                 key={f}
                 onClick={() => setDetectFilter(f)}
-                className={`text-[10px] font-medium px-2 py-1 rounded-full transition-colors ${
+                className={`text-[12px] font-medium px-2 py-1 rounded-full transition-colors ${
                   detectFilter === f
                     ? "bg-[#111111] text-white"
                     : "bg-[#F5F5F5] text-[#6B6B6B] hover:bg-[#E0E0E0]"
@@ -654,7 +659,7 @@ function RightPanel({
                   {["시각", "등급", "이벤트", "IP", "차단", "상태"].map((h) => (
                     <th
                       key={h}
-                      className="py-2 px-2 text-[10px] font-semibold text-[#6B6B6B] whitespace-nowrap"
+                      className="py-2 px-2 text-[12px] font-semibold text-[#6B6B6B] whitespace-nowrap"
                     >
                       {h}
                     </th>
@@ -670,26 +675,31 @@ function RightPanel({
                     <tr
                       key={d.id}
                       onClick={() => onSelectEvent(detectHistoryToEvent(d))}
-                      className="border-b border-[#F5F5F5] hover:bg-[#FAFAFA] cursor-pointer"
+                      aria-selected={selectedEvent?.id === d.id}
+                      className={`border-b cursor-pointer transition-colors active:bg-[#EAECF0] ${
+                        selectedEvent?.id === d.id
+                          ? "border-l-2 border-l-[#101828] bg-[#F2F4F7] border-b-[#EAECF0]"
+                          : "border-[#F5F5F5] hover:bg-[#FAFAFA]"
+                      }`}
                     >
-                      <td className="py-1.5 px-2 text-[10px] font-mono text-[#6B6B6B]">
+                      <td className="py-1.5 px-2 text-[12px] font-mono text-[#6B6B6B]">
                         {d.time}
                       </td>
                       <td className="py-1.5 px-2">
                         <SeverityBadge sev={d.sev} small />
                       </td>
-                      <td className="py-1.5 px-2 text-[10px] text-[#0D0D0D] max-w-[100px] truncate">
+                      <td className="py-1.5 px-2 text-[12px] text-[#0D0D0D] max-w-[100px] truncate">
                         {eventDisplayTitle({
                           title: d.event,
                           scenarioType: d.scenarioType,
                         })}
                       </td>
-                      <td className="py-1.5 px-2 text-[10px] font-mono text-[#475467] whitespace-nowrap">
+                      <td className="py-1.5 px-2 text-[12px] font-mono text-[#475467] whitespace-nowrap">
                         {d.ip}
                       </td>
                       <td className="py-1.5 px-2">
                         <span
-                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white ${
+                          className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full text-white ${
                             d.blocked === "차단"
                               ? "bg-[#16A34A]"
                               : d.blocked === "부분"
@@ -700,7 +710,7 @@ function RightPanel({
                           {d.blocked}
                         </span>
                       </td>
-                      <td className="py-1.5 px-2 text-[10px] text-[#6B6B6B]">
+                      <td className="py-1.5 px-2 text-[12px] text-[#6B6B6B]">
                         {d.status}
                       </td>
                     </tr>
@@ -856,17 +866,17 @@ function SecurityChatbot({
           </svg>
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[11px] font-bold text-[#0D0D0D] leading-tight">
+          <p className="text-[13px] font-bold text-[#0D0D0D] leading-tight">
             보안 분석 어시스턴트
           </p>
           <div className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-[#16A34A]" />
-            <span className="text-[9px] text-[#6B6B6B]">온라인</span>
+            <span className="text-[11px] text-[#6B6B6B]">온라인</span>
           </div>
         </div>
         <button
           onClick={handleClear}
-          className="text-[10px] text-[#6B6B6B] hover:text-[#0D0D0D] px-1.5 py-1 rounded border border-[#E0E0E0] hover:bg-white transition-colors"
+          className="text-[12px] text-[#6B6B6B] hover:text-[#0D0D0D] px-1.5 py-1 rounded border border-[#E0E0E0] hover:bg-white transition-colors"
         >
           새 대화
         </button>
@@ -895,14 +905,14 @@ function SecurityChatbot({
       {selectedEvent && (
         <div className="px-3 py-1.5 bg-[#F5F5F5] border-b border-[#D4D4D4] flex-shrink-0">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[9px] font-bold text-[#111111]">
+            <span className="text-[11px] font-bold text-[#111111]">
               컨텍스트:
             </span>
-            <span className="text-[9px] bg-white border border-[#A3A3A3] text-[#111111] px-1.5 py-0.5 rounded-full font-medium">
+            <span className="text-[11px] bg-white border border-[#A3A3A3] text-[#111111] px-1.5 py-0.5 rounded-full font-medium">
               {eventDisplayTitle(selectedEvent)}
             </span>
             <SeverityBadge sev={selectedEvent.severity} small />
-            <span className="text-[9px] text-[#111111]">
+            <span className="text-[11px] text-[#111111]">
               {selectedEvent.service}
             </span>
           </div>
@@ -913,7 +923,7 @@ function SecurityChatbot({
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
         {messages.length === 0 && (
           <div className="text-center py-3">
-            <p className="text-[10px] text-[#6B6B6B] leading-relaxed mb-3">
+            <p className="text-[12px] text-[#6B6B6B] leading-relaxed mb-3">
               탐지된 이벤트, 원본 로그 또는 권장 조치에 대해 질문해 보세요.
             </p>
             <div className="grid grid-cols-2 gap-1.5">
@@ -921,7 +931,7 @@ function SecurityChatbot({
                 <button
                   key={q}
                   onClick={() => void sendMessage(q)}
-                  className="text-[10px] text-[#111111] bg-[#F5F5F5] hover:bg-[#E0E0E0] border border-[#D4D4D4] px-2 py-1.5 rounded-lg text-left transition-colors leading-tight"
+                  className="text-[12px] text-[#111111] bg-[#F5F5F5] hover:bg-[#E0E0E0] border border-[#D4D4D4] px-2 py-1.5 rounded-lg text-left transition-colors leading-tight"
                 >
                   {q}
                 </button>
@@ -932,7 +942,7 @@ function SecurityChatbot({
         {sending && (
           <div className="flex justify-start">
             <div className="bg-[#F5F5F5] text-[#667085] rounded-2xl rounded-tl-sm px-3 py-2">
-              <p className="text-[11px]">분석 중...</p>
+              <p className="text-[13px]">분석 중...</p>
             </div>
           </div>
         )}
@@ -950,14 +960,14 @@ function SecurityChatbot({
                   : "bg-[#F5F5F5] text-[#0D0D0D] rounded-2xl rounded-tl-sm px-3 py-2"
               }`}
             >
-              <p className="text-[11px] leading-relaxed">{msg.text}</p>
+              <p className="text-[13px] leading-relaxed">{msg.text}</p>
               {msg.actions && msg.actions.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
                   {msg.actions.map((a) => (
                     <button
                       key={a}
                       onClick={() => handleActionBtn(a)}
-                      className="text-[9px] font-medium bg-white text-[#111111] border border-[#D4D4D4] px-1.5 py-0.5 rounded-full hover:bg-[#F5F5F5] transition-colors"
+                      className="text-[11px] font-medium bg-white text-[#111111] border border-[#D4D4D4] px-1.5 py-0.5 rounded-full hover:bg-[#F5F5F5] transition-colors"
                     >
                       {a}
                     </button>
@@ -983,12 +993,12 @@ function SecurityChatbot({
             }}
             disabled={sending}
             placeholder="보안 이벤트 또는 로그에 대해 질문하세요"
-            className="flex-1 text-[11px] border border-[#E0E0E0] rounded-lg px-2.5 py-1.5 outline-none focus:border-[#111111] bg-white disabled:bg-[#F2F4F7]"
+            className="flex-1 text-[13px] border border-[#E0E0E0] rounded-lg px-2.5 py-1.5 outline-none focus:border-[#111111] bg-white disabled:bg-[#F2F4F7]"
           />
           <button
             onClick={() => void sendMessage(input)}
             disabled={sending}
-            className="text-[11px] font-bold text-white bg-[#111111] hover:bg-[#262626] px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="text-[13px] font-bold text-white bg-[#111111] hover:bg-[#262626] px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {sending ? "분석 중" : "전송"}
           </button>
@@ -1013,7 +1023,7 @@ function CardArrow({ onOpen }: { onOpen: () => void }) {
       }}
       aria-label="상세 페이지 열기"
       title="상세 페이지 열기"
-      className="flex-shrink-0 flex items-center gap-0.5 text-[11px] font-semibold text-[#667085] hover:text-[#101828] bg-[#F2F4F7] hover:bg-[#E4E7EC] rounded-full pl-1.5 pr-1 py-0.5 transition-colors"
+      className="flex-shrink-0 flex items-center gap-0.5 text-[13px] font-semibold text-[#667085] hover:text-[#101828] bg-[#F2F4F7] hover:bg-[#E4E7EC] rounded-full pl-1.5 pr-1 py-0.5 transition-colors"
     >
       상세
       <svg
@@ -1073,7 +1083,7 @@ function CardShell({
 function CardHeader({ title, onOpen }: { title: string; onOpen: () => void }) {
   return (
     <div className="flex items-start justify-between gap-1 px-3 pt-3.5">
-      <p className="text-[12px] font-bold text-[#0D0D0D] leading-tight">
+      <p className="text-[14px] font-bold text-[#0D0D0D] leading-tight">
         {title}
       </p>
       <CardArrow onOpen={onOpen} />
@@ -1084,7 +1094,7 @@ function CardHeader({ title, onOpen }: { title: string; onOpen: () => void }) {
 function StatusBadge({ label, color }: { label: string; color: string }) {
   return (
     <span
-      className="inline-block w-fit text-[10px] font-bold px-2 py-0.5 rounded-full text-white"
+      className="inline-block w-fit text-[12px] font-bold px-2 py-0.5 rounded-full text-white"
       style={{ backgroundColor: color }}
     >
       {label}
@@ -1115,9 +1125,9 @@ function EventCard({ card, isSelected, isMuted, onClick, onOpen }: CardProps) {
       <CardHeader title={card.title} onOpen={onOpen} />
       <div className="px-3 pb-3 flex-1 flex flex-col justify-center gap-1.5">
         <StatusBadge label={isSql ? "차단됨" : "정상 방어"} color={accent} />
-        <p className="text-[26px] font-bold text-[#0D0D0D] leading-none">
+        <p className="text-[28px] font-bold text-[#0D0D0D] leading-none">
           <span style={{ color: accent }}>{isSql ? 3 : 0}</span>
-          <span className="text-[12px] font-medium text-[#667085] ml-1">
+          <span className="text-[14px] font-medium text-[#667085] ml-1">
             건 차단
           </span>
         </p>
@@ -1150,9 +1160,9 @@ function TrafficCard({
         <DonutGauge pct={pct} color={accent} size={64} />
         <div className="min-w-0">
           <StatusBadge label={isDir ? "주의" : "차단 중"} color={accent} />
-          <p className="mt-1 text-[16px] font-bold text-[#0D0D0D] leading-none">
+          <p className="mt-1 text-[18px] font-bold text-[#0D0D0D] leading-none">
             {isDir ? 120 : 50}
-            <span className="text-[11px] font-normal text-[#667085]">
+            <span className="text-[13px] font-normal text-[#667085]">
               {" "}
               / {isDir ? 150 : 50}
             </span>
@@ -1184,11 +1194,11 @@ function AnomalyCard({
       <div className="px-3 pb-3 flex-1 flex flex-col justify-center gap-1.5">
         <StatusBadge label="이상행위 탐지" color={accent} />
         <p
-          className="text-[26px] font-bold leading-none"
+          className="text-[28px] font-bold leading-none"
           style={{ color: accent }}
         >
           1
-          <span className="text-[12px] font-medium text-[#667085] ml-1">
+          <span className="text-[14px] font-medium text-[#667085] ml-1">
             건 탐지
           </span>
         </p>
@@ -1213,20 +1223,20 @@ function VulnCard({ card, isSelected, isMuted, onClick, onOpen }: CardProps) {
       style={cardBase(isSelected, isMuted, "#101828")}
     >
       <div className="flex items-center gap-5 px-4 py-2.5">
-        <p className="text-[12px] font-bold text-[#0D0D0D] whitespace-nowrap">
+        <p className="text-[14px] font-bold text-[#0D0D0D] whitespace-nowrap">
           {card.title}
         </p>
         <div className="flex items-center gap-4 flex-shrink-0">
           {counts.map((c) => (
             <div key={c.label} className="flex items-baseline gap-1">
               <span
-                className="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white"
+                className="text-[12px] font-bold px-1.5 py-0.5 rounded-full text-white"
                 style={{ backgroundColor: c.color }}
               >
                 {c.label}
               </span>
               <span
-                className="text-[18px] font-bold leading-none"
+                className="text-[20px] font-bold leading-none"
                 style={{ color: c.color }}
               >
                 {c.count}
@@ -1334,7 +1344,7 @@ function DashboardDataStatus({
             ? "데이터를 불러오는 중입니다."
             : "데이터를 불러오지 못했습니다."}
         </p>
-        <p className="text-[10px] text-[#667085] mt-0.5">
+        <p className="text-[12px] text-[#667085] mt-0.5">
           {isLoading
             ? "연결이 완료되면 실제 DB 데이터가 표시됩니다."
             : "DB 또는 API 연결 상태를 확인해주세요. 화면은 빈 데이터 상태로 표시됩니다."}
@@ -1343,7 +1353,7 @@ function DashboardDataStatus({
       {!isLoading && (
         <button
           onClick={onRetry}
-          className="ml-auto flex-shrink-0 text-[10px] font-semibold text-white bg-[#101828] hover:bg-[#1D2939] px-3 py-1.5 rounded-lg transition-colors"
+          className="ml-auto flex-shrink-0 text-[12px] font-semibold text-white bg-[#101828] hover:bg-[#1D2939] px-3 py-1.5 rounded-lg transition-colors"
         >
           다시 시도
         </button>
@@ -1354,7 +1364,7 @@ function DashboardDataStatus({
 
 function Sparkline({ values, color }: { values: number[]; color: string }) {
   if (values.length < 2) {
-    return <span className="text-[9px] text-[#98A2B3]">최근 추이 없음</span>
+    return <span className="text-[11px] text-[#98A2B3]">최근 추이 없음</span>
   }
 
   const width = 160
@@ -1410,21 +1420,21 @@ function OverviewMetricCard({
   return (
     <div className="h-full min-w-0 rounded-xl border border-[#EAECF0] bg-white p-3 flex flex-col overflow-hidden">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-bold text-[#101828] truncate">{title}</p>
-        <span className="text-[8px] text-[#98A2B3] whitespace-nowrap">
+        <p className="text-[13px] font-bold text-[#101828] truncate">{title}</p>
+        <span className="text-[10px] text-[#98A2B3] whitespace-nowrap">
           최근 추이
         </span>
       </div>
       <div className="mt-1 min-w-0">
         {hasValue ? (
           <p className="leading-tight whitespace-nowrap">
-            <span className="text-[23px] font-bold" style={{ color }}>
+            <span className="text-[25px] font-bold" style={{ color }}>
               {metric.current!.toFixed(decimals)}
             </span>
             <span className="text-xs text-[#667085] ml-1">{unit}</span>
           </p>
         ) : (
-          <p className="text-[12px] font-bold text-[#98A2B3] leading-7 whitespace-nowrap">
+          <p className="text-[14px] font-bold text-[#98A2B3] leading-7 whitespace-nowrap">
             {waiting ? "수집 대기 중" : "데이터 없음"}
           </p>
         )}
@@ -1454,31 +1464,31 @@ function HealthMetricCard({
   return (
     <div className="h-full min-w-0 rounded-xl border border-[#EAECF0] bg-white p-3 flex flex-col overflow-hidden">
       <div className="min-w-0">
-        <p className="text-[11px] font-bold text-[#101828]">서비스 상태</p>
+        <p className="text-[13px] font-bold text-[#101828]">서비스 상태</p>
         {status ? (
           <p
-            className="text-[23px] font-bold leading-tight mt-1"
+            className="text-[25px] font-bold leading-tight mt-1"
             style={{ color: colors[status] }}
           >
             {labels[status]}
           </p>
         ) : (
-          <p className="text-[12px] font-bold text-[#98A2B3] leading-6 whitespace-nowrap">
+          <p className="text-[14px] font-bold text-[#98A2B3] leading-6 whitespace-nowrap">
             {waiting ? "수집 대기 중" : "데이터 없음"}
           </p>
         )}
       </div>
       {status && (
-        <div className="mt-auto grid grid-cols-2 gap-1.5 text-[9px] text-[#667085] whitespace-nowrap">
+        <div className="mt-auto grid grid-cols-2 gap-1.5 text-[11px] text-[#667085] whitespace-nowrap">
           <div className="rounded-lg bg-[#F2F4F7] px-2 py-1.5">
             <p className="text-[#98A2B3]">Healthy</p>
-            <p className="text-[13px] font-bold text-[#16A34A]">
+            <p className="text-[15px] font-bold text-[#16A34A]">
               {metric?.healthy ?? "-"}
             </p>
           </div>
           <div className="rounded-lg bg-[#F2F4F7] px-2 py-1.5">
             <p className="text-[#98A2B3]">Unhealthy</p>
-            <p className="text-[13px] font-bold text-[#D92D20]">
+            <p className="text-[15px] font-bold text-[#D92D20]">
               {metric?.unhealthy ?? "-"}
             </p>
           </div>
@@ -2166,7 +2176,7 @@ export default function App() {
 
   if (authState === "loading") {
     return (
-      <div className="min-h-screen bg-[#F6F7F9] flex items-center justify-center text-[12px] text-[#667085]">
+      <div className="min-h-screen bg-[#F6F7F9] flex items-center justify-center text-[14px] text-[#667085]">
         로그인 상태 확인 중...
       </div>
     )
@@ -2201,10 +2211,10 @@ export default function App() {
               </svg>
             </div>
             <div>
-              <p className="text-[11px] font-bold text-[#111111] leading-tight">
+              <p className="text-[13px] font-bold text-[#111111] leading-tight">
                 AWS Security Monitoring Center
               </p>
-              <p className="text-[9px] text-[#6B6B6B] leading-tight">
+              <p className="text-[11px] text-[#6B6B6B] leading-tight">
                 통합 보안관제
               </p>
             </div>
@@ -2225,7 +2235,7 @@ export default function App() {
               }`}
             />
             <span
-              className="text-[11px] font-semibold"
+              className="text-[13px] font-semibold"
               style={{
                 color:
                   dashboardDataState === "error"
@@ -2253,12 +2263,12 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-4 text-xs text-[#6B6B6B]">
-          <span className="font-mono text-[11px] text-[#0D0D0D]">
+          <span className="font-mono text-[13px] text-[#0D0D0D]">
             {fmt(now)}
           </span>
           <button
             onClick={toggleAutoRefresh}
-            className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${
+            className={`text-[13px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${
               autoRefresh
                 ? "border-[#111111] text-[#111111] bg-[#F5F5F5]"
                 : "border-[#E0E0E0] text-[#6B6B6B]"
@@ -2273,7 +2283,7 @@ export default function App() {
             }}
             title="지금 새로고침"
             aria-label="지금 새로고침"
-            className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-[#E0E0E0] text-[#6B6B6B] hover:bg-[#FAFAFA] transition-colors"
+            className="text-[13px] font-semibold px-2.5 py-1 rounded-full border border-[#E0E0E0] text-[#6B6B6B] hover:bg-[#FAFAFA] transition-colors"
           >
             ⟳ 새로고침
           </button>
@@ -2299,7 +2309,7 @@ export default function App() {
                 <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
               </svg>
               {unreadNotificationCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-[#D92D20] text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-[#D92D20] text-white text-[11px] font-bold rounded-full flex items-center justify-center">
                   {unreadNotificationCount > 99
                     ? "99+"
                     : unreadNotificationCount}
@@ -2311,9 +2321,9 @@ export default function App() {
               <div className="absolute right-0 top-[calc(100%+10px)] z-[100] w-[360px] overflow-hidden rounded-xl border border-[#E4E7EC] bg-white shadow-[0_18px_48px_rgba(16,24,40,0.18)]">
                 <div className="flex items-center justify-between border-b border-[#EAECF0] px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <p className="text-[13px] font-bold text-[#101828]">알림</p>
+                    <p className="text-[15px] font-bold text-[#101828]">알림</p>
                     {unreadNotificationCount > 0 && (
-                      <span className="rounded-full bg-[#FEE4E2] px-1.5 py-0.5 text-[9px] font-bold text-[#B42318]">
+                      <span className="rounded-full bg-[#FEE4E2] px-1.5 py-0.5 text-[11px] font-bold text-[#B42318]">
                         안 읽음 {unreadNotificationCount}
                       </span>
                     )}
@@ -2321,7 +2331,7 @@ export default function App() {
                   <button
                     onClick={markAllNotificationsRead}
                     disabled={unreadNotificationCount === 0}
-                    className="text-[10px] font-semibold text-[#475467] hover:text-[#101828] disabled:cursor-default disabled:text-[#D0D5DD]"
+                    className="text-[12px] font-semibold text-[#475467] hover:text-[#101828] disabled:cursor-default disabled:text-[#D0D5DD]"
                   >
                     모두 읽음
                   </button>
@@ -2330,10 +2340,10 @@ export default function App() {
                 <div className="max-h-[420px] overflow-y-auto">
                   {notifications.length === 0 ? (
                     <div className="px-4 py-10 text-center">
-                      <p className="text-[12px] font-semibold text-[#667085]">
+                      <p className="text-[14px] font-semibold text-[#667085]">
                         새로운 보안 이벤트 알림이 없습니다.
                       </p>
-                      <p className="mt-1 text-[10px] text-[#98A2B3]">
+                      <p className="mt-1 text-[12px] text-[#98A2B3]">
                         다음 조회에서 새 event.id가 확인되면 표시됩니다.
                       </p>
                     </div>
@@ -2367,25 +2377,25 @@ export default function App() {
                           )}
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <p className="truncate text-[11px] font-bold text-[#101828]">
+                              <p className="truncate text-[13px] font-bold text-[#101828]">
                                 <span className={severityColor}>
                                   [{event.severity.toUpperCase()}]
                                 </span>{" "}
                                 {eventDisplayTitle(event)}
                               </p>
-                              <p className="mt-1 text-[10px] font-semibold text-[#475467]">
+                              <p className="mt-1 text-[12px] font-semibold text-[#475467]">
                                 {event.service}
                               </p>
-                              <p className="mt-0.5 truncate text-[10px] text-[#667085]">
+                              <p className="mt-0.5 truncate text-[12px] text-[#667085]">
                                 대상: {event.asset || "-"}
                               </p>
                               {event.scenarioType && (
-                                <p className="mt-0.5 truncate text-[9px] text-[#98A2B3]">
+                                <p className="mt-0.5 truncate text-[11px] text-[#98A2B3]">
                                   유형: {event.scenarioType}
                                 </p>
                               )}
                             </div>
-                            <span className="flex-shrink-0 font-mono text-[9px] text-[#98A2B3]">
+                            <span className="flex-shrink-0 font-mono text-[11px] text-[#98A2B3]">
                               {time}
                             </span>
                           </div>
@@ -2401,14 +2411,14 @@ export default function App() {
           {/* Profile */}
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-2 hover:bg-[#F5F5F5] rounded-lg px-2 py-1 transition-colors">
-              <div className="w-7 h-7 rounded-full bg-[#111111] flex items-center justify-center text-white text-[11px] font-bold">
+              <div className="w-7 h-7 rounded-full bg-[#111111] flex items-center justify-center text-white text-[13px] font-bold">
                 관
               </div>
               <div>
-                <p className="text-[11px] font-semibold text-[#0D0D0D] leading-tight">
+                <p className="text-[13px] font-semibold text-[#0D0D0D] leading-tight">
                   {authUser?.team || "보안관제팀"}
                 </p>
-                <p className="text-[9px] text-[#6B6B6B] leading-tight">
+                <p className="text-[11px] text-[#6B6B6B] leading-tight">
                   {authUser?.username || "관리자"} ·{" "}
                   {authUser?.role || "관리자"}
                 </p>
@@ -2416,7 +2426,7 @@ export default function App() {
             </div>
             <button
               onClick={() => void handleLogout()}
-              className="text-[10px] text-[#98A2B3] hover:text-[#344054] transition-colors"
+              className="text-[12px] text-[#98A2B3] hover:text-[#344054] transition-colors"
             >
               로그아웃
             </button>
@@ -2428,7 +2438,7 @@ export default function App() {
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* ── Left navigation ─────────────────────────────────────────── */}
         <nav className="w-[176px] flex-shrink-0 bg-white border-r border-[#E4E7EC] px-2.5 py-3 flex flex-col gap-1.5">
-          <p className="px-2.5 pb-1 text-[9px] font-bold tracking-[0.12em] text-[#98A2B3] uppercase">
+          <p className="px-2.5 pb-1 text-[11px] font-bold tracking-[0.12em] text-[#98A2B3] uppercase">
             Navigation
           </p>
 
@@ -2571,12 +2581,12 @@ export default function App() {
                 }`}
               >
                 <span className="flex-shrink-0">{item.icon}</span>
-                <span className="text-[11px] font-semibold flex-1">
+                <span className="text-[13px] font-semibold flex-1">
                   {item.label}
                 </span>
                 {item.badge !== undefined && item.badge > 0 && (
                   <span
-                    className={`min-w-[20px] h-5 px-1.5 rounded-full text-[9px] font-bold flex items-center justify-center ${
+                    className={`min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center ${
                       selected
                         ? "bg-white text-[#D92D20]"
                         : "bg-[#FEE4E2] text-[#D92D20]"
@@ -2596,11 +2606,11 @@ export default function App() {
                   autoRefresh ? "bg-[#16A34A]" : "bg-[#98A2B3]"
                 }`}
               />
-              <span className="text-[10px] font-semibold text-[#475467]">
+              <span className="text-[12px] font-semibold text-[#475467]">
                 {autoRefresh ? "실시간 조회 중" : "자동 조회 중지"}
               </span>
             </div>
-            <p className="text-[9px] text-[#98A2B3] mt-1 pl-4">
+            <p className="text-[11px] text-[#98A2B3] mt-1 pl-4">
               DB 대시보드 데이터
             </p>
           </div>
@@ -2623,10 +2633,10 @@ export default function App() {
             <div className="min-h-full p-4 flex flex-col">
               <div className="flex items-end justify-between mb-3 flex-shrink-0">
                 <div>
-                  <p className="text-[18px] font-bold text-[#101828]">
+                  <p className="text-[20px] font-bold text-[#101828]">
                     보안 이벤트
                   </p>
-                  <p className="text-[11px] text-[#667085] mt-0.5">
+                  <p className="text-[13px] text-[#667085] mt-0.5">
                     조치 필요 이벤트와 탐지·조치 이력을 한곳에서 확인합니다.
                   </p>
                 </div>
@@ -2634,14 +2644,14 @@ export default function App() {
                   {selectedEvent && (
                     <button
                       onClick={() => goSection("dashboard")}
-                      className="text-[10px] font-semibold text-white bg-[#101828] hover:bg-[#1D2939] px-3 py-1.5 rounded-lg transition-colors"
+                      className="text-[12px] font-semibold text-white bg-[#101828] hover:bg-[#1D2939] px-3 py-1.5 rounded-lg transition-colors"
                     >
                       선택 이벤트 맵에서 보기
                     </button>
                   )}
                   <button
                     onClick={() => void loadDashboardData()}
-                    className="text-[10px] font-semibold text-[#344054] bg-white border border-[#D0D5DD] hover:bg-[#F9FAFB] px-3 py-1.5 rounded-lg transition-colors"
+                    className="text-[12px] font-semibold text-[#344054] bg-white border border-[#D0D5DD] hover:bg-[#F9FAFB] px-3 py-1.5 rounded-lg transition-colors"
                   >
                     지금 새로고침
                   </button>
@@ -2775,7 +2785,7 @@ export default function App() {
                       stage={selectedReach.stage}
                       confidence={selectedReach.confidence}
                     />
-                    <span className="text-[11px] text-[#475467]">
+                    <span className="text-[13px] text-[#475467]">
                       {reachSummaryText(selectedReach)}
                     </span>
                   </div>

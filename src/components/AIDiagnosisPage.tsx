@@ -115,25 +115,25 @@ function ResultCard({ result }: { result: DiagnosisResult }) {
       >
         <div>
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[10px] font-mono text-[#98A2B3]">
+            <span className="text-[12px] font-mono text-[#98A2B3]">
               {result.rule_id}
             </span>
-            <p className="text-[12px] font-bold text-[#101828]">
+            <p className="text-[14px] font-bold text-[#101828]">
               {meta?.name ?? result.rule_id}
             </p>
           </div>
-          <p className="text-[11px] text-[#667085] mt-1">{result.reason}</p>
+          <p className="text-[13px] text-[#667085] mt-1">{result.reason}</p>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <span
-            className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+            className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${
               SEVERITY_STYLE[result.severity] ?? "bg-[#F2F4F7] text-[#667085]"
             }`}
           >
             {result.severity}
           </span>
           <span
-            className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${STATUS_STYLE[result.status]}`}
+            className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${STATUS_STYLE[result.status]}`}
           >
             {result.status}
           </span>
@@ -141,7 +141,7 @@ function ResultCard({ result }: { result: DiagnosisResult }) {
       </button>
 
       {open && (
-        <div className="mt-3 pt-3 border-t border-[#F2F4F7] space-y-2 text-[11px]">
+        <div className="mt-3 pt-3 border-t border-[#F2F4F7] space-y-2 text-[13px]">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
               <p className="text-[#98A2B3] font-semibold">현재 상태</p>
@@ -158,7 +158,7 @@ function ResultCard({ result }: { result: DiagnosisResult }) {
               {result.resource_ids.map((id) => (
                 <span
                   key={id}
-                  className="text-[10px] font-mono bg-[#F2F4F7] text-[#475467] rounded px-1.5 py-0.5"
+                  className="text-[12px] font-mono bg-[#F2F4F7] text-[#475467] rounded px-1.5 py-0.5"
                 >
                   {id}
                 </span>
@@ -180,7 +180,7 @@ function ResultCard({ result }: { result: DiagnosisResult }) {
                 {result.evidence.map((ev, i) => (
                   <div
                     key={i}
-                    className="bg-[#FAFAFA] rounded-lg px-2 py-1.5 font-mono text-[10px] text-[#475467]"
+                    className="bg-[#FAFAFA] rounded-lg px-2 py-1.5 font-mono text-[12px] text-[#475467]"
                   >
                     <span className="text-[#101828] font-semibold">{ev.resource}</span>
                     {" · "}
@@ -291,8 +291,8 @@ export function AIDiagnosisPage({
     <div className="min-h-full p-4 space-y-3">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <p className="text-[18px] font-bold text-[#101828]">AI 진단</p>
-          <p className="text-[11px] text-[#667085] mt-0.5">
+          <p className="text-[20px] font-bold text-[#101828]">AI 진단</p>
+          <p className="text-[13px] text-[#667085] mt-0.5">
             SK쉴더스 CSPM(DataDog) AWS 보안 가이드 기반 33개 항목으로 현재 AWS
             계정/리소스 구성을 점검합니다. 설정을 변경하거나 조치를 실행하지는
             않습니다.
@@ -346,7 +346,7 @@ export function AIDiagnosisPage({
       </div>
 
       {loadError && (
-        <p className="text-[11px] text-[#B42318] bg-[#FEF3F2] ring-1 ring-[#FECDCA] rounded-lg px-3 py-2">
+        <p className="text-[13px] text-[#B42318] bg-[#FEF3F2] ring-1 ring-[#FECDCA] rounded-lg px-3 py-2">
           {loadError}
         </p>
       )}
@@ -354,14 +354,14 @@ export function AIDiagnosisPage({
       {running && (
         <div className="rounded-xl border border-[#EAECF0] bg-white p-4 flex items-center gap-3">
           <span className="w-4 h-4 rounded-full border-2 border-[#D0D5DD] border-t-[#101828] animate-spin" />
-          <p className="text-[12px] text-[#344054]">
+          <p className="text-[14px] text-[#344054]">
             {status?.message ?? "진단을 진행하는 중입니다..."}
           </p>
         </div>
       )}
 
       {status?.status === "error" && (
-        <p className="text-[12px] text-[#B42318] bg-[#FEF3F2] ring-1 ring-[#FECDCA] rounded-xl px-3 py-2.5">
+        <p className="text-[14px] text-[#B42318] bg-[#FEF3F2] ring-1 ring-[#FECDCA] rounded-xl px-3 py-2.5">
           진단 실패: {status.error}
         </p>
       )}
@@ -394,7 +394,7 @@ export function AIDiagnosisPage({
                 key={label as string}
                 className="rounded-xl border border-[#EAECF0] bg-white p-3"
               >
-                <p className="text-[10px] font-semibold text-[#667085]">{label}</p>
+                <p className="text-[12px] font-semibold text-[#667085]">{label}</p>
                 <p
                   className="text-lg font-bold mt-0.5"
                   style={{ color: color as string }}
@@ -405,17 +405,17 @@ export function AIDiagnosisPage({
             ))}
           </div>
 
-          <p className="text-[10px] text-[#98A2B3]">
+          <p className="text-[12px] text-[#98A2B3]">
             {report.standard} · {status?.finishedAt ?? ""} 완료
             {report.region ? ` · ${report.region}` : ""}
           </p>
 
           {report.consultant_comment && (
             <div className="rounded-xl border border-[#EAECF0] bg-white p-3.5">
-              <p className="text-[11px] font-bold text-[#101828] mb-1.5">
+              <p className="text-[13px] font-bold text-[#101828] mb-1.5">
                 AI 종합 소견
               </p>
-              <p className="text-[12px] text-[#344054] leading-relaxed whitespace-pre-line">
+              <p className="text-[14px] text-[#344054] leading-relaxed whitespace-pre-line">
                 {report.consultant_comment}
               </p>
             </div>
@@ -423,12 +423,12 @@ export function AIDiagnosisPage({
 
           {report.collection_errors.length > 0 && (
             <details className="rounded-xl border border-[#FEDF89] bg-[#FFFAEB] px-3 py-2">
-              <summary className="text-[11px] font-semibold text-[#B54708] cursor-pointer">
+              <summary className="text-[13px] font-semibold text-[#B54708] cursor-pointer">
                 일부 AWS 정보를 읽지 못했습니다 ({report.collection_errors.length}건) — 해당 항목은 REVIEW로 표시될 수 있습니다
               </summary>
               <div className="mt-2 space-y-1">
                 {report.collection_errors.map((err, i) => (
-                  <p key={i} className="text-[10px] font-mono text-[#B54708]">
+                  <p key={i} className="text-[12px] font-mono text-[#B54708]">
                     {err.source}: {err.error_code} {err.message}
                   </p>
                 ))}
@@ -441,7 +441,7 @@ export function AIDiagnosisPage({
               <button
                 key={value}
                 onClick={() => setStatusFilter(value)}
-                className={`text-[11px] font-semibold px-3 py-1.5 rounded-lg transition-colors ${
+                className={`text-[13px] font-semibold px-3 py-1.5 rounded-lg transition-colors ${
                   statusFilter === value
                     ? "bg-[#101828] text-white shadow-sm"
                     : "text-[#475467] hover:bg-[#F2F4F7]"
@@ -461,7 +461,7 @@ export function AIDiagnosisPage({
               if (filtered.length === 0) return null
               return (
                 <div key={category}>
-                  <p className="text-[12px] font-bold text-[#101828] mb-2">
+                  <p className="text-[14px] font-bold text-[#101828] mb-2">
                     {category}
                     <span className="text-[#98A2B3] font-normal ml-1.5">
                       {filtered.length}건

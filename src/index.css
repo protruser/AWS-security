@@ -23,6 +23,12 @@
   box-sizing: border-box;
 }
 
+/* 기본 16px 대신 18px로 - rem 기반 Tailwind 크기(text-xs 등)가 전부 비례해서
+   커진다(arbitrary text-[Npx] 값들은 별도로 픽셀 자체를 올려뒀다). */
+html {
+  font-size: 18px;
+}
+
 html,
 body,
 #root {

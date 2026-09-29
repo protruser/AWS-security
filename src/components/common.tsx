@@ -19,7 +19,7 @@ export function SeverityBadge({
   return (
     <span
       className={`inline-flex items-center font-bold rounded-full text-white tracking-wide ${
-        small ? "text-[9px] px-1.5 py-0.5" : "text-[11px] px-2 py-0.5"
+        small ? "text-[11px] px-1.5 py-0.5" : "text-[13px] px-2 py-0.5"
       }`}
       style={{ backgroundColor: SEV_COLOR[sev] }}
     >

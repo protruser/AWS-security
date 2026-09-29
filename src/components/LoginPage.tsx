@@ -57,10 +57,10 @@ export function LoginPage({
             </svg>
           </div>
           <div>
-            <p className="text-[15px] font-bold text-[#111111]">
+            <p className="text-[17px] font-bold text-[#111111]">
               AWS Security Monitoring Center
             </p>
-            <p className="text-[11px] text-[#667085] mt-0.5">
+            <p className="text-[13px] text-[#667085] mt-0.5">
               통합 보안관제 관리자 로그인
             </p>
           </div>
@@ -68,7 +68,7 @@ export function LoginPage({
 
         <form onSubmit={submit} className="space-y-4">
           <div>
-            <label className="block text-[11px] font-semibold text-[#344054] mb-1.5">
+            <label className="block text-[13px] font-semibold text-[#344054] mb-1.5">
               아이디
             </label>
             <input
@@ -76,13 +76,13 @@ export function LoginPage({
               autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full h-10 rounded-lg border border-[#D0D5DD] px-3 text-[12px] text-[#101828] outline-none focus:border-[#101828] focus:ring-2 focus:ring-[#101828]/10"
+              className="w-full h-10 rounded-lg border border-[#D0D5DD] px-3 text-[14px] text-[#101828] outline-none focus:border-[#101828] focus:ring-2 focus:ring-[#101828]/10"
               placeholder="관리자 아이디"
             />
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold text-[#344054] mb-1.5">
+            <label className="block text-[13px] font-semibold text-[#344054] mb-1.5">
               비밀번호
             </label>
             <input
@@ -90,13 +90,13 @@ export function LoginPage({
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full h-10 rounded-lg border border-[#D0D5DD] px-3 text-[12px] text-[#101828] outline-none focus:border-[#101828] focus:ring-2 focus:ring-[#101828]/10"
+              className="w-full h-10 rounded-lg border border-[#D0D5DD] px-3 text-[14px] text-[#101828] outline-none focus:border-[#101828] focus:ring-2 focus:ring-[#101828]/10"
               placeholder="비밀번호"
             />
           </div>
 
           {error && (
-            <div className="rounded-lg bg-[#FEF3F2] border border-[#FECDCA] px-3 py-2 text-[11px] text-[#B42318]">
+            <div className="rounded-lg bg-[#FEF3F2] border border-[#FECDCA] px-3 py-2 text-[13px] text-[#B42318]">
               {error}
             </div>
           )}
@@ -104,13 +104,13 @@ export function LoginPage({
           <button
             type="submit"
             disabled={loading}
-            className="w-full h-10 rounded-lg bg-[#111111] text-white text-[12px] font-bold hover:bg-[#262626] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full h-10 rounded-lg bg-[#111111] text-white text-[14px] font-bold hover:bg-[#262626] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {loading ? "로그인 중..." : "로그인"}
           </button>
         </form>
 
-        <p className="text-[10px] text-[#98A2B3] mt-5 text-center">
+        <p className="text-[12px] text-[#98A2B3] mt-5 text-center">
           관리자 계정 정보는 Flask 서버의 .env에서 설정합니다.
         </p>
       </div>

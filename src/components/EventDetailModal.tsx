@@ -101,7 +101,7 @@ export function EventDetailModal({
           <div className="min-w-0">
             <div className="mb-1 flex flex-wrap items-center gap-2">
               <SeverityBadge sev={event.severity} small />
-              <span className="rounded-full bg-[#F2F4F7] px-2 py-0.5 text-[10px] font-semibold text-[#475467]">{event.status}</span>
+              <span className="rounded-full bg-[#F2F4F7] px-2 py-0.5 text-[12px] font-semibold text-[#475467]">{event.status}</span>
             </div>
             <h2 id="event-detail-title" className="break-words text-base font-bold text-[#101828] sm:text-lg">
               {eventDisplayTitle(event)}
@@ -118,19 +118,19 @@ export function EventDetailModal({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 text-[12px] sm:px-6" data-event-detail-body>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 text-[14px] sm:px-6" data-event-detail-body>
           <h3 className="mb-2 text-xs font-bold text-[#101828]">기본 정보</h3>
           <dl className="grid grid-cols-1 gap-x-5 gap-y-2 rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-3 sm:grid-cols-2">
             {facts.map(([label, value]) => (
               <div key={label} className="min-w-0">
-                <dt className="text-[10px] font-semibold text-[#667085]">{label}</dt>
+                <dt className="text-[12px] font-semibold text-[#667085]">{label}</dt>
                 <dd className="break-all text-[#344054]">
                   {value}
                   {label === "공격 IP" && (
                     <a
                       href={`#/attackers/${encodeURIComponent(value)}`}
                       onClick={onClose}
-                      className="ml-2 whitespace-nowrap text-[11px] font-semibold text-[#175CD3] hover:underline"
+                      className="ml-2 whitespace-nowrap text-[13px] font-semibold text-[#175CD3] hover:underline"
                     >
                       이 IP 추적 →
                     </a>

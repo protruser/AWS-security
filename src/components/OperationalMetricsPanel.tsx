@@ -257,7 +257,7 @@ function CombinedPercentChart({ records }: { records: MetricRecord[] }) {
           {series.map((item) => (
             <span
               key={item.field}
-              className="flex items-center gap-1 text-[9px] text-[#667085]"
+              className="flex items-center gap-1 text-[11px] text-[#667085]"
             >
               <span
                 className="w-2 h-2 rounded-full"
@@ -364,8 +364,8 @@ function NumericSummaryCards({ summary }: { summary: NumericSummary }) {
           key={label}
           className="rounded-xl border border-[#EAECF0] bg-[#FAFAFA] px-4 py-3"
         >
-          <p className="text-[10px] text-[#667085]">{label}</p>
-          <p className="text-[20px] font-bold text-[#101828] mt-1">
+          <p className="text-[12px] text-[#667085]">{label}</p>
+          <p className="text-[22px] font-bold text-[#101828] mt-1">
             {formatNumber(value, summary.unit)}
           </p>
         </div>
@@ -477,7 +477,7 @@ export function OperationalMetricsPanel({
     <div className="space-y-3">
       <section className="bg-white border border-[#EAECF0] rounded-2xl p-4">
         <div className="flex items-center gap-2 mb-3">
-          <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[10px] font-bold flex items-center justify-center">
+          <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[12px] font-bold flex items-center justify-center">
             1
           </span>
           <p className="text-xs font-bold text-[#101828]">조회 지표</p>
@@ -491,7 +491,7 @@ export function OperationalMetricsPanel({
                 setData(null)
                 setQueryState("idle")
               }}
-              className={`rounded-xl border px-3 py-3 text-[11px] font-semibold transition-all ${
+              className={`rounded-xl border px-3 py-3 text-[13px] font-semibold transition-all ${
                 metric === item.value
                   ? "border-[#101828] ring-2 ring-[#101828]/10 bg-[#F8F9FB] text-[#101828]"
                   : "border-[#EAECF0] text-[#475467] hover:border-[#D0D5DD]"
@@ -505,7 +505,7 @@ export function OperationalMetricsPanel({
 
       <section className="bg-white border border-[#EAECF0] rounded-2xl p-4">
         <div className="flex items-center gap-2 mb-3">
-          <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[10px] font-bold flex items-center justify-center">
+          <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[12px] font-bold flex items-center justify-center">
             2
           </span>
           <p className="text-xs font-bold text-[#101828]">기간 선택</p>
@@ -515,7 +515,7 @@ export function OperationalMetricsPanel({
             <button
               key={item.value}
               onClick={() => selectRange(item.value)}
-              className={`text-[11px] font-semibold px-3 py-2 rounded-lg border transition-colors ${
+              className={`text-[13px] font-semibold px-3 py-2 rounded-lg border transition-colors ${
                 range === item.value
                   ? "bg-[#101828] border-[#101828] text-white"
                   : "bg-white border-[#D0D5DD] text-[#475467] hover:bg-[#F9FAFB]"
@@ -527,28 +527,28 @@ export function OperationalMetricsPanel({
         </div>
         {range === "custom" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 max-w-2xl">
-            <label className="text-[10px] font-semibold text-[#475467]">
+            <label className="text-[12px] font-semibold text-[#475467]">
               시작 날짜/시간
               <input
                 type="datetime-local"
                 value={startAt}
                 onChange={(event) => setStartAt(event.target.value)}
-                className="block w-full mt-1 text-[11px] font-normal text-[#101828] bg-white border border-[#D0D5DD] rounded-lg px-3 py-2 outline-none focus:border-[#101828]"
+                className="block w-full mt-1 text-[13px] font-normal text-[#101828] bg-white border border-[#D0D5DD] rounded-lg px-3 py-2 outline-none focus:border-[#101828]"
               />
             </label>
-            <label className="text-[10px] font-semibold text-[#475467]">
+            <label className="text-[12px] font-semibold text-[#475467]">
               종료 날짜/시간
               <input
                 type="datetime-local"
                 value={endAt}
                 onChange={(event) => setEndAt(event.target.value)}
-                className="block w-full mt-1 text-[11px] font-normal text-[#101828] bg-white border border-[#D0D5DD] rounded-lg px-3 py-2 outline-none focus:border-[#101828]"
+                className="block w-full mt-1 text-[13px] font-normal text-[#101828] bg-white border border-[#D0D5DD] rounded-lg px-3 py-2 outline-none focus:border-[#101828]"
               />
             </label>
           </div>
         )}
         {validationError && (
-          <p className="text-[10px] font-semibold text-[#D92D20] mt-2">
+          <p className="text-[12px] font-semibold text-[#D92D20] mt-2">
             {validationError}
           </p>
         )}
@@ -557,12 +557,12 @@ export function OperationalMetricsPanel({
       <section className="bg-white border border-[#EAECF0] rounded-2xl p-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[10px] font-bold flex items-center justify-center">
+            <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[12px] font-bold flex items-center justify-center">
               3
             </span>
             <div>
               <p className="text-xs font-bold text-[#101828]">운영 지표 조회</p>
-              <p className="text-[10px] text-[#667085] mt-0.5">
+              <p className="text-[12px] text-[#667085] mt-0.5">
                 {selectedConfig.label}의 실제 DB 이력을 조회합니다.
               </p>
             </div>
@@ -570,7 +570,7 @@ export function OperationalMetricsPanel({
           <button
             onClick={() => void search()}
             disabled={queryState === "loading"}
-            className="text-[11px] font-bold text-white bg-[#101828] hover:bg-[#1D2939] disabled:opacity-50 px-4 py-2 rounded-lg transition-colors"
+            className="text-[13px] font-bold text-white bg-[#101828] hover:bg-[#1D2939] disabled:opacity-50 px-4 py-2 rounded-lg transition-colors"
           >
             {queryState === "loading" ? "조회 중..." : "조회"}
           </button>
@@ -581,20 +581,20 @@ export function OperationalMetricsPanel({
         <section className="bg-white border border-[#EAECF0] rounded-2xl overflow-hidden">
           <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[#EAECF0]">
             <div className="flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[10px] font-bold flex items-center justify-center">
+              <span className="w-5 h-5 rounded-full bg-[#101828] text-white text-[12px] font-bold flex items-center justify-center">
                 4
               </span>
               <p className="text-xs font-bold text-[#101828]">조회 결과</p>
             </div>
             {queryState === "success" && data && (
-              <span className="text-[10px] text-[#667085]">
+              <span className="text-[12px] text-[#667085]">
                 시간순 · {data.series.length}개 시점
               </span>
             )}
           </div>
 
           {queryState === "loading" ? (
-            <div className="h-32 flex items-center justify-center gap-2 text-[11px] text-[#667085]">
+            <div className="h-32 flex items-center justify-center gap-2 text-[13px] text-[#667085]">
               <span className="w-4 h-4 rounded-full border-2 border-[#D0D5DD] border-t-[#101828] animate-spin" />
               실제 운영 지표를 조회하고 있습니다.
             </div>
@@ -603,18 +603,18 @@ export function OperationalMetricsPanel({
               <p className="text-xs font-bold text-[#101828]">
                 운영 지표 데이터를 불러오지 못했습니다.
               </p>
-              <p className="text-[10px] text-[#667085] mt-1">
+              <p className="text-[12px] text-[#667085] mt-1">
                 DB 또는 API 연결 상태를 확인해주세요.
               </p>
               <button
                 onClick={() => void search()}
-                className="mt-3 text-[10px] font-semibold text-white bg-[#101828] hover:bg-[#1D2939] px-3 py-1.5 rounded-lg transition-colors"
+                className="mt-3 text-[12px] font-semibold text-white bg-[#101828] hover:bg-[#1D2939] px-3 py-1.5 rounded-lg transition-colors"
               >
                 다시 시도
               </button>
             </div>
           ) : !data || data.series.length === 0 ? (
-            <div className="h-32 flex items-center justify-center text-[11px] text-[#667085]">
+            <div className="h-32 flex items-center justify-center text-[13px] text-[#667085]">
               선택한 기간에 운영 지표 데이터가 없습니다.
             </div>
           ) : metric === "all" && allSummaries ? (
@@ -639,10 +639,10 @@ export function OperationalMetricsPanel({
                       key={item.value}
                       className="rounded-xl border border-[#EAECF0] bg-[#FAFAFA] px-3 py-3"
                     >
-                      <p className="text-[10px] text-[#667085]">
+                      <p className="text-[12px] text-[#667085]">
                         {item.shortLabel}
                       </p>
-                      <p className="text-[17px] font-bold text-[#101828] mt-1">
+                      <p className="text-[19px] font-bold text-[#101828] mt-1">
                         {value}
                       </p>
                     </div>
@@ -665,7 +665,7 @@ export function OperationalMetricsPanel({
                       ].map((label) => (
                         <th
                           key={label}
-                          className="px-3 py-2.5 text-[10px] font-semibold text-[#667085]"
+                          className="px-3 py-2.5 text-[12px] font-semibold text-[#667085]"
                         >
                           {label}
                         </th>
@@ -678,25 +678,25 @@ export function OperationalMetricsPanel({
                         key={row.timestamp}
                         className="border-b border-[#F2F4F7] last:border-0"
                       >
-                        <td className="px-3 py-2.5 text-[10px] font-mono text-[#475467] whitespace-nowrap">
+                        <td className="px-3 py-2.5 text-[12px] font-mono text-[#475467] whitespace-nowrap">
                           {formatTimestamp(row.timestamp)}
                         </td>
-                        <td className="px-3 py-2.5 text-[10px]">
+                        <td className="px-3 py-2.5 text-[12px]">
                           {formatNumber(row.cpu, "%", true)}
                         </td>
-                        <td className="px-3 py-2.5 text-[10px]">
+                        <td className="px-3 py-2.5 text-[12px]">
                           {formatNumber(row.memory, "%", true)}
                         </td>
-                        <td className="px-3 py-2.5 text-[10px]">
+                        <td className="px-3 py-2.5 text-[12px]">
                           {formatNumber(row.latency, "ms", true)}
                         </td>
-                        <td className="px-3 py-2.5 text-[10px]">
+                        <td className="px-3 py-2.5 text-[12px]">
                           {formatNumber(row.rps, "rps", true)}
                         </td>
-                        <td className="px-3 py-2.5 text-[10px]">
+                        <td className="px-3 py-2.5 text-[12px]">
                           {formatNumber(row.errorRate, "%", true)}
                         </td>
-                        <td className="px-3 py-2.5 text-[10px]">
+                        <td className="px-3 py-2.5 text-[12px]">
                           <HealthBadge status={row.health} />
                         </td>
                       </tr>
@@ -709,22 +709,22 @@ export function OperationalMetricsPanel({
             <div className="p-4 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div className="rounded-xl border border-[#EAECF0] bg-[#FAFAFA] px-4 py-3">
-                  <p className="text-[10px] text-[#667085]">현재 상태</p>
-                  <p className="text-[20px] mt-1">
+                  <p className="text-[12px] text-[#667085]">현재 상태</p>
+                  <p className="text-[22px] mt-1">
                     <HealthBadge status={healthSummary.current} />
                   </p>
                 </div>
                 <div className="rounded-xl border border-[#EAECF0] bg-[#FAFAFA] px-4 py-3">
-                  <p className="text-[10px] text-[#667085]">HealthyHostCount</p>
-                  <p className="text-[20px] font-bold text-[#16A34A] mt-1">
+                  <p className="text-[12px] text-[#667085]">HealthyHostCount</p>
+                  <p className="text-[22px] font-bold text-[#16A34A] mt-1">
                     {healthSummary.healthy ?? "데이터 없음"}
                   </p>
                 </div>
                 <div className="rounded-xl border border-[#EAECF0] bg-[#FAFAFA] px-4 py-3">
-                  <p className="text-[10px] text-[#667085]">
+                  <p className="text-[12px] text-[#667085]">
                     UnHealthyHostCount
                   </p>
-                  <p className="text-[20px] font-bold text-[#D92D20] mt-1">
+                  <p className="text-[22px] font-bold text-[#D92D20] mt-1">
                     {healthSummary.unhealthy ?? "데이터 없음"}
                   </p>
                 </div>
@@ -741,7 +741,7 @@ export function OperationalMetricsPanel({
                       ].map((label) => (
                         <th
                           key={label}
-                          className="px-3 py-2.5 text-[10px] font-semibold text-[#667085]"
+                          className="px-3 py-2.5 text-[12px] font-semibold text-[#667085]"
                         >
                           {label}
                         </th>
@@ -754,16 +754,16 @@ export function OperationalMetricsPanel({
                         key={row.timestamp}
                         className="border-b border-[#F2F4F7] last:border-0"
                       >
-                        <td className="px-3 py-2.5 text-[10px] font-mono text-[#475467]">
+                        <td className="px-3 py-2.5 text-[12px] font-mono text-[#475467]">
                           {formatTimestamp(row.timestamp)}
                         </td>
-                        <td className="px-3 py-2.5 text-[10px]">
+                        <td className="px-3 py-2.5 text-[12px]">
                           <HealthBadge status={row.health} />
                         </td>
-                        <td className="px-3 py-2.5 text-[10px]">
+                        <td className="px-3 py-2.5 text-[12px]">
                           {row.healthy ?? "-"}
                         </td>
-                        <td className="px-3 py-2.5 text-[10px]">
+                        <td className="px-3 py-2.5 text-[12px]">
                           {row.unhealthy ?? "-"}
                         </td>
                       </tr>
@@ -785,10 +785,10 @@ export function OperationalMetricsPanel({
                 <table className="w-full text-left">
                   <thead>
                     <tr className="bg-[#F8F9FB] border-b border-[#EAECF0]">
-                      <th className="px-3 py-2.5 text-[10px] font-semibold text-[#667085]">
+                      <th className="px-3 py-2.5 text-[12px] font-semibold text-[#667085]">
                         시간
                       </th>
-                      <th className="px-3 py-2.5 text-[10px] font-semibold text-[#667085]">
+                      <th className="px-3 py-2.5 text-[12px] font-semibold text-[#667085]">
                         값
                       </th>
                     </tr>
@@ -799,10 +799,10 @@ export function OperationalMetricsPanel({
                         key={row.timestamp}
                         className="border-b border-[#F2F4F7] last:border-0"
                       >
-                        <td className="px-3 py-2.5 text-[10px] font-mono text-[#475467]">
+                        <td className="px-3 py-2.5 text-[12px] font-mono text-[#475467]">
                           {formatTimestamp(row.timestamp)}
                         </td>
-                        <td className="px-3 py-2.5 text-[10px] font-semibold text-[#101828]">
+                        <td className="px-3 py-2.5 text-[12px] font-semibold text-[#101828]">
                           {formatNumber(row.value, UNITS[numericMetric])}
                         </td>
                       </tr>
