@@ -185,6 +185,22 @@ interface MappingPreview {
 
 const splitPaths = (value: string | undefined) =>
   (value ?? "").split(",").map((p) => p.trim()).filter(Boolean)
+// 백엔드가 주는 시각은 전부 UTC라, 브라우저 로케일로만 찍으면 시차가 난다.
+function formatTime(value?: string | null) {
+  if (!value) return "-"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  })
+}
 const PATCH_STATUS: Record<string, string> = {
   FETCHING: "GitHub 조회 중",
   SOURCE_READY: "원본 조회 완료",
@@ -865,7 +881,7 @@ export function AIActionsPage({
                   <td>{p.final_decision === "approve" ? "승인" : p.final_decision === "reject" ? "반려" : "-"}</td>
                   <td>{p.deployment_status ?? "-"}</td>
                   <td>{p.requested_by}</td>
-                  <td>{p.created_at}</td>
+                  <td>{formatTime(p.created_at)}</td>
                 </tr>
               ))}
             </tbody>
@@ -1181,7 +1197,7 @@ export function AIActionsPage({
                 ([name, result]) => (
                   <p key={name}>
                     {name}: <strong>{result.status}</strong>
-                    {result.at ? ` · ${result.at}` : ""}
+                    {result.at ? ` · ${formatTime(result.at)}` : ""}
                     {result.url && <a className="ml-2 underline" href={result.url}
                       target="_blank" rel="noreferrer">실행 보기</a>}
                   </p>
@@ -1422,7 +1438,7 @@ export function AIActionsPage({
           <ul className="space-y-1 text-xs text-gray-600">
             {fix.payload.audit.map((event, i) => (
               <li key={i}>
-                {event.at} · {event.actor} ·{" "}
+                {formatTime(event.at)} · {event.actor} ·{" "}
                 {PATCH_STATUS[event.event] ?? event.event}
                 {event.note ? ` · ${event.note}` : ""}
               </li>

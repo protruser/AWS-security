@@ -128,6 +128,7 @@ function NumericLineChart({
   unit: string
   color?: string
 }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null)
   const data = downsample(
     records.filter((record) => record.value !== undefined),
   )
@@ -157,6 +158,20 @@ function NumericLineChart({
   const labelIndexes = Array.from(
     new Set([0, Math.floor((points.length - 1) / 2), points.length - 1]),
   )
+  const activePoint = activeIndex === null ? null : points[activeIndex]
+  const tooltipWidth = 170
+  const tooltipHeight = 46
+  const tooltipX = activePoint
+    ? Math.max(
+        4,
+        Math.min(width - tooltipWidth - 4, activePoint.x - tooltipWidth / 2),
+      )
+    : 0
+  const tooltipY = activePoint
+    ? activePoint.y > 90
+      ? activePoint.y - tooltipHeight - 12
+      : activePoint.y + 12
+    : 0
 
   return (
     <div className="rounded-xl border border-[#EAECF0] p-4">
@@ -165,7 +180,11 @@ function NumericLineChart({
         viewBox={`0 0 ${width} ${height}`}
         className="w-full h-[220px]"
         role="img"
-        aria-label={title}
+        aria-label={
+          activePoint
+            ? `${title}: ${formatTimestamp(activePoint.record.timestamp)}, ${formatNumber(activePoint.record.value, unit)}`
+            : title
+        }
       >
         {[0, 0.5, 1].map((ratio) => {
           const y = padding.top + chartHeight * ratio
@@ -214,12 +233,69 @@ function NumericLineChart({
               </text>
             ),
         )}
+        {activePoint && (
+          <>
+            <line
+              x1={activePoint.x}
+              x2={activePoint.x}
+              y1={padding.top}
+              y2={padding.top + chartHeight}
+              stroke="#98A2B3"
+              strokeDasharray="4 4"
+            />
+            <circle
+              cx={activePoint.x}
+              cy={activePoint.y}
+              r="5"
+              fill={color}
+              stroke="white"
+              strokeWidth="2"
+            />
+          </>
+        )}
+        <rect
+          x={padding.left}
+          y={padding.top}
+          width={chartWidth}
+          height={chartHeight}
+          fill="transparent"
+          onPointerMove={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect()
+            const ratio = Math.max(
+              0,
+              Math.min(1, (event.clientX - bounds.left) / bounds.width),
+            )
+            setActiveIndex(Math.round(ratio * (points.length - 1)))
+          }}
+          onPointerLeave={() => setActiveIndex(null)}
+          onPointerCancel={() => setActiveIndex(null)}
+        />
+        {activePoint && (
+          <g
+            transform={`translate(${tooltipX}, ${tooltipY})`}
+            pointerEvents="none"
+          >
+            <rect
+              width={tooltipWidth}
+              height={tooltipHeight}
+              rx="8"
+              fill="#101828"
+            />
+            <text x="10" y="19" fontSize="10" fill="#D0D5DD">
+              {formatTimestamp(activePoint.record.timestamp)}
+            </text>
+            <text x="10" y="36" fontSize="13" fontWeight="700" fill="white">
+              {formatNumber(activePoint.record.value, unit)}
+            </text>
+          </g>
+        )}
       </svg>
     </div>
   )
 }
 
 function CombinedPercentChart({ records }: { records: MetricRecord[] }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null)
   const data = downsample(
     records.filter(
       (row) =>
@@ -238,6 +314,9 @@ function CombinedPercentChart({ records }: { records: MetricRecord[] }) {
     { field: "memory" as const, label: "Memory", color: "#7C3AED" },
     { field: "errorRate" as const, label: "Error", color: "#D92D20" },
   ]
+  const xAt = (index: number) =>
+    padding.left +
+    (data.length === 1 ? chartWidth / 2 : (index * chartWidth) / (data.length - 1))
   // CPU/Memory/Error를 항상 0~100% 축에 놓으면, 지금처럼 실사용량이 낮을 때
   // 선이 다 바닥에 붙어서 변화가 안 보이고 "그래프가 이상하다"는 오해를 산다.
   // 실제 최댓값 기준으로 여유(25%)만 두고 축을 좁혀서 변화가 보이게 한다.
@@ -330,12 +409,7 @@ function CombinedPercentChart({ records }: { records: MetricRecord[] }) {
             data[index] && (
               <text
                 key={index}
-                x={
-                  padding.left +
-                  (data.length === 1
-                    ? chartWidth / 2
-                    : (index * chartWidth) / (data.length - 1))
-                }
+                x={xAt(index)}
                 y={height - 8}
                 textAnchor="middle"
                 fontSize="9"
@@ -345,6 +419,97 @@ function CombinedPercentChart({ records }: { records: MetricRecord[] }) {
               </text>
             ),
         )}
+        {activeIndex !== null && data[activeIndex] && (
+          <>
+            <line
+              x1={xAt(activeIndex)}
+              x2={xAt(activeIndex)}
+              y1={padding.top}
+              y2={padding.top + chartHeight}
+              stroke="#98A2B3"
+              strokeDasharray="4 4"
+            />
+            {series.map((item) => {
+              const value = data[activeIndex][item.field]
+              if (value === null || value === undefined) return null
+              const y =
+                padding.top + chartHeight - (value / maxValue) * chartHeight
+              return (
+                <circle
+                  key={item.field}
+                  cx={xAt(activeIndex)}
+                  cy={y}
+                  r="4"
+                  fill={item.color}
+                  stroke="white"
+                  strokeWidth="1.5"
+                />
+              )
+            })}
+          </>
+        )}
+        <rect
+          x={padding.left}
+          y={padding.top}
+          width={chartWidth}
+          height={chartHeight}
+          fill="transparent"
+          onPointerMove={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect()
+            const ratio = Math.max(
+              0,
+              Math.min(1, (event.clientX - bounds.left) / bounds.width),
+            )
+            setActiveIndex(Math.round(ratio * (data.length - 1)))
+          }}
+          onPointerLeave={() => setActiveIndex(null)}
+          onPointerCancel={() => setActiveIndex(null)}
+        />
+        {activeIndex !== null &&
+          data[activeIndex] &&
+          (() => {
+            const row = data[activeIndex]
+            const tooltipWidth = 190
+            const lineHeight = 16
+            const tooltipHeight = 22 + series.length * lineHeight
+            const pointX = xAt(activeIndex)
+            const tooltipX = Math.max(
+              4,
+              Math.min(width - tooltipWidth - 4, pointX - tooltipWidth / 2),
+            )
+            const tooltipY = padding.top + 4
+            return (
+              <g
+                transform={`translate(${tooltipX}, ${tooltipY})`}
+                pointerEvents="none"
+              >
+                <rect
+                  width={tooltipWidth}
+                  height={tooltipHeight}
+                  rx="8"
+                  fill="#101828"
+                />
+                <text x="10" y="17" fontSize="10" fill="#D0D5DD">
+                  {formatTimestamp(row.timestamp)}
+                </text>
+                {series.map((item, index) => {
+                  const value = row[item.field]
+                  return (
+                    <text
+                      key={item.field}
+                      x="10"
+                      y={17 + (index + 1) * lineHeight}
+                      fontSize="12"
+                      fontWeight="700"
+                      fill={item.color}
+                    >
+                      {item.label} {formatNumber(value, "%", true)}
+                    </text>
+                  )
+                })}
+              </g>
+            )
+          })()}
       </svg>
     </div>
   )
