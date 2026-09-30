@@ -128,6 +128,13 @@ class PatchWorkflowTest(unittest.TestCase):
         self.flow.start_review(self.patch_id, "operator")
         self.assertEqual(self.repo.get(self.patch_id)["status"], "CHECKS_RUNNING")
 
+    def await_first_approval(self):
+        row = self.repo.get(self.patch_id)
+        row["status"] = "AWAITING_FIRST_APPROVAL"
+        row["payload"]["first_approval"] = None
+        self.repo._store(row)
+        return row
+
     def stage_final(self):
         self.stage_checks()
         return self.flow.refresh_checks(self.patch_id, "operator")
@@ -149,6 +156,31 @@ class PatchWorkflowTest(unittest.TestCase):
         self.assertEqual(row["payload"]["github_pr"]["branch"], f"ai-patch/{self.patch_id}")
         self.assertEqual(self.github.writes, 2)
         self.assertIsNone(row["payload"]["deployment"])
+
+    def test_first_approval_starts_second_review_and_pr(self):
+        row = self.await_first_approval()
+        approved = self.flow.decide(self.patch_id, {
+            "decision": "approve", "content_hash": row["content_hash"],
+            "reviewed": True, "note": "변경 확인"}, "operator")
+        self.assertEqual(approved["status"], "CHECKS_RUNNING")
+        self.assertEqual(approved["payload"]["first_approval"]["event"], "FIRST_APPROVED")
+        self.assertEqual([item["event"] for item in approved["payload"]["audit"][:2]],
+                         ["FIRST_APPROVED", "AI_REVIEWING"])
+        self.reviewer.assert_called_once()
+        self.assertEqual(self.github.writes, 2)
+        with self.assertRaises(PatchError):
+            self.flow.decide(self.patch_id, {
+                "decision": "approve", "content_hash": row["content_hash"],
+                "reviewed": True, "note": ""}, "operator")
+
+    def test_first_rejection_does_not_start_second_review(self):
+        row = self.await_first_approval()
+        rejected = self.flow.decide(self.patch_id, {
+            "decision": "reject", "content_hash": row["content_hash"],
+            "reviewed": True, "note": "수정 범위 재검토"}, "operator")
+        self.assertEqual(rejected["status"], "REJECTED")
+        self.reviewer.assert_not_called()
+        self.assertEqual(self.github.writes, 0)
 
     def test_reject_and_unapproved_block_pr(self):
         self.reviewer.return_value = {"verdict": "REJECT", "summary": "위험", "concerns": ["과도한 변경"]}

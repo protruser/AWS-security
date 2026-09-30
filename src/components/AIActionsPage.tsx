@@ -859,7 +859,7 @@ export function AIActionsPage({
                     disabled={running || !reviewed}
                     onClick={() => decide("approve")}
                   >
-                    관리자의 1차 승인
+                    관리자의 1차 승인 · 2차 AI 검증 시작
                   </button>
                   <button
                     className={button}
@@ -870,8 +870,7 @@ export function AIActionsPage({
                   </button>
                 </div>
                 <p>
-                  관리자 1차 승인은 배포 승인이 아닙니다. 이후 2차 AI가 변경 내용을
-                  검증합니다.
+                  1차 승인 후 2차 AI가 변경 내용을 바로 검증합니다. 배포는 최종 승인 후 진행됩니다.
                 </p>
               </div>
             ) : (
@@ -886,7 +885,7 @@ export function AIActionsPage({
               disabled={running}
               onClick={() => step("ai-review")}
             >
-              승인된 코드 2차 AI 검증
+              2차 AI 검증 시작
             </button>
           )}
           {fix.payload.ai_review && (

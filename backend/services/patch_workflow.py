@@ -49,6 +49,12 @@ class PatchWorkflow(TerraformPatches):
         if patch["payload"].get("first_approval", {}).get("content_hash") != patch["content_hash"]:
             raise PatchError("FIRST_APPROVAL_REQUIRED", "해당 코드의 1차 승인이 필요합니다.", 409)
 
+    def decide(self, patch_id, body, actor):
+        patch = super().decide(patch_id, body, actor)
+        if patch["status"] == "FIRST_APPROVED":
+            return self.start_review(patch_id, actor)
+        return patch
+
     def start_review(self, patch_id, actor):
         patch = self.repo.get(patch_id)
         if patch["status"] != "FIRST_APPROVED":

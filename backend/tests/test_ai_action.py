@@ -175,20 +175,23 @@ class AIActionRouteTest(unittest.TestCase):
             result = self.client.get(f'/api/ai-actions/patches/{row["id"]}').get_json()
             self.assertEqual(result["status"], "AWAITING_FIRST_APPROVAL")
 
-    def test_approval_persisted_without_followup_execution(self):
+    def test_approval_starts_second_ai_review(self):
         row = self.generated()
         permissions = self.client.get("/api/ai-actions/patches").get_json()
         self.assertTrue(permissions["can_create"])
         self.assertFalse(permissions["can_approve"])
-        response = self.decision(row)
+        tasks = []
+        with patch.object(self.service, "submit", side_effect=tasks.append):
+            response = self.decision(row)
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
-        self.assertEqual(data["status"], "FIRST_APPROVED")
+        self.assertEqual(data["status"], "AI_REVIEWING")
         self.assertEqual(data["payload"]["first_approval"]["content_hash"], row["content_hash"])
         self.assertEqual(data["payload"]["first_approval"]["actor"], "operator")
+        self.assertEqual(len(tasks), 1)
         self.rev.assert_not_called()
         self.assertEqual(self.decision(row).status_code, 409)
-        self.assertEqual(self.client.get(f'/api/ai-actions/patches/{row["id"]}').get_json()["status"], "FIRST_APPROVED")
+        self.assertEqual(self.client.get(f'/api/ai-actions/patches/{row["id"]}').get_json()["status"], "AI_REVIEWING")
 
     def test_rejection_remains_in_history(self):
         row = self.generated()
