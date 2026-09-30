@@ -215,7 +215,7 @@ const PATCH_STATUS: Record<string, string> = {
   AI_NEEDS_HUMAN_REVIEW: "2차 AI 추가 확인 필요",
   AI_HUMAN_REJECTED: "사람 검토 반려",
   AI_REVIEW_FAILED: "2차 AI 검증 오류",
-  READY_FOR_PR: "PR 생성 대기",
+  READY_FOR_PR: "독립 브랜치·PR 자동 생성 대기",
   CHECKS_RUNNING: "GitHub 검사 중",
   CHECKS_FAILED: "GitHub 검사 실패",
   FINAL_REPORTING: "최종 보고서 작성 중",
@@ -950,7 +950,7 @@ export function AIActionsPage({
               disabled={running}
               onClick={() => step("publish")}
             >
-              독립 브랜치 · PR 생성
+              PR 생성 다시 시도
             </button>
           )}
           {fix.status === "AWAITING_FINAL_APPROVAL" &&

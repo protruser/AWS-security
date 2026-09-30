@@ -36,6 +36,11 @@ admin decision with a recorded reason) → patch branch and PR → GitHub checks
 → final AI report → separate approver final decision → deployment worker → merge → apply
 → rediagnosis. A rejection or failure stops that patch. Earlier versions remain
 downloadable from encrypted DB history, regardless of GitHub branch retention.
+First approval starts the second AI review automatically. An `APPROVE` verdict
+starts draft branch and PR creation immediately when GitHub writes are enabled.
+The patch worker retries a `READY_FOR_PR` patch if that creation was interrupted
+or GitHub was temporarily unavailable. Rejected and unresolved reviews never
+create a PR.
 
 The final report explains the planned change, user impact, interruption and
 replacement risk in plain Korean, with unverified conditions clearly marked.
@@ -43,7 +48,7 @@ After the second AI review, all GitHub checks pass, and the final report is read
 the approver sees the patch in the dashboard bell. Final approval immediately
 dispatches the signed deployment when apply is enabled. Run
 `backend/run_patch_deploy_worker.py` as a separate managed process. It polls
-GitHub checks, retries approved deployments after transient dispatch failures,
+GitHub checks, retries pending PR creation and approved deployments after transient failures,
 and records completed deployment runs even when no browser is open. Optimistic
 patch status transitions and a global
 deploy lock prevent duplicate dispatch. The worker rechecks the signed approval,

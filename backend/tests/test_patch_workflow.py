@@ -42,6 +42,9 @@ class Repository(MemoryRepository):
     def active_check_ids(self, limit=10):
         return [row["id"] for row in self.rows.values() if row["status"] == "CHECKS_RUNNING"][:limit]
 
+    def ready_pr_ids(self, limit=10):
+        return [row["id"] for row in self.rows.values() if row["status"] == "READY_FOR_PR"][:limit]
+
     def active_deploy_ids(self, limit=10):
         return [row["id"] for row in self.rows.values() if row["status"] == "DEPLOYING"][:limit]
 
@@ -180,6 +183,37 @@ class PatchWorkflowTest(unittest.TestCase):
             "reviewed": True, "note": "수정 범위 재검토"}, "operator")
         self.assertEqual(rejected["status"], "REJECTED")
         self.reviewer.assert_not_called()
+        self.assertEqual(self.github.writes, 0)
+
+    def test_worker_retries_pr_creation_after_second_review(self):
+        row = self.repo.get(self.patch_id)
+        row["status"] = "READY_FOR_PR"
+        row["payload"]["ai_review"] = {"verdict": "APPROVE", "summary": "검증 통과", "concerns": []}
+        self.repo._store(row)
+        self.github.check_run = None
+        with patch.object(self.github, "create_pr", side_effect=[
+            PatchError("GITHUB_API_FAILED", "temporary", 502),
+            {"number": 42, "url": "https://github.com/org/repo/pull/42"},
+        ]) as create_pr:
+            run_once(self.flow)
+            pending = self.repo.get(self.patch_id)
+            self.assertEqual(pending["status"], "READY_FOR_PR")
+            self.assertEqual(pending["payload"]["github_pr"]["branch"], f"ai-patch/{self.patch_id}")
+            run_once(self.flow)
+            self.assertEqual(create_pr.call_count, 2)
+        published = self.repo.get(self.patch_id)
+        self.assertEqual(published["status"], "CHECKS_RUNNING")
+        self.assertEqual(published["payload"]["github_pr"]["number"], 42)
+        self.assertEqual(self.github.writes, 1)
+
+    def test_worker_respects_disabled_github_writes(self):
+        row = self.repo.get(self.patch_id)
+        row["status"] = "READY_FOR_PR"
+        row["payload"]["ai_review"] = {"verdict": "APPROVE", "summary": "검증 통과", "concerns": []}
+        self.repo._store(row)
+        with patch.dict(os.environ, {"PATCH_ENABLE_GITHUB_WRITES": "false"}):
+            run_once(self.flow)
+        self.assertEqual(self.repo.get(self.patch_id)["status"], "READY_FOR_PR")
         self.assertEqual(self.github.writes, 0)
 
     def test_reject_and_unapproved_block_pr(self):

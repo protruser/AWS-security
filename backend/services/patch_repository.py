@@ -39,6 +39,13 @@ class PatchRepository:
                            "ORDER BY updated_at, id LIMIT %s", (limit,))
             return [row["id"] for row in cursor.fetchall()]
 
+    def ready_pr_ids(self, limit=10):
+        with get_connection() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM terraform_patches WHERE status = 'READY_FOR_PR' "
+                           "AND updated_at < UTC_TIMESTAMP() - INTERVAL 20 SECOND "
+                           "ORDER BY updated_at, id LIMIT %s", (limit,))
+            return [row["id"] for row in cursor.fetchall()]
+
     def pending_deploy_ids(self, limit=10):
         with get_connection() as connection, connection.cursor() as cursor:
             cursor.execute("SELECT id FROM terraform_patches WHERE status = 'FINAL_APPROVED' "

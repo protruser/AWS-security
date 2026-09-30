@@ -13,6 +13,12 @@ STALE_CODES = {"CODE_CHANGED", "CHECKS_CHANGED", "STALE_APPROVAL", "BASE_CHANGED
 
 def run_once(service=None):
     service = service or PatchWorkflow()
+    if os.getenv("PATCH_ENABLE_GITHUB_WRITES") == "true":
+        for patch_id in service.repo.ready_pr_ids():
+            try:
+                service.publish(patch_id, "patch-worker")
+            except PatchError as exc:
+                logging.warning("Patch %s PR creation pending: %s", patch_id, exc.code)
     for patch_id in service.repo.active_check_ids():
         try:
             service.refresh_checks(patch_id, "patch-worker")
