@@ -2787,7 +2787,7 @@ export default function App() {
         {/* ── Main content ───────────────────────────────────────────── */}
         <section
           data-app-scroll-container
-          className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-[#FAFAFA]"
+          className={`flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-[#FAFAFA] ${activeSection === "ai-actions" ? "ai-actions-scroll" : ""}`}
         >
           {pageId ? (
             <ScenarioPage

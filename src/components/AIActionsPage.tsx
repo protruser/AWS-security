@@ -233,6 +233,12 @@ const PATCH_STATUS: Record<string, string> = {
   NOT_REMEDIATED: "배포됨 · FAIL 잔존",
 }
 
+class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+  }
+}
+
 async function fetchJson<T>(
   url: string,
   init: RequestInit,
@@ -245,7 +251,7 @@ async function fetchJson<T>(
   }
   const body = await res.json().catch(() => null)
   if (!res.ok)
-    throw new Error(body?.message || `요청 실패 (HTTP ${res.status})`)
+    throw new ApiRequestError(body?.message || `요청 실패 (HTTP ${res.status})`, res.status)
   return body as T
 }
 
@@ -563,12 +569,20 @@ export function AIActionsPage({
               : fix.status === "DEPLOYING"
                 ? "deployment/refresh"
                 : ""
-          const data = await api<PatchDetail>(
-            `/api/ai-actions/patches/${fix.id}${route ? `/${route}` : ""}`,
-            route ? {} : undefined,
-          )
+          const patchUrl = `/api/ai-actions/patches/${fix.id}`
+          const current = await api<PatchDetail>(patchUrl)
+          let data = current
+          if (route && current.status === fix.status) {
+            try {
+              await api<PatchDetail>(`${patchUrl}/${route}`, {})
+            } catch (e) {
+              if (!(e instanceof ApiRequestError) || e.status !== 409) throw e
+            }
+            data = await api<PatchDetail>(patchUrl)
+          }
           if (!cancelled) {
             setFix(data)
+            setError(null)
             if (!active.includes(data.status)) await loadHistory()
           }
         } catch (e) {
@@ -578,7 +592,7 @@ export function AIActionsPage({
           pending = false
         }
       },
-      ["CHECKS_RUNNING", "FINAL_APPROVED", "DEPLOYING"].includes(fix.status) ? 10000 : 2500,
+      fix.status === "CHECKS_RUNNING" ? 5000 : ["FINAL_APPROVED", "DEPLOYING"].includes(fix.status) ? 10000 : 2500,
     )
     return () => {
       cancelled = true
@@ -596,7 +610,7 @@ export function AIActionsPage({
     setReviewed(false)
     setNote("")
     if (scrollToTop) {
-      pageRef.current?.closest("[data-app-scroll-container]")?.scrollTo({ top: 0, behavior: "smooth" })
+      pageRef.current?.closest("[data-app-scroll-container]")?.scrollTo({ top: 0, behavior: "auto" })
     }
   }
   const returnToStart = () => {
@@ -608,13 +622,13 @@ export function AIActionsPage({
     setError(null)
     if (historyRef.current) historyRef.current.open = false
     onReturnToStart?.()
-    pageRef.current?.closest("[data-app-scroll-container]")?.scrollTo({ top: 0, behavior: "smooth" })
+    pageRef.current?.closest("[data-app-scroll-container]")?.scrollTo({ top: 0, behavior: "auto" })
   }
   const toggleTechnicalDetails = () => {
     if (!technicalRef.current) return
     technicalRef.current.open = !technicalRef.current.open
     if (technicalRef.current.open) {
-      technicalRef.current.scrollIntoView({ behavior: "smooth", block: "start" })
+      technicalRef.current.scrollIntoView({ behavior: "auto", block: "start" })
     }
   }
   const perform = async (work: () => Promise<void>) => {
@@ -744,6 +758,11 @@ export function AIActionsPage({
   const button =
     "rounded-lg bg-[#101828] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
   const panel = "rounded-2xl border border-[#E4E7EC] bg-white p-4 space-y-3"
+  const checkResults = fix?.payload.checks?.results
+  const checksFailed = ["CHECKS_FAILED", "REVALIDATION_REQUIRED"].includes(fix?.status ?? "") ||
+    (!!checkResults && Object.values(checkResults).some((result) => ["FAIL", "ERROR"].includes(result.status)))
+  const checksPassed = !checksFailed && !!checkResults && ["fmt", "validate", "plan", "tflint", "checkov"]
+    .every((name) => checkResults[name]?.status === "PASS")
   return (
     <div ref={pageRef} className="min-h-full space-y-4 p-4">
       <div>
@@ -783,6 +802,11 @@ export function AIActionsPage({
             </div>
           </div>
           <p className="text-xs text-[#667085]">{PATCH_STATUS[fix.status] ?? fix.status}</p>
+          {checkResults && (
+            <p role="status" className={`rounded-lg px-3 py-2 text-xs font-semibold ${checksPassed ? "bg-[#ECFDF3] text-[#027A48]" : checksFailed ? "bg-[#FEF3F2] text-[#B42318]" : "bg-[#EFF8FF] text-[#175CD3]"}`}>
+              GitHub 검사: {checksPassed ? "PASS" : fix.status === "REVALIDATION_REQUIRED" ? "재검증 필요" : checksFailed ? "실패" : "진행 중"}
+            </p>
+          )}
           {fix.deployment_start_error && (
             <p role="alert" className="text-xs text-red-700">{fix.deployment_start_error}</p>
           )}
