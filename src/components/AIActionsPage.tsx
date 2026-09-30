@@ -610,10 +610,12 @@ export function AIActionsPage({
     onReturnToStart?.()
     pageRef.current?.closest("[data-app-scroll-container]")?.scrollTo({ top: 0, behavior: "smooth" })
   }
-  const showTechnicalDetails = () => {
+  const toggleTechnicalDetails = () => {
     if (!technicalRef.current) return
-    technicalRef.current.open = true
-    technicalRef.current.scrollIntoView({ behavior: "smooth", block: "start" })
+    technicalRef.current.open = !technicalRef.current.open
+    if (technicalRef.current.open) {
+      technicalRef.current.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
   }
   const perform = async (work: () => Promise<void>) => {
     setRunning(true)
@@ -776,7 +778,7 @@ export function AIActionsPage({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-bold text-[#101828]">조치 검토 및 다음 작업</h2>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={showTechnicalDetails} className="rounded-lg border border-[#D0D5DD] px-3 py-1.5 text-xs font-semibold text-[#344054]">상세 정보</button>
+              <button type="button" onClick={toggleTechnicalDetails} className="rounded-lg border border-[#D0D5DD] px-3 py-1.5 text-xs font-semibold text-[#344054]">상세 정보</button>
               {(fix.payload.report || fix.payload.final_report) && <button type="button" onClick={() => setReportOpen(true)} className="rounded-lg bg-[#101828] px-3 py-1.5 text-xs font-semibold text-white">보고서 보기</button>}
             </div>
           </div>
@@ -1175,7 +1177,7 @@ export function AIActionsPage({
           </p>
         </section>
       )}
-      {fix && <PatchResult fix={fix} onDetails={showTechnicalDetails} onReport={() => setReportOpen(true)} />}
+      {fix && <PatchResult fix={fix} onDetails={toggleTechnicalDetails} onReport={() => setReportOpen(true)} />}
       {history?.can_create && (
         <div className="space-y-3">
           <button type="button" onClick={() => setShowPreparation((open) => !open)} aria-expanded={showPreparation} className="w-full rounded-2xl border border-[#E4E7EC] bg-white px-4 py-3 text-left text-sm font-semibold text-[#101828]">
