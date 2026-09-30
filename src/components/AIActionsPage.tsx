@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 // GitHub snapshot → integrated proposal → human approvals → verified deployment.
 
@@ -312,6 +312,117 @@ function HttpsExceptionSummary({ findings }: { findings: DiagnosisResult[] }) {
   )
 }
 
+const FAILED_PHASE: Record<string, number> = {
+  FAILED: 0,
+  REJECTED: 1,
+  AI_REJECTED: 1,
+  AI_HUMAN_REJECTED: 1,
+  AI_REVIEW_FAILED: 1,
+  CHECKS_FAILED: 1,
+  FINAL_REPORT_FAILED: 1,
+  REVALIDATION_REQUIRED: 1,
+  FINAL_REJECTED: 1,
+  DEPLOY_FAILED: 2,
+  REDIAGNOSIS_FAILED: 3,
+  NOT_REMEDIATED: 4,
+}
+
+function patchPhase(status: string) {
+  if (status === "FETCHING") return 0
+  if (["FINAL_APPROVED", "DEPLOYING", "DEPLOY_DISPATCH_UNKNOWN", "DEPLOY_FAILED"].includes(status)) return 2
+  if (["REDIAGNOSING", "REDIAGNOSIS_FAILED"].includes(status)) return 3
+  if (["REMEDIATED", "NOT_REMEDIATED"].includes(status)) return 4
+  return FAILED_PHASE[status] ?? 1
+}
+
+function PatchProgress({ fix }: { fix: PatchDetail }) {
+  const phase = patchPhase(fix.status)
+  const failedAt = FAILED_PHASE[fix.status]
+  const steps = ["보안 문제 분석", "AI 조치 계획", "AWS 리소스 조치", "재진단", "완료"]
+  const finding = fix.payload.findings[0]
+  const resourceIds = [...new Set(fix.payload.findings.flatMap((item) => item.resource_ids ?? []))]
+  const isProcessing = ["FETCHING", "GENERATING", "AI_REVIEWING", "CHECKS_RUNNING", "FINAL_REPORTING", "DEPLOYING", "REDIAGNOSING"].includes(fix.status)
+  return (
+    <section className="rounded-2xl border border-[#E4E7EC] bg-white p-4" aria-label="현재 AI 조치 진행 과정">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-bold text-[#101828]">현재 AI 조치 진행 과정</h2>
+          <p className="mt-1 text-xs text-[#667085]">{fix.payload.findings.map((item) => `규칙 ${item.rule_id}`).join(" · ")} · {PATCH_STATUS[fix.status] ?? fix.status}</p>
+        </div>
+        <span className="rounded-full bg-[#F2F4F7] px-2.5 py-1 text-[11px] font-semibold text-[#344054]">진단 #{fix.diagnosis_run_id}</span>
+      </div>
+      <ol className="space-y-2">
+        {steps.map((step, index) => {
+          const state = index < phase ? "done" : index > phase ? "waiting" : failedAt === index ? "failed" : fix.status === "REMEDIATED" ? "done" : "active"
+          const tone = state === "failed" ? "border-red-200 bg-red-50 text-red-800" : state === "active" ? "border-[#B2DDFF] bg-[#EFF8FF] text-[#175CD3]" : state === "done" ? "border-[#D1FADF] bg-[#F6FEF9] text-[#027A48]" : "border-[#EAECF0] bg-[#F9FAFB] text-[#98A2B3]"
+          return (
+            <li key={step} className={`rounded-xl border ${tone} ${state === "active" || state === "failed" ? "p-4" : "px-3 py-2"}`}>
+              <div className="flex items-center gap-2 text-xs font-semibold">
+                <span aria-hidden="true" className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-current">
+                  {state === "done" ? "✓" : state === "failed" ? "!" : state === "active" && isProcessing ? "⟳" : "○"}
+                </span>
+                <span>{step}</span>
+                {state === "active" && <span className="ml-auto text-[11px]">{PATCH_STATUS[fix.status] ?? fix.status}</span>}
+                {state === "failed" && <span className="ml-auto text-[11px]">진행 중단</span>}
+              </div>
+              {(state === "active" || state === "failed") && (
+                <div className="mt-3 grid gap-3 border-t border-current/15 pt-3 text-xs text-[#344054] sm:grid-cols-2">
+                  <div>
+                    <p className="font-semibold text-[#667085]">보안 문제</p>
+                    <p className="mt-1 whitespace-pre-wrap">{finding?.reason || `진단 규칙 ${finding?.rule_id ?? "-"}`}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-[#667085]">대상 및 수행 작업</p>
+                    {resourceIds.length > 0 && <p className="mt-1 break-all">{resourceIds.length === 1 ? `${resourceNameKorean(finding?.rule_id ?? "", resourceIds[0])} · ${resourceIds[0]}` : `${resourceIds.length}개 AWS 리소스`}</p>}
+                    <p className="mt-1 whitespace-pre-wrap">{fix.payload.report?.summary || finding?.recommendation || "조치 계획을 준비하고 있습니다."}</p>
+                  </div>
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ol>
+    </section>
+  )
+}
+
+function PatchResult({ fix, onDetails, onReport }: { fix: PatchDetail; onDetails: () => void; onReport: () => void }) {
+  if (!["REMEDIATED", "NOT_REMEDIATED", "DEPLOY_FAILED", "REDIAGNOSIS_FAILED"].includes(fix.status)) return null
+  const verified = fix.status === "REMEDIATED"
+  const comparisons = fix.payload.rediagnosis?.results ?? []
+  return (
+    <section className={`rounded-2xl border p-4 ${verified ? "border-[#ABEFC6] bg-[#F6FEF9]" : "border-[#FEDF89] bg-[#FFFCF5]"}`} aria-label="현재 조치 결과">
+      <h2 className="text-sm font-bold text-[#101828]">현재 조치 결과</h2>
+      <p className={`mt-2 text-base font-bold ${verified ? "text-[#027A48]" : "text-[#B54708]"}`}>
+        {verified ? "✓ 보안 조치 확인 완료" : fix.status === "NOT_REMEDIATED" ? "! 배포 후 보안 문제 잔존" : fix.status === "DEPLOY_FAILED" ? "! AWS 리소스 조치 실패" : "! 재진단 결과 확인 실패"}
+      </p>
+      <p className="mt-1 text-xs text-[#475467]">
+        {verified
+          ? fix.payload.report?.summary || fix.payload.findings.map((item) => `규칙 ${item.rule_id}`).join(", ")
+          : fix.status === "NOT_REMEDIATED"
+            ? `재진단에서 ${comparisons.filter((item) => !item.verified).map((item) => `규칙 ${item.rule_id}`).join(", ") || "선택한 규칙"}이 PASS가 아닙니다.`
+            : fix.payload.deployment?.error || fix.payload.rediagnosis?.error || PATCH_STATUS[fix.status]}
+      </p>
+      {comparisons.length > 0 && (
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {comparisons.map((item) => (
+            <div key={item.rule_id} className="rounded-lg border border-[#E4E7EC] bg-white p-3 text-xs">
+              <p className="font-semibold text-[#344054]">규칙 {item.rule_id} · 재진단 {item.verified ? "정상" : "재검토 필요"}</p>
+              <p className="mt-2 text-[#667085]">진단 상태: {item.before} → <strong className={item.verified ? "text-[#027A48]" : "text-[#B54708]"}>{item.after}</strong></p>
+            </div>
+          ))}
+        </div>
+      )}
+      {fix.payload.rediagnosis?.error && <p className="mt-3 text-xs text-[#B54708]">{fix.payload.rediagnosis.error}</p>}
+      {fix.payload.deployment?.error && <p className="mt-3 text-xs text-[#B54708]">{fix.payload.deployment.error}</p>}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" onClick={onDetails} className="rounded-lg border border-[#D0D5DD] bg-white px-3 py-2 text-xs font-semibold text-[#344054]">상세 정보</button>
+        {(fix.payload.report || fix.payload.final_report) && <button type="button" onClick={onReport} className="rounded-lg bg-[#101828] px-3 py-2 text-xs font-semibold text-white">보고서 보기</button>}
+      </div>
+    </section>
+  )
+}
+
 export function AIActionsPage({
   onUnauthorized,
   initialSelection,
@@ -340,6 +451,9 @@ export function AIActionsPage({
   const [history, setHistory] = useState<HistoryResponse | null>(null)
   const [offset, setOffset] = useState(0)
   const [fix, setFix] = useState<PatchDetail | null>(null)
+  const [showPreparation, setShowPreparation] = useState(!initialPatchId)
+  const [reportOpen, setReportOpen] = useState(false)
+  const technicalRef = useRef<HTMLDetailsElement>(null)
   const [reviewed, setReviewed] = useState(false)
   const [note, setNote] = useState("")
   const api = <T,>(url: string, body?: unknown) =>
@@ -400,6 +514,7 @@ export function AIActionsPage({
       .then((detail) => {
         if (!cancelled) {
           setFix(detail)
+          setShowPreparation(false)
           setReviewed(false)
           setNote("")
         }
@@ -407,6 +522,14 @@ export function AIActionsPage({
       .catch((e: Error) => !cancelled && setError(e.message))
     return () => { cancelled = true }
   }, [initialPatchId])
+  useEffect(() => {
+    if (!reportOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setReportOpen(false)
+    }
+    window.addEventListener("keydown", closeOnEscape)
+    return () => window.removeEventListener("keydown", closeOnEscape)
+  }, [reportOpen])
   const fails = useMemo(
     () => (diagnosis?.result?.results ?? []).filter((r) => r.status === "FAIL"),
     [diagnosis],
@@ -464,8 +587,15 @@ export function AIActionsPage({
     selected.some((r) => mappingPreview.mapping[r.rule_id]?.status === "NOT_TERRAFORM")
   const selectDetail = (data: PatchDetail) => {
     setFix(data)
+    setShowPreparation(false)
+    setReportOpen(false)
     setReviewed(false)
     setNote("")
+  }
+  const showTechnicalDetails = () => {
+    if (!technicalRef.current) return
+    technicalRef.current.open = true
+    technicalRef.current.scrollIntoView({ behavior: "smooth", block: "start" })
   }
   const perform = async (work: () => Promise<void>) => {
     setRunning(true)
@@ -615,7 +745,15 @@ export function AIActionsPage({
           {error}
         </p>
       )}
+      {fix && <PatchProgress fix={fix} />}
+      {fix && <PatchResult fix={fix} onDetails={showTechnicalDetails} onReport={() => setReportOpen(true)} />}
       {history?.can_create && (
+        <div className="space-y-3">
+          <button type="button" onClick={() => setShowPreparation((open) => !open)} aria-expanded={showPreparation} className="w-full rounded-2xl border border-[#E4E7EC] bg-white px-4 py-3 text-left text-sm font-semibold text-[#101828]">
+            {showPreparation ? "▾" : "▸"} 새 AI 조치 준비
+            <span className="ml-2 text-xs font-normal text-[#667085]">진단 FAIL 선택과 Terraform 파일 지정</span>
+          </button>
+          {showPreparation && (
         <div className="grid gap-3 lg:grid-cols-[minmax(280px,340px)_1fr]">
           <section className={panel}>
             <h2 className="text-sm font-semibold">
@@ -835,10 +973,15 @@ export function AIActionsPage({
             )}
           </section>
         </div>
+          )}
+        </div>
       )}
-      <section className={panel}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold">패치 이력</h2>
+      <details className="rounded-2xl border border-[#E4E7EC] bg-white" aria-label="패치 이력">
+        <summary className="cursor-pointer px-4 py-4 text-sm font-bold text-[#101828]">
+          패치 이력 {history ? `${offset + history.patches.length}${history.patches.length === 50 ? "건 이상" : "건"}` : "불러오는 중"}
+          <span className="ml-2 text-xs font-normal text-[#667085]">저장된 조치 기록과 과거 요청 보기</span>
+        </summary>
+        <div className="flex items-center justify-end border-t border-[#EAECF0] px-4 pt-3">
           <button
             className="text-xs underline disabled:opacity-40"
             disabled={running}
@@ -847,61 +990,42 @@ export function AIActionsPage({
             새로고침
           </button>
         </div>
+        <div className="space-y-3 px-4 pb-4">
+        {fix && fix.payload.audit.length > 0 && (
+          <div>
+            <h3 className="mb-2 text-xs font-semibold text-[#344054]">선택한 패치의 처리 기록</h3>
+            <ol className="space-y-2">
+              {fix.payload.audit.map((event, index) => (
+                <li key={`${event.at}-${index}`} className="flex flex-wrap gap-x-3 gap-y-1 rounded-lg bg-[#F9FAFB] px-3 py-2 text-xs">
+                  <time className="text-[#667085]">{formatTime(event.at)}</time>
+                  <span className="font-semibold text-[#101828]">{PATCH_STATUS[event.event] ?? event.event}</span>
+                  <span className="text-[#667085]">{event.actor}</span>
+                  {event.note && <span className="w-full whitespace-pre-wrap text-[#475467]">{event.note}</span>}
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
         {history?.patches.length === 0 && (
           <p className="text-xs text-gray-500">저장된 패치가 없습니다.</p>
         )}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr>
-                <th className="p-2">패치 ID</th>
-                <th>상태</th>
-                <th>FAIL</th>
-                <th>HTTPS 예외</th>
-                <th>1차 승인</th>
-                <th>2차 AI</th>
-                <th>GitHub 검사</th>
-                <th>최종 승인</th>
-                <th>배포</th>
-                <th>요청자</th>
-                <th>생성일</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history?.patches.map((p) => (
-                <tr key={p.id} className="border-t border-gray-100">
-                  <td className="p-2">
-                    <button
-                      className="font-mono underline disabled:opacity-40"
-                      disabled={running}
-                      onClick={() =>
-                        perform(async () =>
-                          selectDetail(
-                            await api<PatchDetail>(
-                              `/api/ai-actions/patches/${p.id}`,
-                            ),
-                          ),
-                        )
-                      }
-                    >
-                      {p.id}
-                    </button>
-                  </td>
-                  <td>{PATCH_STATUS[p.status] ?? p.status}</td>
-                  <td>{p.rule_ids?.join(", ") ?? "-"}</td>
-                  <td>{p.https_exception_count ? `${p.https_exception_count}건 · 미조치` : "-"}</td>
-                  <td>{p.first_decision === "approve" ? "승인" : p.first_decision === "reject" ? "반려" : "-"}</td>
-                  <td>{p.ai_verdict ?? "-"}</td>
-                  <td>{p.checks_status ?? "-"}</td>
-                  <td>{p.final_decision === "approve" ? "승인" : p.final_decision === "reject" ? "반려" : "-"}</td>
-                  <td>{p.deployment_status ?? "-"}</td>
-                  <td>{p.requested_by}</td>
-                  <td>{formatTime(p.created_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <h3 className="text-xs font-semibold text-[#344054]">과거 AI 조치 요청</h3>
+        <ul className="divide-y divide-[#EAECF0] rounded-lg border border-[#EAECF0]">
+          {history?.patches.map((patch) => (
+            <li key={patch.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-3 text-xs">
+              <div className="min-w-0">
+                <p className="font-semibold text-[#101828]">{(patch.rule_ids ?? []).map((id) => `규칙 ${id}`).join(" · ") || "AI 조치 요청"}</p>
+                <p className="mt-1 text-[#667085]">{formatTime(patch.created_at)} · 요청자 {patch.requested_by}</p>
+                <p className={`mt-1 font-semibold ${patch.status === "REMEDIATED" ? "text-[#027A48]" : FAILED_PHASE[patch.status] !== undefined ? "text-[#B42318]" : "text-[#475467]"}`}>
+                  {patch.status === "REMEDIATED" ? "✓" : FAILED_PHASE[patch.status] !== undefined ? "!" : "○"} {PATCH_STATUS[patch.status] ?? patch.status}
+                  {patch.deployment_status ? ` · 배포 ${patch.deployment_status}` : ""}
+                  {patch.https_exception_count ? ` · HTTPS 예외 ${patch.https_exception_count}건` : ""}
+                </p>
+              </div>
+              <button type="button" className="rounded-lg border border-[#D0D5DD] px-3 py-1.5 font-semibold text-[#344054] disabled:opacity-40" disabled={running} onClick={() => perform(async () => selectDetail(await api<PatchDetail>(`/api/ai-actions/patches/${patch.id}`)))}>상세보기</button>
+            </li>
+          ))}
+        </ul>
         <div className="flex gap-3 text-xs">
           <button
             disabled={running || offset === 0}
@@ -928,13 +1052,18 @@ export function AIActionsPage({
             다음
           </button>
         </div>
-      </section>
+        </div>
+      </details>
       {fix && (
-        <section className={panel} aria-label="패치 상세">
-          <h2 className="text-sm font-bold">
-            패치 상세 · {PATCH_STATUS[fix.status] ?? fix.status}
-          </h2>
-          <p className="break-all font-mono text-xs">{fix.id}</p>
+        <section className={panel} aria-label="조치 검토 및 다음 작업">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-bold text-[#101828]">조치 검토 및 다음 작업</h2>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={showTechnicalDetails} className="rounded-lg border border-[#D0D5DD] px-3 py-1.5 text-xs font-semibold text-[#344054]">상세 정보</button>
+              {(fix.payload.report || fix.payload.final_report) && <button type="button" onClick={() => setReportOpen(true)} className="rounded-lg bg-[#101828] px-3 py-1.5 text-xs font-semibold text-white">보고서 보기</button>}
+            </div>
+          </div>
+          <p className="text-xs text-[#667085]">{PATCH_STATUS[fix.status] ?? fix.status}</p>
           {fix.deployment_start_error && (
             <p role="alert" className="text-xs text-red-700">{fix.deployment_start_error}</p>
           )}
@@ -942,29 +1071,7 @@ export function AIActionsPage({
             진단 #{fix.diagnosis_run_id} · FAIL{" "}
             {fix.payload.findings.map((f) => f.rule_id).join(", ")}
           </p>
-          {fix.payload.source && (
-            <p className="break-all font-mono text-xs text-gray-500">
-              {fix.payload.source.repository} · {fix.payload.source.ref} ·{" "}
-              {fix.payload.source.commit_sha}
-            </p>
-          )}
           <HttpsExceptionSummary findings={fix.payload.findings} />
-          {fix.payload.findings.some((finding) => finding.rule_id === "3.2") &&
-            fix.payload.resource_bindings !== undefined && (
-              <div className="rounded-lg border border-gray-200 p-3 text-xs">
-                <p className="font-semibold">3.2 · State에서 확인한 AWS ID ↔ Terraform 선언</p>
-                {fix.payload.resource_bindings.filter((binding) => binding.rule_id === "3.2").length ? (
-                  fix.payload.resource_bindings.filter((binding) => binding.rule_id === "3.2").map((binding) => (
-                    <p key={`${binding.resource_id}-${binding.file_path}-${binding.resource_name}`} className="mt-1 break-all">
-                      {resourceNameKorean(binding.rule_id, binding.resource_id)} · AWS ID: {binding.resource_id}
-                      {" → "}{binding.file_path} · {binding.module ? `${binding.module}.` : ""}{binding.resource_type}.{binding.resource_name}
-                    </p>
-                  ))
-                ) : (
-                  <p className="mt-1 text-amber-800">선택한 보안 그룹과 이 파일들의 State 연결을 확인하지 못했습니다. 파일과 리소스 소유권을 확인하세요.</p>
-                )}
-              </div>
-            )}
           {fix.payload.error && (
             <div role="alert" className="space-y-1 text-xs text-red-700">
               <p>{fix.payload.error.message} 이 패치는 이력에 보존됩니다. 새 패치로 다시 요청하세요.</p>
@@ -978,66 +1085,10 @@ export function AIActionsPage({
                 )}
             </div>
           )}
-          {fix.payload.files.map((file) => (
-            <div key={file.file_path} className="space-y-2">
-              <h3 className="text-xs font-semibold">{file.file_path}</h3>
-              <details open={fix.status === "SOURCE_READY"}>
-                <summary className="cursor-pointer text-xs">
-                  수정 전 원본 코드
-                </summary>
-                <pre className="max-h-72 overflow-auto bg-gray-50 p-3 text-xs">
-                  {file.original_content}
-                </pre>
-              </details>
-              {file.proposed_content !== undefined && (
-                <details>
-                  <summary className="cursor-pointer text-xs">
-                    수정 후 제안 코드
-                  </summary>
-                  <pre className="max-h-72 overflow-auto bg-gray-50 p-3 text-xs">
-                    {file.proposed_content}
-                  </pre>
-                </details>
-              )}
-              {file.diff && <DiffView diff={file.diff} />}
-            </div>
-          ))}
           {history?.can_create && fix.status === "SOURCE_READY" && (
             <button className={button} onClick={runFix} disabled={running}>
               {running ? "AI 생성 중…" : "1차 AI 통합 수정안 · 보고서 생성"}
             </button>
-          )}
-          {fix.payload.report && (
-            <div className="space-y-3 rounded-lg border border-gray-200 p-3 text-xs">
-              <h3 className="font-bold">AI 변경 보고서 · 실제 Diff 근거</h3>
-              <p className="whitespace-pre-wrap">
-                {fix.payload.report.summary}
-              </p>
-              {fix.payload.report.changes.map((c, i) => (
-                <div key={i}>
-                  <strong>{c.file_path}</strong>
-                  <pre className="overflow-auto bg-gray-50 p-2">
-                    {c.evidence}
-                  </pre>
-                  <p>{c.explanation}</p>
-                </div>
-              ))}
-              <p>예상 영향: {fix.payload.report.impact}</p>
-              <p>서비스 중단 가능성: {fix.payload.report.service_disruption}</p>
-              <p>리소스 교체 가능성: {fix.payload.report.resource_replacement}</p>
-              <h4 className="font-semibold">위험·불확실성</h4>
-              <ul className="list-disc pl-4">
-                {fix.payload.report.risks.map((r, i) => (
-                  <li key={i}>{r}</li>
-                ))}
-              </ul>
-              <h4 className="font-semibold">추가 확인사항</h4>
-              <ul className="list-disc pl-4">
-                {fix.payload.report.checks.map((r, i) => (
-                  <li key={i}>{r}</li>
-                ))}
-              </ul>
-            </div>
           )}
           {fix.status === "AWAITING_FIRST_APPROVAL" &&
             (history?.can_create ? (
@@ -1086,34 +1137,6 @@ export function AIActionsPage({
                 있습니다.
               </p>
             ))}
-          <div className="flex flex-wrap gap-2 text-xs">
-            {(["patch", "first", "final", "results"] as const).map((kind) => {
-              const available =
-                kind === "patch"
-                  ? fix.payload.files.some((f) => !!f.diff)
-                  : kind === "first"
-                    ? !!fix.payload.report
-                    : kind === "final"
-                      ? !!fix.payload.final_report
-                      : !!(fix.payload.deployment || fix.payload.rediagnosis)
-              return available ? (
-                <a
-                  key={kind}
-                  className="rounded border border-gray-300 px-3 py-2 underline"
-                  href={`/api/ai-actions/patches/${fix.id}/download/${kind}`}
-                >
-                  {kind === "patch"
-                    ? ".patch"
-                    : kind === "first"
-                      ? "1차 보고서 PDF"
-                      : kind === "final"
-                        ? "최종 보고서 PDF"
-                        : "검증·배포·재진단 PDF"}{" "}
-                  다운로드
-                </a>
-              ) : null
-            })}
-          </div>
           {fix.status === "FIRST_APPROVED" && history?.can_create && (
             <button
               className={button}
@@ -1188,6 +1211,115 @@ export function AIActionsPage({
               독립 브랜치 · PR 생성
             </button>
           )}
+          {fix.status === "AWAITING_FINAL_APPROVAL" &&
+            (history?.can_approve ? (
+              <section className="rounded-lg bg-amber-50 p-3 text-xs space-y-2">
+                <h3 className="font-semibold">사람의 최종 승인</h3>
+                <p>
+                  원본·수정 코드, Diff, 최종 보고서, 2차 AI 검증, 검사 결과,
+                  Plan 요약과 PR을 확인하세요. 승인은 이 commit과 저장 Plan에
+                  묶입니다.
+                </p>
+                <label className="flex gap-2">
+                  <input
+                    type="checkbox"
+                    checked={reviewed}
+                    disabled={running}
+                    onChange={(e) => setReviewed(e.target.checked)}
+                  />
+                  모든 내용을 확인했습니다.
+                </label>
+                <textarea
+                  aria-label="최종 승인 의견 또는 반려 사유"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  maxLength={2000}
+                  className="w-full rounded border p-2"
+                  placeholder="반려 사유(반려 시 필수)"
+                />
+                <div className="flex gap-2">
+                  <button
+                    className={button}
+                    disabled={running || !reviewed}
+                    onClick={() => decideFinal("approve")}
+                  >
+                    최종 승인 및 자동 배포
+                  </button>
+                  <button
+                    className={button}
+                    disabled={running || !reviewed || !note.trim()}
+                    onClick={() => decideFinal("reject")}
+                  >
+                    최종 반려
+                  </button>
+                </div>
+              </section>
+            ) : (
+              <p className="text-xs">
+                승인자 계정에서 최종 보고서와 Plan을 검토할 수 있습니다.
+              </p>
+            ))}
+          {fix.status === "FINAL_APPROVED" && (
+            <p className="text-xs text-gray-600">자동 배포 요청을 재시도하는 중입니다.</p>
+          )}
+          <details ref={technicalRef} key={fix.id} className="rounded-xl border border-[#E4E7EC] bg-[#F9FAFB]" aria-label="상세 정보">
+            <summary className="cursor-pointer px-4 py-3 text-xs font-semibold text-[#344054]">상세 정보 · 코드와 검증 자료</summary>
+            <div className="space-y-4 border-t border-[#E4E7EC] bg-white p-4">
+              <p className="break-all font-mono text-xs text-[#667085]">패치 ID: {fix.id}</p>
+              {fix.payload.findings.map((finding) => (
+                <div key={finding.rule_id} className="rounded-lg border border-[#EAECF0] p-3 text-xs">
+                  <p className="font-semibold text-[#344054]">진단 규칙 {finding.rule_id} · {finding.status}</p>
+                  {finding.resource_ids?.map((resourceId) => (
+                    <p key={resourceId} className="mt-1 break-all font-mono text-[#667085]">{resourceNameKorean(finding.rule_id, resourceId)} · {resourceId}</p>
+                  ))}
+                </div>
+              ))}
+          {fix.payload.source && (
+            <p className="break-all font-mono text-xs text-gray-500">
+              {fix.payload.source.repository} · {fix.payload.source.ref} ·{" "}
+              {fix.payload.source.commit_sha}
+            </p>
+          )}
+          {fix.payload.findings.some((finding) => finding.rule_id === "3.2") &&
+            fix.payload.resource_bindings !== undefined && (
+              <div className="rounded-lg border border-gray-200 p-3 text-xs">
+                <p className="font-semibold">3.2 · State에서 확인한 AWS ID ↔ Terraform 선언</p>
+                {fix.payload.resource_bindings.filter((binding) => binding.rule_id === "3.2").length ? (
+                  fix.payload.resource_bindings.filter((binding) => binding.rule_id === "3.2").map((binding) => (
+                    <p key={`${binding.resource_id}-${binding.file_path}-${binding.resource_name}`} className="mt-1 break-all">
+                      {resourceNameKorean(binding.rule_id, binding.resource_id)} · AWS ID: {binding.resource_id}
+                      {" → "}{binding.file_path} · {binding.module ? `${binding.module}.` : ""}{binding.resource_type}.{binding.resource_name}
+                    </p>
+                  ))
+                ) : (
+                  <p className="mt-1 text-amber-800">선택한 보안 그룹과 이 파일들의 State 연결을 확인하지 못했습니다. 파일과 리소스 소유권을 확인하세요.</p>
+                )}
+              </div>
+            )}
+          {fix.payload.files.map((file) => (
+            <div key={file.file_path} className="space-y-2">
+              <h3 className="text-xs font-semibold">{file.file_path}</h3>
+              <details open={fix.status === "SOURCE_READY"}>
+                <summary className="cursor-pointer text-xs">
+                  수정 전 원본 코드
+                </summary>
+                <pre className="max-h-72 overflow-auto bg-gray-50 p-3 text-xs">
+                  {file.original_content}
+                </pre>
+              </details>
+              {file.proposed_content !== undefined && (
+                <details>
+                  <summary className="cursor-pointer text-xs">
+                    수정 후 제안 코드
+                  </summary>
+                  <pre className="max-h-72 overflow-auto bg-gray-50 p-3 text-xs">
+                    {file.proposed_content}
+                  </pre>
+                </details>
+              )}
+              {file.diff && <DiffView diff={file.diff} />}
+            </div>
+          ))}
           {fix.payload.github_pr && (
             <section className="rounded-lg border p-3 text-xs space-y-1">
               <h3 className="font-semibold">GitHub PR</h3>
@@ -1248,6 +1380,127 @@ export function AIActionsPage({
                 </div>
               )}
             </section>
+          )}
+          {fix.payload.deployment && (
+            <section className="rounded-lg border p-3 text-xs space-y-2">
+              <h3 className="font-semibold">
+                배포 결과 · {fix.payload.deployment.status}
+              </h3>
+              {fix.payload.deployment.url && (
+                <a
+                  href={fix.payload.deployment.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  배포 Actions 실행 보기
+                </a>
+              )}
+              {fix.payload.deployment.merge_sha && (
+                <p className="break-all">
+                  운영 코드 commit: {fix.payload.deployment.merge_sha}
+                </p>
+              )}
+              {fix.payload.deployment.error && (
+                <p className="text-red-700">{fix.payload.deployment.error}</p>
+              )}
+            </section>
+          )}
+          {fix.payload.rediagnosis && (
+            <section className="rounded-lg border p-3 text-xs space-y-2">
+              <h3 className="font-semibold">
+                배포 후 재진단 · #{fix.payload.rediagnosis.run_id ?? "실패"}
+              </h3>
+              {fix.payload.rediagnosis.error && (
+                <p className="text-red-700">{fix.payload.rediagnosis.error}</p>
+              )}
+              {fix.payload.rediagnosis.results?.map((r) => (
+                <p key={r.rule_id}>
+                  {r.rule_id}: {r.before} → {r.after} ·{" "}
+                  {r.verified ? "조치 확인" : "재검토 필요"} · 현재{" "}
+                  {r.current_value ?? "-"} · 기준 {r.expected_value ?? "-"}
+                </p>
+              ))}
+            </section>
+          )}
+          <div className="flex flex-wrap gap-2 text-xs">
+            {(["patch", "first", "final", "results"] as const).map((kind) => {
+              const available =
+                kind === "patch"
+                  ? fix.payload.files.some((f) => !!f.diff)
+                  : kind === "first"
+                    ? !!fix.payload.report
+                    : kind === "final"
+                      ? !!fix.payload.final_report
+                      : !!(fix.payload.deployment || fix.payload.rediagnosis)
+              return available ? (
+                <a
+                  key={kind}
+                  className="rounded border border-gray-300 px-3 py-2 underline"
+                  href={`/api/ai-actions/patches/${fix.id}/download/${kind}`}
+                >
+                  {kind === "patch"
+                    ? ".patch"
+                    : kind === "first"
+                      ? "1차 보고서 PDF"
+                      : kind === "final"
+                        ? "최종 보고서 PDF"
+                        : "검증·배포·재진단 PDF"}{" "}
+                  다운로드
+                </a>
+              ) : null
+            })}
+          </div>
+            </div>
+          </details>
+          <p className="text-xs text-gray-500">
+            코드가 변경되면 새 패치를 생성하여 보고서·승인을 다시 받아야 합니다.
+          </p>
+        </section>
+      )}
+      {fix && reportOpen && (fix.payload.report || fix.payload.final_report) && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[#101828]/60 p-3 sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) setReportOpen(false) }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="patch-report-title" className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#EAECF0] px-5 py-4">
+              <h2 id="patch-report-title" className="text-base font-bold text-[#101828]">AI 보안 조치 보고서</h2>
+              <div className="flex flex-wrap items-center gap-3 text-xs">
+                {fix.payload.report && <a className="font-semibold text-[#175CD3] underline" href={"/api/ai-actions/patches/" + fix.id + "/download/first"}>1차 보고서 PDF</a>}
+                {fix.payload.final_report && <a className="font-semibold text-[#175CD3] underline" href={"/api/ai-actions/patches/" + fix.id + "/download/final"}>최종 보고서 PDF</a>}
+                <button type="button" onClick={() => setReportOpen(false)} className="rounded-lg border border-[#D0D5DD] px-3 py-1.5 font-semibold text-[#344054]">닫기</button>
+              </div>
+            </div>
+            <div className="space-y-4 overflow-y-auto p-5">
+          {fix.payload.report && (
+            <div className="space-y-3 rounded-lg border border-gray-200 p-3 text-xs">
+              <h3 className="font-bold">AI 변경 보고서 · 실제 Diff 근거</h3>
+              <p className="whitespace-pre-wrap">
+                {fix.payload.report.summary}
+              </p>
+              {fix.payload.report.changes.map((c, i) => (
+                <div key={i}>
+                  <strong>{c.file_path}</strong>
+                  <pre className="overflow-auto bg-gray-50 p-2">
+                    {c.evidence}
+                  </pre>
+                  <p>{c.explanation}</p>
+                </div>
+              ))}
+              <p>예상 영향: {fix.payload.report.impact}</p>
+              <p>서비스 중단 가능성: {fix.payload.report.service_disruption}</p>
+              <p>리소스 교체 가능성: {fix.payload.report.resource_replacement}</p>
+              <h4 className="font-semibold">위험·불확실성</h4>
+              <ul className="list-disc pl-4">
+                {fix.payload.report.risks.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+              <h4 className="font-semibold">추가 확인사항</h4>
+              <ul className="list-disc pl-4">
+                {fix.payload.report.checks.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+            </div>
           )}
           {fix.payload.final_report && (
             <section className="space-y-4 rounded-lg border p-4 text-sm">
@@ -1359,113 +1612,9 @@ export function AIActionsPage({
               </div>
             </section>
           )}
-          {fix.status === "AWAITING_FINAL_APPROVAL" &&
-            (history?.can_approve ? (
-              <section className="rounded-lg bg-amber-50 p-3 text-xs space-y-2">
-                <h3 className="font-semibold">사람의 최종 승인</h3>
-                <p>
-                  원본·수정 코드, Diff, 최종 보고서, 2차 AI 검증, 검사 결과,
-                  Plan 요약과 PR을 확인하세요. 승인은 이 commit과 저장 Plan에
-                  묶입니다.
-                </p>
-                <label className="flex gap-2">
-                  <input
-                    type="checkbox"
-                    checked={reviewed}
-                    disabled={running}
-                    onChange={(e) => setReviewed(e.target.checked)}
-                  />
-                  모든 내용을 확인했습니다.
-                </label>
-                <textarea
-                  aria-label="최종 승인 의견 또는 반려 사유"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  maxLength={2000}
-                  className="w-full rounded border p-2"
-                  placeholder="반려 사유(반려 시 필수)"
-                />
-                <div className="flex gap-2">
-                  <button
-                    className={button}
-                    disabled={running || !reviewed}
-                    onClick={() => decideFinal("approve")}
-                  >
-                    최종 승인 및 자동 배포
-                  </button>
-                  <button
-                    className={button}
-                    disabled={running || !reviewed || !note.trim()}
-                    onClick={() => decideFinal("reject")}
-                  >
-                    최종 반려
-                  </button>
-                </div>
-              </section>
-            ) : (
-              <p className="text-xs">
-                승인자 계정에서 최종 보고서와 Plan을 검토할 수 있습니다.
-              </p>
-            ))}
-          {fix.status === "FINAL_APPROVED" && (
-            <p className="text-xs text-gray-600">자동 배포 요청을 재시도하는 중입니다.</p>
-          )}
-          {fix.payload.deployment && (
-            <section className="rounded-lg border p-3 text-xs space-y-2">
-              <h3 className="font-semibold">
-                배포 결과 · {fix.payload.deployment.status}
-              </h3>
-              {fix.payload.deployment.url && (
-                <a
-                  href={fix.payload.deployment.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline"
-                >
-                  배포 Actions 실행 보기
-                </a>
-              )}
-              {fix.payload.deployment.merge_sha && (
-                <p className="break-all">
-                  운영 코드 commit: {fix.payload.deployment.merge_sha}
-                </p>
-              )}
-              {fix.payload.deployment.error && (
-                <p className="text-red-700">{fix.payload.deployment.error}</p>
-              )}
-            </section>
-          )}
-          {fix.payload.rediagnosis && (
-            <section className="rounded-lg border p-3 text-xs space-y-2">
-              <h3 className="font-semibold">
-                배포 후 재진단 · #{fix.payload.rediagnosis.run_id ?? "실패"}
-              </h3>
-              {fix.payload.rediagnosis.error && (
-                <p className="text-red-700">{fix.payload.rediagnosis.error}</p>
-              )}
-              {fix.payload.rediagnosis.results?.map((r) => (
-                <p key={r.rule_id}>
-                  {r.rule_id}: {r.before} → {r.after} ·{" "}
-                  {r.verified ? "조치 확인" : "재검토 필요"} · 현재{" "}
-                  {r.current_value ?? "-"} · 기준 {r.expected_value ?? "-"}
-                </p>
-              ))}
-            </section>
-          )}
-          <h3 className="text-xs font-semibold">처리 기록</h3>
-          <ul className="space-y-1 text-xs text-gray-600">
-            {fix.payload.audit.map((event, i) => (
-              <li key={i}>
-                {formatTime(event.at)} · {event.actor} ·{" "}
-                {PATCH_STATUS[event.event] ?? event.event}
-                {event.note ? ` · ${event.note}` : ""}
-              </li>
-            ))}
-          </ul>
-          <p className="text-xs text-gray-500">
-            코드가 변경되면 새 패치를 생성하여 보고서·승인을 다시 받아야 합니다.
-          </p>
-        </section>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
