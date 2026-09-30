@@ -248,6 +248,9 @@ class PatchWorkflow(TerraformPatches):
             raise PatchError("SELF_APPROVAL", "요청자는 최종 승인할 수 없습니다.", 403)
         if patch["status"] != "AWAITING_FINAL_APPROVAL":
             raise PatchError("INVALID_STATE", "최종 보고서가 준비된 패치만 승인할 수 있습니다.", 409)
+        if body.get("decision") == "approve":
+            if os.getenv("PATCH_ENABLE_TERRAFORM_APPLY") != "true" or os.getenv("PATCH_ENABLE_GITHUB_WRITES") != "true":
+                raise PatchError("DEPLOY_DISABLED", "자동 배포가 비활성화되어 있습니다. 서버 배포 설정을 확인하세요.", 503)
         self._source_guard(patch)
         if any(patch["payload"]["checks"]["results"].get(name, {}).get("status") != "PASS"
                for name in CHECK_NAMES):
@@ -275,6 +278,22 @@ class PatchWorkflow(TerraformPatches):
         audit(patch["payload"], patch["status"], actor, approval_hash=binding, note=note)
         patch["payload"]["final_approval"] = patch["payload"]["audit"][-1]
         self.repo.save(patch, "AWAITING_FINAL_APPROVAL")
+        if decision == "approve":
+            try:
+                return self.start_deploy(patch_id, "deploy-worker")
+            except PatchError as exc:
+                # The approval is durable. The worker will retry transient failures;
+                # return the actual state so the UI does not report a failed approval.
+                if exc.code in {"CODE_CHANGED", "CHECKS_CHANGED", "STALE_APPROVAL",
+                                "BASE_CHANGED", "CHECKS_NOT_PASSED", "FIRST_APPROVAL_REQUIRED"}:
+                    self.block_stale_deploy(patch_id, exc.code)
+                result = self.repo.get(patch_id)
+                result["deployment_start_error"] = exc.message
+                return result
+            except Exception:
+                result = self.repo.get(patch_id)
+                result["deployment_start_error"] = "배포 요청을 시작하지 못했습니다. 워커가 다시 시도합니다."
+                return result
         return self.repo.get(patch_id)
 
     def start_deploy(self, patch_id, actor):

@@ -7,6 +7,32 @@ from services.patch_security import PatchError, seal, unseal
 
 
 class PatchRepository:
+    def approval_inbox(self):
+        """Ready patches for the approver bell, with no source or report content."""
+        with get_connection() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT id, requested_by, updated_at, payload_encrypted "
+                           "FROM terraform_patches WHERE status = 'AWAITING_FINAL_APPROVAL' "
+                           "ORDER BY updated_at DESC, id DESC")
+            rows = cursor.fetchall()
+        ready = []
+        for row in rows:
+            payload = unseal(row["payload_encrypted"])
+            review = payload.get("ai_review") or {}
+            human = payload.get("human_review_approval") or {}
+            ai_passed = review.get("verdict") == "APPROVE" or (
+                review.get("verdict") == "NEEDS_HUMAN_REVIEW"
+                and human.get("event") == "HUMAN_REVIEW_APPROVED")
+            checks = (payload.get("checks") or {}).get("results") or {}
+            required_checks = {"fmt", "validate", "plan", "tflint", "checkov"}
+            if (ai_passed and payload.get("final_report")
+                    and set(checks) == required_checks
+                    and all(item.get("status") == "PASS" for item in checks.values())):
+                ready.append({"id": row["id"], "requested_by": row["requested_by"],
+                              "updated_at": row["updated_at"],
+                              "ai_verdict": review["verdict"],
+                              "rule_ids": [finding["rule_id"] for finding in payload.get("findings", [])]})
+        return ready
+
     def active_check_ids(self, limit=10):
         with get_connection() as connection, connection.cursor() as cursor:
             cursor.execute("SELECT id FROM terraform_patches WHERE status = 'CHECKS_RUNNING' "

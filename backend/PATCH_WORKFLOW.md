@@ -39,10 +39,13 @@ downloadable from encrypted DB history, regardless of GitHub branch retention.
 
 The final report explains the planned change, user impact, interruption and
 replacement risk in plain Korean, with unverified conditions clearly marked.
-Final approval records the decision only. Run `backend/run_patch_deploy_worker.py`
-as a separate managed process. It polls GitHub checks, dispatches approved
-deployments when apply is enabled, and records completed deployment runs even
-when no browser is open. Optimistic patch status transitions and a global
+After the second AI review, all GitHub checks pass, and the final report is ready,
+the approver sees the patch in the dashboard bell. Final approval immediately
+dispatches the signed deployment when apply is enabled. Run
+`backend/run_patch_deploy_worker.py` as a separate managed process. It polls
+GitHub checks, retries approved deployments after transient dispatch failures,
+and records completed deployment runs even when no browser is open. Optimistic
+patch status transitions and a global
 deploy lock prevent duplicate dispatch. The worker rechecks the signed approval,
 PR head/base, successful CI run, exact Plan manifest and commit before dispatch.
 The GitHub runner checks signature, PR, saved Plan SHA/version, and State
@@ -57,6 +60,7 @@ an apply failure remains a recorded partial deployment and is never retried.
 | POST | `/mapping-preview` | Suggest files for selected FAIL rule IDs |
 | GET/POST | `/patches` | History / create patch from confirmed mapping |
 | GET | `/patches/<id>` | Full encrypted-history detail |
+| GET | `/patches/approval-inbox` | Approver-only ready patch notifications |
 | POST | `/terraform-fix` | First AI integrated proposal |
 | POST | `/patches/<id>/first-approval` | Admin first approval or rejection |
 | POST | `/patches/<id>/ai-review` | Second AI after first approval |

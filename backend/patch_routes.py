@@ -57,6 +57,12 @@ def register_patch_routes(app, role_required):
                 "can_create": session.get("role") == os.getenv("ADMIN_ROLE", "관리자"),
                 "can_approve": session.get("role") == os.getenv("APPROVER_ROLE", "승인자")}
 
+    @app.get("/api/ai-actions/patches/approval-inbox")
+    @approver
+    @guarded
+    def approval_inbox():
+        return {"patches": service.repo.approval_inbox()}
+
     @app.get("/api/ai-actions/patches/<uuid:patch_id>")
     @reader
     @guarded

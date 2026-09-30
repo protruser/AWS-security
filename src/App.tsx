@@ -1354,6 +1354,14 @@ interface SecurityNotification {
   read: boolean
 }
 
+interface PatchApprovalNotification {
+  id: string
+  requested_by: string
+  rule_ids: string[]
+  updated_at: string
+  ai_verdict: string
+}
+
 function DashboardDataStatus({
   status,
   onRetry,
@@ -1637,6 +1645,8 @@ export default function App() {
   const [overviewMetricsState, setOverviewMetricsState] =
     useState<DashboardDataState>("loading")
   const [notifications, setNotifications] = useState<SecurityNotification[]>([])
+  const [patchNotifications, setPatchNotifications] = useState<PatchApprovalNotification[]>([])
+  const [readPatchIds, setReadPatchIds] = useState<Set<string>>(new Set())
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const knownEventIdsRef = useRef<Set<string> | null>(null)
   const notifiedEventIdsRef = useRef(new Set<string>())
@@ -1766,6 +1776,39 @@ export default function App() {
       void loadOverviewMetrics(true)
     }
   }, [authState])
+
+  useEffect(() => {
+    if (authState !== "authenticated" || authUser?.role !== "승인자") {
+      setPatchNotifications([])
+      return
+    }
+    const storageKey = `patch-approval-read:${authUser.username}`
+    try {
+      setReadPatchIds(new Set(JSON.parse(localStorage.getItem(storageKey) || "[]")))
+    } catch {
+      setReadPatchIds(new Set())
+    }
+    let cancelled = false
+    const loadApprovalInbox = async () => {
+      try {
+        const response = await fetch("/api/ai-actions/patches/approval-inbox", {
+          credentials: "include",
+          cache: "no-store",
+        })
+        if (!response.ok) return
+        const data = (await response.json()) as { patches: PatchApprovalNotification[] }
+        if (!cancelled) setPatchNotifications(data.patches)
+      } catch (error) {
+        console.error("최종 승인 알림을 불러오지 못했습니다.", error)
+      }
+    }
+    void loadApprovalInbox()
+    const timer = window.setInterval(() => void loadApprovalInbox(), 10000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [authState, authUser?.role, authUser?.username])
 
   useEffect(() => {
     const onHash = () => {
@@ -1904,10 +1947,32 @@ export default function App() {
     )
   }
 
+  const markPatchNotificationRead = (id: string) => {
+    if (!authUser) return
+    setReadPatchIds((previous) => {
+      const next = new Set(previous)
+      next.add(id)
+      localStorage.setItem(`patch-approval-read:${authUser.username}`, JSON.stringify([...next]))
+      return next
+    })
+  }
+
+  const handlePatchNotificationClick = (notification: PatchApprovalNotification) => {
+    markPatchNotificationRead(notification.id)
+    setNotificationsOpen(false)
+    setPatchDetailId(notification.id)
+    goSection("ai-actions")
+  }
+
   const markAllNotificationsRead = () => {
     setNotifications((previous) =>
       previous.map((notification) => ({ ...notification, read: true })),
     )
+    if (authUser?.role === "승인자") {
+      const next = new Set([...readPatchIds, ...patchNotifications.map((item) => item.id)])
+      setReadPatchIds(next)
+      localStorage.setItem(`patch-approval-read:${authUser.username}`, JSON.stringify([...next]))
+    }
   }
 
   const handleDirectRemediation = async (event: ActionEvent) => {
@@ -2112,7 +2177,7 @@ export default function App() {
   const activeEvents = actionEvents
   const unreadNotificationCount = notifications.filter(
     (notification) => !notification.read,
-  ).length
+  ).length + patchNotifications.filter((notification) => !readPatchIds.has(notification.id)).length
   const displayedActionEvents =
     selectedEvent &&
     !activeEvents.some((event) => event.id === selectedEvent.id)
@@ -2372,7 +2437,7 @@ export default function App() {
           <div className="relative" ref={notificationPopoverRef}>
             <button
               onClick={() => setNotificationsOpen((open) => !open)}
-              aria-label={`보안 이벤트 알림 ${unreadNotificationCount}개`}
+              aria-label={`알림 ${unreadNotificationCount}개`}
               aria-expanded={notificationsOpen}
               className={`relative p-1.5 rounded-lg transition-colors ${
                 notificationsOpen ? "bg-[#F2F4F7]" : "hover:bg-[#F5F5F5]"
@@ -2418,17 +2483,39 @@ export default function App() {
                 </div>
 
                 <div className="max-h-[420px] overflow-y-auto">
-                  {notifications.length === 0 ? (
+                  {notifications.length === 0 && patchNotifications.length === 0 ? (
                     <div className="px-4 py-10 text-center">
                       <p className="text-[14px] font-semibold text-[#667085]">
-                        새로운 보안 이벤트 알림이 없습니다.
-                      </p>
-                      <p className="mt-1 text-[12px] text-[#98A2B3]">
-                        다음 조회에서 새 event.id가 확인되면 표시됩니다.
+                        새로운 알림이 없습니다.
                       </p>
                     </div>
                   ) : (
-                    notifications.map((notification) => {
+                    <>
+                    {patchNotifications.map((notification) => (
+                      <button
+                        key={`patch-${notification.id}`}
+                        onClick={() => handlePatchNotificationClick(notification)}
+                        className={`relative block w-full border-b border-[#F2F4F7] px-4 py-3 text-left transition-colors ${
+                          readPatchIds.has(notification.id) ? "bg-white hover:bg-[#F9FAFB]" : "bg-[#F8FAFF] hover:bg-[#F2F6FF]"
+                        }`}
+                      >
+                        {!readPatchIds.has(notification.id) && (
+                          <span className="absolute left-1.5 top-4 h-1.5 w-1.5 rounded-full bg-[#2563EB]" />
+                        )}
+                        <p className="text-[13px] font-bold text-[#101828]">
+                          최종 승인 요청 · {notification.ai_verdict === "APPROVE" ? "검증 PASS" : "추가 검토 승인"}
+                        </p>
+                        <p className="mt-1 text-[12px] text-[#475467]">
+                          {notification.ai_verdict === "APPROVE"
+                            ? "2차 AI 검증과 GitHub 검사가 PASS했습니다."
+                            : "2차 AI 추가 검토가 승인되고 GitHub 검사가 PASS했습니다."}
+                        </p>
+                        <p className="mt-1 text-[11px] text-[#667085]">
+                          규칙 {notification.rule_ids.join(", ") || "-"} · 요청자 {notification.requested_by}
+                        </p>
+                      </button>
+                    ))}
+                    {notifications.map((notification) => {
                       const event = notification.event
                       const time =
                         event.detectedAt.match(/\d{2}:\d{2}$/)?.[0] ??
@@ -2481,7 +2568,8 @@ export default function App() {
                           </div>
                         </button>
                       )
-                    })
+                    })}
+                    </>
                   )}
                 </div>
               </div>

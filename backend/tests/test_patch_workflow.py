@@ -4,7 +4,7 @@ import sys
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from cryptography.fernet import Fernet
 
@@ -13,6 +13,7 @@ import app
 from services.patch_authorization import verify
 from services.patch_security import PatchError
 from services.patch_workflow import PatchWorkflow, approval_digest, human_review_digest, CHECK_NAMES
+from services.patch_repository import PatchRepository
 from run_patch_deploy_worker import run_once
 from services.terraform_patch_service import digest
 from test_ai_action import MemoryRepository, ORIGINAL, PROPOSED, report_for
@@ -260,8 +261,8 @@ class PatchWorkflowTest(unittest.TestCase):
             {"decision": "approve", "approval_hash": "wrong", "reviewed": True}, "reviewer")
         approved = self.flow.decide_final(self.patch_id, {"decision": "approve",
             "approval_hash": approval_digest(row), "reviewed": True}, "reviewer")
-        self.assertEqual(approved["status"], "FINAL_APPROVED")
-        self.assertEqual(self.github.dispatches, [])
+        self.assertEqual(approved["status"], "DEPLOYING")
+        self.assertEqual(len(self.github.dispatches), 1)
 
     def test_final_approval_still_requires_other_person(self):
         row = self.stage_final()
@@ -289,16 +290,21 @@ class PatchWorkflowTest(unittest.TestCase):
         with self.assertRaises(PatchError): self.flow.start_deploy(self.patch_id, "operator")
 
     def test_disabled_apply_and_changed_base_never_dispatch(self):
-        self.approve_final()
+        row = self.stage_final()
         with patch.dict(os.environ, {"PATCH_ENABLE_TERRAFORM_APPLY": "false"}):
-            with self.assertRaises(PatchError): self.flow.start_deploy(self.patch_id, "operator")
+            with self.assertRaises(PatchError):
+                self.flow.decide_final(self.patch_id, {"decision": "approve",
+                    "approval_hash": approval_digest(row), "reviewed": True}, "reviewer")
+        self.assertEqual(self.repo.get(self.patch_id)["status"], "AWAITING_FINAL_APPROVAL")
         self.github.base = "f" * 40
-        with self.assertRaises(PatchError): self.flow.start_deploy(self.patch_id, "operator")
+        with self.assertRaises(PatchError):
+            self.flow.decide_final(self.patch_id, {"decision": "approve",
+                "approval_hash": approval_digest(row), "reviewed": True}, "reviewer")
         self.assertEqual(self.github.dispatches, [])
 
     def test_signed_exact_plan_and_duplicate_deploy_block(self):
         self.approve_final()
-        row = self.flow.start_deploy(self.patch_id, "operator")
+        row = self.repo.get(self.patch_id)
         self.assertEqual(row["status"], "DEPLOYING")
         self.assertEqual(self.repo.lock, self.patch_id)
         claims = verify(self.github.dispatches[0][1])
@@ -309,7 +315,7 @@ class PatchWorkflowTest(unittest.TestCase):
 
     def test_separate_worker_dispatches_final_approval_once(self):
         self.approve_final()
-        self.assertEqual(self.github.dispatches, [])
+        self.assertEqual(len(self.github.dispatches), 1)
         run_once(self.flow)
         run_once(self.flow)
         self.assertEqual(len(self.github.dispatches), 1)
@@ -321,7 +327,7 @@ class PatchWorkflowTest(unittest.TestCase):
         self.assertEqual(self.repo.get(self.patch_id)["status"], "AWAITING_FINAL_APPROVAL")
 
     def test_failed_apply_is_retained_and_unlocks(self):
-        self.approve_final(); self.flow.start_deploy(self.patch_id, "operator")
+        self.approve_final()
         self.github.deploy_run = {"id": 601, "html_url": "https://github.com/org/repo/actions/runs/601",
                                   "status": "completed", "conclusion": "failure", "updated_at": "2026-01-01T00:00:00Z"}
         row = self.flow.refresh_deploy(self.patch_id, "operator")
@@ -330,7 +336,7 @@ class PatchWorkflowTest(unittest.TestCase):
         self.assertIsNone(self.repo.lock)
 
     def test_successful_apply_with_fail_rediagnosis_is_not_remediated(self):
-        self.approve_final(); self.flow.start_deploy(self.patch_id, "operator")
+        self.approve_final()
         self.github.deploy_run = {"id": 601, "html_url": "https://github.com/org/repo/actions/runs/601",
                                   "status": "completed", "conclusion": "success", "updated_at": "2026-01-01T00:00:00Z"}
         with patch("services.patch_workflow.collect_aws_state", return_value={}), patch(
@@ -342,12 +348,51 @@ class PatchWorkflowTest(unittest.TestCase):
         self.assertFalse(row["payload"]["rediagnosis"]["results"][0]["verified"])
 
     def test_global_lock_separates_patches(self):
-        self.approve_final(); self.repo.acquire_deploy_lock("another")
-        with self.assertRaises(PatchError): self.flow.start_deploy(self.patch_id, "operator")
+        row = self.stage_final()
+        self.repo.acquire_deploy_lock("another")
+        approved = self.flow.decide_final(self.patch_id, {"decision": "approve",
+            "approval_hash": approval_digest(row), "reviewed": True}, "reviewer")
+        self.assertEqual(approved["status"], "FINAL_APPROVED")
+        self.assertIn("deployment_start_error", approved)
         self.assertEqual(self.github.dispatches, [])
+        self.repo.release_deploy_lock("another")
+        run_once(self.flow)
+        self.assertEqual(len(self.github.dispatches), 1)
 
 
 class PatchRoutesTest(unittest.TestCase):
+    def test_approval_inbox_is_approver_only(self):
+        app.app.config.update(TESTING=True, SECRET_KEY="route-inbox-test")
+        client = app.app.test_client()
+        service = app.app.extensions["terraform_patches"]
+        with patch.object(service.repo, "approval_inbox", return_value=[{"id": "patch-1"}]) as inbox:
+            with client.session_transaction() as session:
+                session.update(authenticated=True, role="관리자", username="operator")
+            self.assertEqual(client.get("/api/ai-actions/patches/approval-inbox").status_code, 403)
+            inbox.assert_not_called()
+            with client.session_transaction() as session:
+                session.update(authenticated=True, role="승인자", username="reviewer")
+            response = client.get("/api/ai-actions/patches/approval-inbox")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json["patches"], [{"id": "patch-1"}])
+
+    def test_approval_inbox_requires_both_reviews_and_all_github_passes(self):
+        checks = {name: {"status": "PASS"} for name in CHECK_NAMES}
+        valid = {"ai_review": {"verdict": "APPROVE"}, "checks": {"results": checks},
+                 "final_report": {"version": "final"}, "findings": [{"rule_id": "3.7"}]}
+        failed = {**valid, "checks": {"results": {**checks, "plan": {"status": "FAIL"}}}}
+        rejected = {**valid, "ai_review": {"verdict": "REJECT"}}
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [
+            {"id": key, "requested_by": "operator", "updated_at": "now", "payload_encrypted": payload}
+            for key, payload in (("valid", valid), ("failed", failed), ("rejected", rejected))]
+        with patch("services.patch_repository.get_connection", return_value=connection), patch(
+                "services.patch_repository.unseal", side_effect=lambda value: value):
+            result = PatchRepository().approval_inbox()
+        self.assertEqual([item["id"] for item in result], ["valid"])
+
     def test_human_review_route_exposes_binding_only_to_admin(self):
         app.app.config.update(TESTING=True, SECRET_KEY="route-review-test")
         client = app.app.test_client()

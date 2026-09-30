@@ -55,6 +55,7 @@ interface PatchDetail extends PatchSummary {
   content_hash?: string
   approval_hash?: string
   review_hash?: string
+  deployment_start_error?: string
   payload: {
     findings: DiagnosisResult[]
     source: {
@@ -392,6 +393,20 @@ export function AIActionsPage({
       cancelled = true
     }
   }, [])
+  useEffect(() => {
+    if (!initialPatchId || fix?.id === initialPatchId) return
+    let cancelled = false
+    void api<PatchDetail>(`/api/ai-actions/patches/${initialPatchId}`)
+      .then((detail) => {
+        if (!cancelled) {
+          setFix(detail)
+          setReviewed(false)
+          setNote("")
+        }
+      })
+      .catch((e: Error) => !cancelled && setError(e.message))
+    return () => { cancelled = true }
+  }, [initialPatchId])
   const fails = useMemo(
     () => (diagnosis?.result?.results ?? []).filter((r) => r.status === "FAIL"),
     [diagnosis],
@@ -920,6 +935,9 @@ export function AIActionsPage({
             패치 상세 · {PATCH_STATUS[fix.status] ?? fix.status}
           </h2>
           <p className="break-all font-mono text-xs">{fix.id}</p>
+          {fix.deployment_start_error && (
+            <p role="alert" className="text-xs text-red-700">{fix.deployment_start_error}</p>
+          )}
           <p className="text-xs">
             진단 #{fix.diagnosis_run_id} · FAIL{" "}
             {fix.payload.findings.map((f) => f.rule_id).join(", ")}
@@ -1373,7 +1391,7 @@ export function AIActionsPage({
                     disabled={running || !reviewed}
                     onClick={() => decideFinal("approve")}
                   >
-                    최종 승인
+                    최종 승인 및 자동 배포
                   </button>
                   <button
                     className={button}
@@ -1390,7 +1408,7 @@ export function AIActionsPage({
               </p>
             ))}
           {fix.status === "FINAL_APPROVED" && (
-            <p className="text-xs text-gray-600">승인된 패치의 배포 작업을 기다리는 중입니다.</p>
+            <p className="text-xs text-gray-600">자동 배포 요청을 재시도하는 중입니다.</p>
           )}
           {fix.payload.deployment && (
             <section className="rounded-lg border p-3 text-xs space-y-2">
