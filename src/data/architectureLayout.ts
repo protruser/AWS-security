@@ -33,7 +33,9 @@ export const ZONES: Zone[] = [
     border: "#D0D5DD",
     ink: "#344054",
     fill: "#FFFFFF",
-    labelAt: "bottom-left",
+    // bottom-left는 이미지·암호화 영역의 ECR 노드 라벨과 겹친다(글자
+    // 크기를 키운 뒤로 여백이 줄어듦) - top-left는 비어 있는 자리.
+    labelAt: "top-left",
   },
   {
     id: "vpc",
@@ -135,7 +137,9 @@ export const ZONES: Zone[] = [
     ink: "#344054",
     fill: "#FFFFFF",
     dashed: true,
-    labelAt: "bottom-left",
+    // bottom-left는 S3 security-logs 노드 라벨과 겹친다(글자 크기를 키운
+    // 뒤로 여백이 줄어듦) - top-right는 GuardDuty/Security Hub 사이 빈 자리.
+    labelAt: "top-right",
   },
 ]
 
