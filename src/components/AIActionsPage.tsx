@@ -427,6 +427,7 @@ export function AIActionsPage({
   onUnauthorized,
   initialSelection,
   initialPatchId,
+  onReturnToStart,
 }: {
   onUnauthorized: () => void
   initialSelection?: {
@@ -434,6 +435,7 @@ export function AIActionsPage({
     ruleIds: string[]
   } | null
   initialPatchId?: string | null
+  onReturnToStart?: () => void
 }) {
   const [diagnosis, setDiagnosis] = useState<DiagnosisStatus | null>(null)
   const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>(
@@ -454,6 +456,8 @@ export function AIActionsPage({
   const [showPreparation, setShowPreparation] = useState(!initialPatchId)
   const [reportOpen, setReportOpen] = useState(false)
   const technicalRef = useRef<HTMLDetailsElement>(null)
+  const historyRef = useRef<HTMLDetailsElement>(null)
+  const pageRef = useRef<HTMLDivElement>(null)
   const [reviewed, setReviewed] = useState(false)
   const [note, setNote] = useState("")
   const api = <T,>(url: string, body?: unknown) =>
@@ -585,12 +589,26 @@ export function AIActionsPage({
   const selectionKey = selected.map((r) => r.rule_id).sort().join(",")
   const notTerraformSelected = !!mappingPreview && previewRules === selectionKey &&
     selected.some((r) => mappingPreview.mapping[r.rule_id]?.status === "NOT_TERRAFORM")
-  const selectDetail = (data: PatchDetail) => {
+  const selectDetail = (data: PatchDetail, scrollToTop = false) => {
     setFix(data)
     setShowPreparation(false)
     setReportOpen(false)
     setReviewed(false)
     setNote("")
+    if (scrollToTop) {
+      pageRef.current?.closest("[data-app-scroll-container]")?.scrollTo({ top: 0, behavior: "smooth" })
+    }
+  }
+  const returnToStart = () => {
+    setFix(null)
+    setShowPreparation(true)
+    setReportOpen(false)
+    setReviewed(false)
+    setNote("")
+    setError(null)
+    if (historyRef.current) historyRef.current.open = false
+    onReturnToStart?.()
+    pageRef.current?.closest("[data-app-scroll-container]")?.scrollTo({ top: 0, behavior: "smooth" })
   }
   const showTechnicalDetails = () => {
     if (!technicalRef.current) return
@@ -725,9 +743,16 @@ export function AIActionsPage({
     "rounded-lg bg-[#101828] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
   const panel = "rounded-2xl border border-[#E4E7EC] bg-white p-4 space-y-3"
   return (
-    <div className="min-h-full space-y-4 p-4">
+    <div ref={pageRef} className="min-h-full space-y-4 p-4">
       <div>
-        <h1 className="text-lg font-bold text-[#101828]">AI 조치</h1>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className="text-lg font-bold text-[#101828]">AI 조치</h1>
+          {fix && (
+            <button type="button" onClick={returnToStart} disabled={running} className="cursor-pointer rounded-lg border border-[#D0D5DD] bg-white px-3 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#F9FAFB] disabled:cursor-not-allowed disabled:opacity-40">
+              ← AI 조치 초기 화면으로
+            </button>
+          )}
+        </div>
         <p className="text-xs text-[#667085]">
           FAIL 다중 선택 → GitHub 원본 조회 → 통합 수정안·변경 보고서 → 사람의
           1차 승인
@@ -746,314 +771,6 @@ export function AIActionsPage({
         </p>
       )}
       {fix && <PatchProgress fix={fix} />}
-      {fix && <PatchResult fix={fix} onDetails={showTechnicalDetails} onReport={() => setReportOpen(true)} />}
-      {history?.can_create && (
-        <div className="space-y-3">
-          <button type="button" onClick={() => setShowPreparation((open) => !open)} aria-expanded={showPreparation} className="w-full rounded-2xl border border-[#E4E7EC] bg-white px-4 py-3 text-left text-sm font-semibold text-[#101828]">
-            {showPreparation ? "▾" : "▸"} 새 AI 조치 준비
-            <span className="ml-2 text-xs font-normal text-[#667085]">진단 FAIL 선택과 Terraform 파일 지정</span>
-          </button>
-          {showPreparation && (
-        <div className="grid gap-3 lg:grid-cols-[minmax(280px,340px)_1fr]">
-          <section className={panel}>
-            <h2 className="text-sm font-semibold">
-              실패 항목 {fails.length}개 · 선택 {selected.length}개
-            </h2>
-            {!diagnosis?.result && (
-              <p className="text-xs">먼저 AI 진단을 완료하세요.</p>
-            )}
-            {initialSelection && initialSelection.runId !== diagnosis?.id && (
-              <p className="text-xs text-amber-700">
-                선택한 진단 이후 새 진단이 있습니다. AI 진단 화면에서 다시
-                선택하세요.
-              </p>
-            )}
-            <ul className="max-h-[460px] overflow-auto divide-y divide-gray-100">
-              {fails.map((r) => (
-                <li key={r.rule_id}>
-                  <label className="flex cursor-pointer gap-2 py-3 text-xs">
-                    <input
-                      type="checkbox"
-                      aria-label={`FAIL ${r.rule_id} 선택`}
-                      disabled={running}
-                      checked={selectedRuleIds.includes(r.rule_id)}
-                      onChange={(e) =>
-                        setSelectedRuleIds((ids) =>
-                          e.target.checked
-                            ? [...ids, r.rule_id]
-                            : ids.filter((id) => id !== r.rule_id),
-                        )
-                      }
-                    />
-                    <span>
-                      <strong className="text-red-700">FAIL {r.rule_id}</strong>{" "}
-                      · {r.severity}
-                      <br />
-                      {r.reason}
-                    </span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-          </section>
-          <section className={panel}>
-            <h2 className="text-sm font-semibold">관련 Terraform 파일 지정</h2>
-            <p className="text-xs text-gray-500">
-              저장소 기준 상대 경로를 입력하세요. 여러 파일은 쉼표로
-              구분합니다. 같은 파일의 선택 항목은 통합합니다.
-            </p>
-            <button className={button} onClick={previewFiles}
-              disabled={running || !selected.length || !!(initialSelection && initialSelection.runId !== diagnosis?.id)}>
-              Terraform 파일 자동 추천
-            </button>
-            {mappingPreview && previewRules === selectionKey && (
-              <p className="text-xs text-gray-600">
-                {mappingPreview.repository} · {mappingPreview.ref} · {mappingPreview.commit_sha.slice(0, 12)}
-              </p>
-            )}
-            {selected.map((r) => (
-              <div key={r.rule_id} className="block text-xs">
-                <span className="font-semibold">{r.rule_id}</span> ·{" "}
-                {r.recommendation}
-                {!!r.resource_ids?.length && (
-                  <span className="mt-2 block rounded-lg border border-amber-200 bg-amber-50 p-2">
-                    <span className="block font-semibold">리소스별 조치 범위</span>
-                    <span className="block text-amber-800">
-                      이번 수정에서 제외한 리소스는 미조치로 남습니다. HTTPS 예외는 사유를 기록해 따로 표시하며 진단 결과는 PASS로 바뀌지 않습니다.
-                    </span>
-                    {r.resource_ids.map((id) => (
-                      <span key={id} className="mt-2 block rounded border border-amber-100 bg-white p-2">
-                        <span className="block font-semibold">{resourceNameKorean(r.rule_id, id)}</span>
-                        <span className="block break-all font-mono text-[11px] text-gray-500">AWS ID: {id}</span>
-                        <span className="mt-1 flex flex-wrap items-center gap-4">
-                          <span className="inline-flex items-center gap-1">
-                            <input aria-label={`${resourceNameKorean(r.rule_id, id)} 이번 수정`} type="checkbox"
-                              checked={(targetResources[r.rule_id] ?? r.resource_ids ?? []).includes(id)}
-                              onChange={() => {
-                                const chosen = targetResources[r.rule_id] ?? r.resource_ids ?? []
-                                const selecting = !chosen.includes(id)
-                                setTargetResources((current) => ({ ...current, [r.rule_id]: selecting
-                                  ? [...(current[r.rule_id] ?? r.resource_ids ?? []), id]
-                                  : (current[r.rule_id] ?? r.resource_ids ?? []).filter((value) => value !== id) }))
-                                if (!selecting || r.rule_id === "4.4") {
-                                  setHttpsExceptions((current) => ({ ...current, [r.rule_id]:
-                                    (current[r.rule_id] ?? []).filter((value) => value !== id) }))
-                                }
-                              }} />
-                            이번 수정
-                          </span>
-                          {canMarkHttpsException(r.rule_id, id) && (
-                            <span className="inline-flex items-center gap-1 text-amber-800">
-                              <input aria-label={`${resourceNameKorean(r.rule_id, id)} HTTPS 예외`} type="checkbox"
-                                checked={(httpsExceptions[r.rule_id] ?? []).includes(id)}
-                                onChange={() => {
-                                  const marking = !(httpsExceptions[r.rule_id] ?? []).includes(id)
-                                  setHttpsExceptions((current) => ({ ...current, [r.rule_id]: marking
-                                    ? [...(current[r.rule_id] ?? []), id]
-                                    : (current[r.rule_id] ?? []).filter((value) => value !== id) }))
-                                  if (marking && r.rule_id === "4.4") {
-                                    setTargetResources((current) => ({ ...current, [r.rule_id]:
-                                      (current[r.rule_id] ?? r.resource_ids ?? []).filter((value) => value !== id) }))
-                                  }
-                                  if (marking && r.rule_id === "3.9") {
-                                    setTargetResources((current) => ({ ...current, [r.rule_id]:
-                                      Array.from(new Set([...(current[r.rule_id] ?? r.resource_ids ?? []), id])) }))
-                                  }
-                                }} />
-                              HTTPS 예외(미조치)
-                            </span>
-                          )}
-                        </span>
-                      </span>
-                    ))}
-                  </span>
-                )}
-                {!!httpsExceptions[r.rule_id]?.length && (
-                  <span className="mt-2 block">
-                    <span className="font-semibold">HTTPS 예외 사유</span>
-                    <textarea value={httpsExceptionReasons[r.rule_id] ?? ""} maxLength={2000} rows={2}
-                      onChange={(event) => setHttpsExceptionReasons((current) => ({
-                        ...current, [r.rule_id]: event.target.value,
-                      }))}
-                      placeholder="예: 도메인·ACM 인증서가 준비되지 않아 HTTPS 전환을 다음 변경으로 미룹니다."
-                      className="mt-1 w-full rounded-lg border border-amber-300 px-3 py-2 text-xs" />
-                  </span>
-                )}
-                <span className="mt-2 block text-gray-600">
-                  필요한 통신 요건·허용 포트·목적지 (확인된 경우 입력)
-                </span>
-                {r.rule_id === "3.2" && (
-                  <span className="mt-1 block rounded-lg bg-amber-50 p-2 text-amber-900">
-                    3.2는 누구나 접근 가능한 소스(0.0.0.0/0, ::/0)를 확인합니다.
-                    이번에 제한할 보안 그룹만 선택하고, 실제 허용할 소스 CIDR 또는 보안 그룹과
-                    적용할 인바운드 규칙을 운영 요건에 적어 주세요. 공개 접속이 필요한 규칙은
-                    임의로 좁히지 마세요. 아래 후보의 “ID 일치”로 AWS ID와 Terraform 선언의
-                    연결도 확인하세요.
-                  </span>
-                )}
-                <textarea value={constraints[r.rule_id] ?? ""} maxLength={2000} rows={2}
-                  onChange={(e) => setConstraints((current) => ({ ...current, [r.rule_id]: e.target.value }))}
-                  placeholder={r.rule_id === "3.2"
-                    ? "예: sg-...의 443/TCP 인바운드 소스는 확인된 사내 CIDR 10.0.0.0/8만 허용합니다."
-                    : "예: 선택한 SG의 아웃바운드는 VPC CIDR의 443/TCP가 필요합니다. 확인되지 않은 포트는 추측하지 마세요."}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs" />
-                <input
-                  value={paths[r.rule_id] ?? ""}
-                  disabled={running}
-                  onChange={(e) =>
-                    setPaths((p) => ({ ...p, [r.rule_id]: e.target.value }))
-                  }
-                  placeholder="예: modules/network/security_groups.tf"
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono"
-                />
-                {mappingPreview && previewRules === selectionKey && (() => {
-                  const item = mappingPreview.mapping[r.rule_id]
-                  if (!item) return null
-                  if (item.status === "NOT_TERRAFORM") {
-                    return (
-                      <span className="mt-1 block text-amber-700">
-                        Terraform 조치 대상 아님: {item.reason} 선택을 해제하세요.
-                      </span>
-                    )
-                  }
-                  const chosen = splitPaths(paths[r.rule_id])
-                  return (
-                    <span className="mt-1 block text-gray-600">
-                      {item.status === "NO_CANDIDATE"
-                        ? item.reason
-                        : item.status === "MATCHED"
-                          ? "Terraform State에서 리소스 연결을 확인했습니다. 자동 입력된 파일을 검토하세요."
-                          : "자동 입력된 파일을 검토하세요(State 연결은 확인하지 못함). 파일을 눌러 추가·제외할 수 있습니다."}
-                      {!!item.unmapped_resource_ids?.length && (
-                        <span className="block text-amber-700">
-                          Terraform State에서 연결을 확인하지 못한 리소스: {item.unmapped_resource_ids
-                            .map((id) => `${resourceNameKorean(r.rule_id, id)} (AWS ID: ${id})`).join(", ")}
-                        </span>
-                      )}
-                      {item.candidates.map((candidate) => (
-                        <button key={candidate.file_path} type="button"
-                          className={`ml-2 underline ${chosen.includes(candidate.file_path) ? "font-semibold text-[#101828]" : ""}`}
-                          onClick={() => toggleCandidate(r.rule_id, candidate.file_path)}>
-                          {chosen.includes(candidate.file_path) ? "✓ " : "+ "}
-                          {candidate.file_path}{candidate.identity_match
-                            ? ` (ID 일치: ${(candidate.covered_resource_ids ?? [])
-                              .map((id) => `${resourceNameKorean(r.rule_id, id)} · ${id}`).join(", ")})` : ""}
-                        </button>
-                      ))}
-                    </span>
-                  )
-                })()}
-              </div>
-            ))}
-            <button
-              className={button}
-              onClick={fetchSource}
-              disabled={
-                running ||
-                !selected.length ||
-                !mappingPreview || previewRules !== selectionKey ||
-                selected.some((r) => !paths[r.rule_id]?.trim()) ||
-                selected.some((r) => r.rule_id === "3.2" && !constraints[r.rule_id]?.trim()) ||
-                selected.some((r) => !!httpsExceptions[r.rule_id]?.length && !httpsExceptionReasons[r.rule_id]?.trim()) ||
-                selected.some((r) => !!r.resource_ids?.length && !(targetResources[r.rule_id] ?? r.resource_ids ?? []).length) ||
-                notTerraformSelected ||
-                !!(initialSelection && initialSelection.runId !== diagnosis?.id)
-              }
-            >
-              {running ? "처리 중…" : "GitHub 원본 조회 · 새 패치 생성"}
-            </button>
-            {selected.some((r) => r.rule_id === "3.2" && !constraints[r.rule_id]?.trim()) && (
-              <p className="text-xs text-amber-800">
-                3.2의 허용 소스가 비어 있습니다. 적용할 보안 그룹과 규칙의 허용 CIDR 또는
-                보안 그룹을 운영 통신 요건에 입력해야 새 패치를 만들 수 있습니다.
-              </p>
-            )}
-            {selected.some((r) => !!httpsExceptions[r.rule_id]?.length && !httpsExceptionReasons[r.rule_id]?.trim()) && (
-              <p className="text-xs text-amber-800">HTTPS 예외로 표시한 리소스의 사유를 입력하세요.</p>
-            )}
-          </section>
-        </div>
-          )}
-        </div>
-      )}
-      <details className="rounded-2xl border border-[#E4E7EC] bg-white" aria-label="패치 이력">
-        <summary className="cursor-pointer px-4 py-4 text-sm font-bold text-[#101828]">
-          패치 이력 {history ? `${offset + history.patches.length}${history.patches.length === 50 ? "건 이상" : "건"}` : "불러오는 중"}
-          <span className="ml-2 text-xs font-normal text-[#667085]">저장된 조치 기록과 과거 요청 보기</span>
-        </summary>
-        <div className="flex items-center justify-end border-t border-[#EAECF0] px-4 pt-3">
-          <button
-            className="text-xs underline disabled:opacity-40"
-            disabled={running}
-            onClick={() => perform(() => loadHistory())}
-          >
-            새로고침
-          </button>
-        </div>
-        <div className="space-y-3 px-4 pb-4">
-        {fix && fix.payload.audit.length > 0 && (
-          <div>
-            <h3 className="mb-2 text-xs font-semibold text-[#344054]">선택한 패치의 처리 기록</h3>
-            <ol className="space-y-2">
-              {fix.payload.audit.map((event, index) => (
-                <li key={`${event.at}-${index}`} className="flex flex-wrap gap-x-3 gap-y-1 rounded-lg bg-[#F9FAFB] px-3 py-2 text-xs">
-                  <time className="text-[#667085]">{formatTime(event.at)}</time>
-                  <span className="font-semibold text-[#101828]">{PATCH_STATUS[event.event] ?? event.event}</span>
-                  <span className="text-[#667085]">{event.actor}</span>
-                  {event.note && <span className="w-full whitespace-pre-wrap text-[#475467]">{event.note}</span>}
-                </li>
-              ))}
-            </ol>
-          </div>
-        )}
-        {history?.patches.length === 0 && (
-          <p className="text-xs text-gray-500">저장된 패치가 없습니다.</p>
-        )}
-        <h3 className="text-xs font-semibold text-[#344054]">과거 AI 조치 요청</h3>
-        <ul className="divide-y divide-[#EAECF0] rounded-lg border border-[#EAECF0]">
-          {history?.patches.map((patch) => (
-            <li key={patch.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-3 text-xs">
-              <div className="min-w-0">
-                <p className="font-semibold text-[#101828]">{(patch.rule_ids ?? []).map((id) => `규칙 ${id}`).join(" · ") || "AI 조치 요청"}</p>
-                <p className="mt-1 text-[#667085]">{formatTime(patch.created_at)} · 요청자 {patch.requested_by}</p>
-                <p className={`mt-1 font-semibold ${patch.status === "REMEDIATED" ? "text-[#027A48]" : FAILED_PHASE[patch.status] !== undefined ? "text-[#B42318]" : "text-[#475467]"}`}>
-                  {patch.status === "REMEDIATED" ? "✓" : FAILED_PHASE[patch.status] !== undefined ? "!" : "○"} {PATCH_STATUS[patch.status] ?? patch.status}
-                  {patch.deployment_status ? ` · 배포 ${patch.deployment_status}` : ""}
-                  {patch.https_exception_count ? ` · HTTPS 예외 ${patch.https_exception_count}건` : ""}
-                </p>
-              </div>
-              <button type="button" className="rounded-lg border border-[#D0D5DD] px-3 py-1.5 font-semibold text-[#344054] disabled:opacity-40" disabled={running} onClick={() => perform(async () => selectDetail(await api<PatchDetail>(`/api/ai-actions/patches/${patch.id}`)))}>상세보기</button>
-            </li>
-          ))}
-        </ul>
-        <div className="flex gap-3 text-xs">
-          <button
-            disabled={running || offset === 0}
-            className="disabled:opacity-40"
-            onClick={() =>
-              perform(async () => {
-                await loadHistory(offset - 50)
-                setOffset(offset - 50)
-              })
-            }
-          >
-            이전
-          </button>
-          <button
-            disabled={running || history?.patches.length !== 50}
-            className="disabled:opacity-40"
-            onClick={() =>
-              perform(async () => {
-                await loadHistory(offset + 50)
-                setOffset(offset + 50)
-              })
-            }
-          >
-            다음
-          </button>
-        </div>
-        </div>
-      </details>
       {fix && (
         <section className={panel} aria-label="조치 검토 및 다음 작업">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1458,6 +1175,317 @@ export function AIActionsPage({
           </p>
         </section>
       )}
+      {fix && <PatchResult fix={fix} onDetails={showTechnicalDetails} onReport={() => setReportOpen(true)} />}
+      {history?.can_create && (
+        <div className="space-y-3">
+          <button type="button" onClick={() => setShowPreparation((open) => !open)} aria-expanded={showPreparation} className="w-full rounded-2xl border border-[#E4E7EC] bg-white px-4 py-3 text-left text-sm font-semibold text-[#101828]">
+            {showPreparation ? "▾" : "▸"} 새 AI 조치 준비
+            <span className="ml-2 text-xs font-normal text-[#667085]">진단 FAIL 선택과 Terraform 파일 지정</span>
+          </button>
+          {showPreparation && (
+        <div className="grid gap-3 lg:grid-cols-[minmax(280px,340px)_1fr]">
+          <section className={panel}>
+            <h2 className="text-sm font-semibold">
+              실패 항목 {fails.length}개 · 선택 {selected.length}개
+            </h2>
+            {!diagnosis?.result && (
+              <p className="text-xs">먼저 AI 진단을 완료하세요.</p>
+            )}
+            {initialSelection && initialSelection.runId !== diagnosis?.id && (
+              <p className="text-xs text-amber-700">
+                선택한 진단 이후 새 진단이 있습니다. AI 진단 화면에서 다시
+                선택하세요.
+              </p>
+            )}
+            <ul className="max-h-[460px] overflow-auto divide-y divide-gray-100">
+              {fails.map((r) => (
+                <li key={r.rule_id}>
+                  <label className="flex cursor-pointer gap-2 py-3 text-xs">
+                    <input
+                      type="checkbox"
+                      aria-label={`FAIL ${r.rule_id} 선택`}
+                      disabled={running}
+                      checked={selectedRuleIds.includes(r.rule_id)}
+                      onChange={(e) =>
+                        setSelectedRuleIds((ids) =>
+                          e.target.checked
+                            ? [...ids, r.rule_id]
+                            : ids.filter((id) => id !== r.rule_id),
+                        )
+                      }
+                    />
+                    <span>
+                      <strong className="text-red-700">FAIL {r.rule_id}</strong>{" "}
+                      · {r.severity}
+                      <br />
+                      {r.reason}
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </section>
+          <section className={panel}>
+            <h2 className="text-sm font-semibold">관련 Terraform 파일 지정</h2>
+            <p className="text-xs text-gray-500">
+              저장소 기준 상대 경로를 입력하세요. 여러 파일은 쉼표로
+              구분합니다. 같은 파일의 선택 항목은 통합합니다.
+            </p>
+            <button className={button} onClick={previewFiles}
+              disabled={running || !selected.length || !!(initialSelection && initialSelection.runId !== diagnosis?.id)}>
+              Terraform 파일 자동 추천
+            </button>
+            {mappingPreview && previewRules === selectionKey && (
+              <p className="text-xs text-gray-600">
+                {mappingPreview.repository} · {mappingPreview.ref} · {mappingPreview.commit_sha.slice(0, 12)}
+              </p>
+            )}
+            {selected.map((r) => (
+              <div key={r.rule_id} className="block text-xs">
+                <span className="font-semibold">{r.rule_id}</span> ·{" "}
+                {r.recommendation}
+                {!!r.resource_ids?.length && (
+                  <span className="mt-2 block rounded-lg border border-amber-200 bg-amber-50 p-2">
+                    <span className="block font-semibold">리소스별 조치 범위</span>
+                    <span className="block text-amber-800">
+                      이번 수정에서 제외한 리소스는 미조치로 남습니다. HTTPS 예외는 사유를 기록해 따로 표시하며 진단 결과는 PASS로 바뀌지 않습니다.
+                    </span>
+                    {r.resource_ids.map((id) => (
+                      <span key={id} className="mt-2 block rounded border border-amber-100 bg-white p-2">
+                        <span className="block font-semibold">{resourceNameKorean(r.rule_id, id)}</span>
+                        <span className="block break-all font-mono text-[11px] text-gray-500">AWS ID: {id}</span>
+                        <span className="mt-1 flex flex-wrap items-center gap-4">
+                          <span className="inline-flex items-center gap-1">
+                            <input aria-label={`${resourceNameKorean(r.rule_id, id)} 이번 수정`} type="checkbox"
+                              checked={(targetResources[r.rule_id] ?? r.resource_ids ?? []).includes(id)}
+                              onChange={() => {
+                                const chosen = targetResources[r.rule_id] ?? r.resource_ids ?? []
+                                const selecting = !chosen.includes(id)
+                                setTargetResources((current) => ({ ...current, [r.rule_id]: selecting
+                                  ? [...(current[r.rule_id] ?? r.resource_ids ?? []), id]
+                                  : (current[r.rule_id] ?? r.resource_ids ?? []).filter((value) => value !== id) }))
+                                if (!selecting || r.rule_id === "4.4") {
+                                  setHttpsExceptions((current) => ({ ...current, [r.rule_id]:
+                                    (current[r.rule_id] ?? []).filter((value) => value !== id) }))
+                                }
+                              }} />
+                            이번 수정
+                          </span>
+                          {canMarkHttpsException(r.rule_id, id) && (
+                            <span className="inline-flex items-center gap-1 text-amber-800">
+                              <input aria-label={`${resourceNameKorean(r.rule_id, id)} HTTPS 예외`} type="checkbox"
+                                checked={(httpsExceptions[r.rule_id] ?? []).includes(id)}
+                                onChange={() => {
+                                  const marking = !(httpsExceptions[r.rule_id] ?? []).includes(id)
+                                  setHttpsExceptions((current) => ({ ...current, [r.rule_id]: marking
+                                    ? [...(current[r.rule_id] ?? []), id]
+                                    : (current[r.rule_id] ?? []).filter((value) => value !== id) }))
+                                  if (marking && r.rule_id === "4.4") {
+                                    setTargetResources((current) => ({ ...current, [r.rule_id]:
+                                      (current[r.rule_id] ?? r.resource_ids ?? []).filter((value) => value !== id) }))
+                                  }
+                                  if (marking && r.rule_id === "3.9") {
+                                    setTargetResources((current) => ({ ...current, [r.rule_id]:
+                                      Array.from(new Set([...(current[r.rule_id] ?? r.resource_ids ?? []), id])) }))
+                                  }
+                                }} />
+                              HTTPS 예외(미조치)
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                    ))}
+                  </span>
+                )}
+                {!!httpsExceptions[r.rule_id]?.length && (
+                  <span className="mt-2 block">
+                    <span className="font-semibold">HTTPS 예외 사유</span>
+                    <textarea value={httpsExceptionReasons[r.rule_id] ?? ""} maxLength={2000} rows={2}
+                      onChange={(event) => setHttpsExceptionReasons((current) => ({
+                        ...current, [r.rule_id]: event.target.value,
+                      }))}
+                      placeholder="예: 도메인·ACM 인증서가 준비되지 않아 HTTPS 전환을 다음 변경으로 미룹니다."
+                      className="mt-1 w-full rounded-lg border border-amber-300 px-3 py-2 text-xs" />
+                  </span>
+                )}
+                <span className="mt-2 block text-gray-600">
+                  필요한 통신 요건·허용 포트·목적지 (확인된 경우 입력)
+                </span>
+                {r.rule_id === "3.2" && (
+                  <span className="mt-1 block rounded-lg bg-amber-50 p-2 text-amber-900">
+                    3.2는 누구나 접근 가능한 소스(0.0.0.0/0, ::/0)를 확인합니다.
+                    이번에 제한할 보안 그룹만 선택하고, 실제 허용할 소스 CIDR 또는 보안 그룹과
+                    적용할 인바운드 규칙을 운영 요건에 적어 주세요. 공개 접속이 필요한 규칙은
+                    임의로 좁히지 마세요. 아래 후보의 “ID 일치”로 AWS ID와 Terraform 선언의
+                    연결도 확인하세요.
+                  </span>
+                )}
+                <textarea value={constraints[r.rule_id] ?? ""} maxLength={2000} rows={2}
+                  onChange={(e) => setConstraints((current) => ({ ...current, [r.rule_id]: e.target.value }))}
+                  placeholder={r.rule_id === "3.2"
+                    ? "예: sg-...의 443/TCP 인바운드 소스는 확인된 사내 CIDR 10.0.0.0/8만 허용합니다."
+                    : "예: 선택한 SG의 아웃바운드는 VPC CIDR의 443/TCP가 필요합니다. 확인되지 않은 포트는 추측하지 마세요."}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs" />
+                <input
+                  value={paths[r.rule_id] ?? ""}
+                  disabled={running}
+                  onChange={(e) =>
+                    setPaths((p) => ({ ...p, [r.rule_id]: e.target.value }))
+                  }
+                  placeholder="예: modules/network/security_groups.tf"
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono"
+                />
+                {mappingPreview && previewRules === selectionKey && (() => {
+                  const item = mappingPreview.mapping[r.rule_id]
+                  if (!item) return null
+                  if (item.status === "NOT_TERRAFORM") {
+                    return (
+                      <span className="mt-1 block text-amber-700">
+                        Terraform 조치 대상 아님: {item.reason} 선택을 해제하세요.
+                      </span>
+                    )
+                  }
+                  const chosen = splitPaths(paths[r.rule_id])
+                  return (
+                    <span className="mt-1 block text-gray-600">
+                      {item.status === "NO_CANDIDATE"
+                        ? item.reason
+                        : item.status === "MATCHED"
+                          ? "Terraform State에서 리소스 연결을 확인했습니다. 자동 입력된 파일을 검토하세요."
+                          : "자동 입력된 파일을 검토하세요(State 연결은 확인하지 못함). 파일을 눌러 추가·제외할 수 있습니다."}
+                      {!!item.unmapped_resource_ids?.length && (
+                        <span className="block text-amber-700">
+                          Terraform State에서 연결을 확인하지 못한 리소스: {item.unmapped_resource_ids
+                            .map((id) => `${resourceNameKorean(r.rule_id, id)} (AWS ID: ${id})`).join(", ")}
+                        </span>
+                      )}
+                      {item.candidates.map((candidate) => (
+                        <button key={candidate.file_path} type="button"
+                          className={`ml-2 underline ${chosen.includes(candidate.file_path) ? "font-semibold text-[#101828]" : ""}`}
+                          onClick={() => toggleCandidate(r.rule_id, candidate.file_path)}>
+                          {chosen.includes(candidate.file_path) ? "✓ " : "+ "}
+                          {candidate.file_path}{candidate.identity_match
+                            ? ` (ID 일치: ${(candidate.covered_resource_ids ?? [])
+                              .map((id) => `${resourceNameKorean(r.rule_id, id)} · ${id}`).join(", ")})` : ""}
+                        </button>
+                      ))}
+                    </span>
+                  )
+                })()}
+              </div>
+            ))}
+            <button
+              className={button}
+              onClick={fetchSource}
+              disabled={
+                running ||
+                !selected.length ||
+                !mappingPreview || previewRules !== selectionKey ||
+                selected.some((r) => !paths[r.rule_id]?.trim()) ||
+                selected.some((r) => r.rule_id === "3.2" && !constraints[r.rule_id]?.trim()) ||
+                selected.some((r) => !!httpsExceptions[r.rule_id]?.length && !httpsExceptionReasons[r.rule_id]?.trim()) ||
+                selected.some((r) => !!r.resource_ids?.length && !(targetResources[r.rule_id] ?? r.resource_ids ?? []).length) ||
+                notTerraformSelected ||
+                !!(initialSelection && initialSelection.runId !== diagnosis?.id)
+              }
+            >
+              {running ? "처리 중…" : "GitHub 원본 조회 · 새 패치 생성"}
+            </button>
+            {selected.some((r) => r.rule_id === "3.2" && !constraints[r.rule_id]?.trim()) && (
+              <p className="text-xs text-amber-800">
+                3.2의 허용 소스가 비어 있습니다. 적용할 보안 그룹과 규칙의 허용 CIDR 또는
+                보안 그룹을 운영 통신 요건에 입력해야 새 패치를 만들 수 있습니다.
+              </p>
+            )}
+            {selected.some((r) => !!httpsExceptions[r.rule_id]?.length && !httpsExceptionReasons[r.rule_id]?.trim()) && (
+              <p className="text-xs text-amber-800">HTTPS 예외로 표시한 리소스의 사유를 입력하세요.</p>
+            )}
+          </section>
+        </div>
+          )}
+        </div>
+      )}
+      <details ref={historyRef} className="rounded-2xl border border-[#E4E7EC] bg-white" aria-label="패치 이력">
+        <summary className="cursor-pointer px-4 py-4 text-sm font-bold text-[#101828]">
+          패치 이력 {history ? `${offset + history.patches.length}${history.patches.length === 50 ? "건 이상" : "건"}` : "불러오는 중"}
+          <span className="ml-2 text-xs font-normal text-[#667085]">저장된 조치 기록과 과거 요청 보기</span>
+        </summary>
+        <div className="flex items-center justify-end border-t border-[#EAECF0] px-4 pt-3">
+          <button
+            className="text-xs underline disabled:opacity-40"
+            disabled={running}
+            onClick={() => perform(() => loadHistory())}
+          >
+            새로고침
+          </button>
+        </div>
+        <div className="space-y-3 px-4 pb-4">
+        {fix && fix.payload.audit.length > 0 && (
+          <div>
+            <h3 className="mb-2 text-xs font-semibold text-[#344054]">선택한 패치의 처리 기록</h3>
+            <ol className="space-y-2">
+              {fix.payload.audit.map((event, index) => (
+                <li key={`${event.at}-${index}`} className="flex flex-wrap gap-x-3 gap-y-1 rounded-lg bg-[#F9FAFB] px-3 py-2 text-xs">
+                  <time className="text-[#667085]">{formatTime(event.at)}</time>
+                  <span className="font-semibold text-[#101828]">{PATCH_STATUS[event.event] ?? event.event}</span>
+                  <span className="text-[#667085]">{event.actor}</span>
+                  {event.note && <span className="w-full whitespace-pre-wrap text-[#475467]">{event.note}</span>}
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+        {history?.patches.length === 0 && (
+          <p className="text-xs text-gray-500">저장된 패치가 없습니다.</p>
+        )}
+        <h3 className="text-xs font-semibold text-[#344054]">과거 AI 조치 요청</h3>
+        <ul className="divide-y divide-[#EAECF0] rounded-lg border border-[#EAECF0]">
+          {history?.patches.map((patch) => (
+            <li key={patch.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-3 text-xs">
+              <div className="min-w-0">
+                <p className="font-semibold text-[#101828]">{(patch.rule_ids ?? []).map((id) => `규칙 ${id}`).join(" · ") || "AI 조치 요청"}</p>
+                <p className="mt-1 text-[#667085]">{formatTime(patch.created_at)} · 요청자 {patch.requested_by}</p>
+                <p className={`mt-1 font-semibold ${patch.status === "REMEDIATED" ? "text-[#027A48]" : FAILED_PHASE[patch.status] !== undefined ? "text-[#B42318]" : "text-[#475467]"}`}>
+                  {patch.status === "REMEDIATED" ? "✓" : FAILED_PHASE[patch.status] !== undefined ? "!" : "○"} {PATCH_STATUS[patch.status] ?? patch.status}
+                  {patch.deployment_status ? ` · 배포 ${patch.deployment_status}` : ""}
+                  {patch.https_exception_count ? ` · HTTPS 예외 ${patch.https_exception_count}건` : ""}
+                </p>
+              </div>
+              <button type="button" className="cursor-pointer rounded-lg border border-[#D0D5DD] px-3 py-1.5 font-semibold text-[#344054] hover:bg-[#F9FAFB] disabled:cursor-not-allowed disabled:opacity-40" disabled={running} onClick={() => perform(async () => selectDetail(await api<PatchDetail>(`/api/ai-actions/patches/${patch.id}`), true))}>상세보기</button>
+            </li>
+          ))}
+        </ul>
+        <div className="flex gap-3 text-xs">
+          <button
+            disabled={running || offset === 0}
+            className="disabled:opacity-40"
+            onClick={() =>
+              perform(async () => {
+                await loadHistory(offset - 50)
+                setOffset(offset - 50)
+              })
+            }
+          >
+            이전
+          </button>
+          <button
+            disabled={running || history?.patches.length !== 50}
+            className="disabled:opacity-40"
+            onClick={() =>
+              perform(async () => {
+                await loadHistory(offset + 50)
+                setOffset(offset + 50)
+              })
+            }
+          >
+            다음
+          </button>
+        </div>
+        <button type="button" onClick={returnToStart} disabled={running} className="cursor-pointer rounded-lg border border-[#D0D5DD] px-3 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#F9FAFB] disabled:cursor-not-allowed disabled:opacity-40">
+          ← AI 조치 초기 화면으로
+        </button>
+        </div>
+      </details>
       {fix && reportOpen && (fix.payload.report || fix.payload.final_report) && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[#101828]/60 p-3 sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) setReportOpen(false) }}>
           <div role="dialog" aria-modal="true" aria-labelledby="patch-report-title" className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">

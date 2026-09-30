@@ -2891,6 +2891,10 @@ export default function App() {
             <AIActionsPage
               initialSelection={patchSelection}
               initialPatchId={patchDetailId}
+              onReturnToStart={() => {
+                setPatchSelection(null)
+                setPatchDetailId(null)
+              }}
               onUnauthorized={() => {
                 setAuthUser(null)
                 setAuthState("unauthenticated")
