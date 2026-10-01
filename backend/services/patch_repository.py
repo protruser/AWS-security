@@ -74,6 +74,21 @@ class PatchRepository:
                            (f"patch:{patch_id}", json.dumps(result, ensure_ascii=False, default=str)))
             return cursor.lastrowid
 
+    def latest_completed_diagnosis_after(self, completed_at):
+        timestamp = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        applied_at = timestamp.astimezone(timezone.utc).replace(tzinfo=None)
+        with get_connection() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT id, result FROM ai_diagnosis_runs "
+                           "WHERE status = 'done' AND requested_by NOT LIKE 'patch:%%' "
+                           "AND started_at > %s ORDER BY started_at DESC, id DESC LIMIT 1",
+                           (applied_at,))
+            row = cursor.fetchone()
+        if row:
+            row["result"] = json.loads(row["result"]) if isinstance(row["result"], str) else row["result"]
+        return row
+
     def insert(self, patch):
         encrypted = seal(patch["payload"])
         with get_connection() as connection, connection.cursor() as cursor:

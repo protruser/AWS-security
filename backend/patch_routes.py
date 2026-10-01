@@ -138,6 +138,12 @@ def register_patch_routes(app, role_required):
     def refresh_patch_deployment(patch_id):
         return service.refresh_deploy(str(patch_id), actor())
 
+    @app.post("/api/ai-actions/patches/<uuid:patch_id>/rediagnosis/use-latest")
+    @reader
+    @guarded
+    def use_latest_diagnosis(patch_id):
+        return service.use_completed_diagnosis(str(patch_id), actor())
+
     @app.get("/api/ai-actions/patches/<uuid:patch_id>/download/<kind>")
     @reader
     @guarded

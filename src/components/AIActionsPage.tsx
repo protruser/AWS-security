@@ -392,7 +392,7 @@ function PatchProgress({ fix }: { fix: PatchDetail }) {
   )
 }
 
-function PatchResult({ fix, onDetails, onReport }: { fix: PatchDetail; onDetails: () => void; onReport: () => void }) {
+function PatchResult({ fix, onDetails, onReport, onUseLatest, busy }: { fix: PatchDetail; onDetails: () => void; onReport: () => void; onUseLatest: () => void; busy: boolean }) {
   if (!["REMEDIATED", "NOT_REMEDIATED", "DEPLOY_FAILED", "REDIAGNOSIS_FAILED"].includes(fix.status)) return null
   const verified = fix.status === "REMEDIATED"
   const comparisons = fix.payload.rediagnosis?.results ?? []
@@ -422,6 +422,11 @@ function PatchResult({ fix, onDetails, onReport }: { fix: PatchDetail; onDetails
       {fix.payload.rediagnosis?.error && <p className="mt-3 text-xs text-[#B54708]">{fix.payload.rediagnosis.error}</p>}
       {fix.payload.deployment?.error && <p className="mt-3 text-xs text-[#B54708]">{fix.payload.deployment.error}</p>}
       <div className="mt-4 flex flex-wrap gap-2">
+        {fix.status === "REDIAGNOSIS_FAILED" && fix.payload.deployment?.status === "SUCCESS" && (
+          <button type="button" onClick={onUseLatest} disabled={busy} title="배포 완료 후 시작한 최신 AI 진단 결과를 적용합니다. Terraform은 다시 실행하지 않습니다." className="rounded-lg bg-[#101828] px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">
+            배포 후 AI 진단 결과 반영
+          </button>
+        )}
         <button type="button" onClick={onDetails} className="rounded-lg border border-[#D0D5DD] bg-white px-3 py-2 text-xs font-semibold text-[#344054]">상세 정보</button>
         {(fix.payload.report || fix.payload.final_report) && <button type="button" onClick={onReport} className="rounded-lg bg-[#101828] px-3 py-2 text-xs font-semibold text-white">보고서 보기</button>}
       </div>
@@ -1200,7 +1205,7 @@ export function AIActionsPage({
           </p>
         </section>
       )}
-      {fix && <PatchResult fix={fix} onDetails={toggleTechnicalDetails} onReport={() => setReportOpen(true)} />}
+      {fix && <PatchResult fix={fix} onDetails={toggleTechnicalDetails} onReport={() => setReportOpen(true)} onUseLatest={() => step("rediagnosis/use-latest")} busy={running} />}
       {history?.can_create && (
         <div className="space-y-3">
           <button type="button" onClick={() => setShowPreparation((open) => !open)} aria-expanded={showPreparation} className="w-full rounded-2xl border border-[#E4E7EC] bg-white px-4 py-3 text-left text-sm font-semibold text-[#101828]">
