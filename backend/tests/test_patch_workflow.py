@@ -23,6 +23,7 @@ class Repository(MemoryRepository):
     def __init__(self):
         super().__init__()
         self.lock = None
+        self.completed_diagnosis = None
 
     def acquire_deploy_lock(self, patch_id):
         if self.lock is not None:
@@ -35,6 +36,9 @@ class Repository(MemoryRepository):
 
     def store_rediagnosis(self, result, patch_id):
         return 8
+
+    def latest_completed_diagnosis_after(self, completed_at):
+        return self.completed_diagnosis
 
     def pending_deploy_ids(self, limit=10):
         return [row["id"] for row in self.rows.values() if row["status"] == "FINAL_APPROVED"][:limit]
@@ -413,6 +417,62 @@ class PatchWorkflowTest(unittest.TestCase):
         self.assertEqual(row["payload"]["deployment"]["status"], "SUCCESS")
         self.assertFalse(row["payload"]["rediagnosis"]["results"][0]["verified"])
 
+    def test_post_deploy_diagnosis_uses_the_same_result_as_ai_diagnosis(self):
+        self.approve_final()
+        self.github.deploy_run = {"id": 601, "html_url": "https://github.com/org/repo/actions/runs/601",
+                                  "status": "completed", "conclusion": "success", "updated_at": "2026-01-01T00:00:00Z"}
+        result = {"results": [
+            {"rule_id": "3.7", "status": "PASS", "current_value": "설정 완료"},
+            {"rule_id": "1.2", "status": "PASS", "current_value": "AKIA" + "A" * 16},
+        ]}
+        with patch("services.patch_workflow.collect_aws_state", return_value={}), patch(
+                "services.patch_workflow.diagnose_aws_state", return_value=result):
+            row = self.flow.refresh_deploy(self.patch_id, "operator")
+        self.assertEqual(row["status"], "REMEDIATED")
+        self.assertEqual(row["payload"]["rediagnosis"]["results"][0]["after"], "PASS")
+
+    def test_rediagnosis_failure_identifies_stage_without_provider_message(self):
+        self.approve_final()
+        self.github.deploy_run = {"id": 601, "html_url": "https://github.com/org/repo/actions/runs/601",
+                                  "status": "completed", "conclusion": "success", "updated_at": "2026-01-01T00:00:00Z"}
+        with patch("services.patch_workflow.collect_aws_state", return_value={}), patch(
+                "services.patch_workflow.diagnose_aws_state", side_effect=RuntimeError("secret provider response")):
+            row = self.flow.refresh_deploy(self.patch_id, "operator")
+        self.assertEqual(row["status"], "REDIAGNOSIS_FAILED")
+        self.assertEqual(row["payload"]["rediagnosis"]["failed_stage"], "AI 진단")
+        self.assertNotIn("secret provider response", str(row["payload"]["rediagnosis"]))
+
+    def test_failed_rediagnosis_can_use_completed_ai_diagnosis_without_redeploy(self):
+        row = self.repo.get(self.patch_id)
+        row["status"] = "REDIAGNOSIS_FAILED"
+        row["payload"]["deployment"] = {"status": "SUCCESS", "completed_at": "2026-01-01T00:00:00Z"}
+        row["payload"]["rediagnosis"] = {"error": "재진단에 실패했습니다."}
+        self.repo._store(row)
+        self.repo.completed_diagnosis = {"id": 77, "result": {"results": [
+            {"rule_id": "3.7", "status": "PASS", "current_value": "설정 완료"}]}}
+        actual = self.flow.use_completed_diagnosis(self.patch_id, "operator")
+        self.assertEqual(actual["status"], "REMEDIATED")
+        self.assertEqual(actual["payload"]["rediagnosis"]["run_id"], 77)
+        self.assertEqual(self.github.dispatches, [])
+
+    def test_completed_diagnosis_cannot_verify_failed_deployment(self):
+        row = self.repo.get(self.patch_id)
+        row["status"] = "REDIAGNOSIS_FAILED"
+        row["payload"]["deployment"] = {"status": "FAILED", "completed_at": "2026-01-01T00:00:00Z"}
+        self.repo._store(row)
+        with self.assertRaises(PatchError) as error:
+            self.flow.use_completed_diagnosis(self.patch_id, "operator")
+        self.assertEqual(error.exception.code, "DEPLOYMENT_NOT_VERIFIED")
+
+    def test_completed_diagnosis_must_exist_after_deployment(self):
+        row = self.repo.get(self.patch_id)
+        row["status"] = "REDIAGNOSIS_FAILED"
+        row["payload"]["deployment"] = {"status": "SUCCESS", "completed_at": "2026-01-01T00:00:00Z"}
+        self.repo._store(row)
+        with self.assertRaises(PatchError) as error:
+            self.flow.use_completed_diagnosis(self.patch_id, "operator")
+        self.assertEqual(error.exception.code, "DIAGNOSIS_NOT_FOUND")
+
     def test_global_lock_separates_patches(self):
         row = self.stage_final()
         self.repo.acquire_deploy_lock("another")
@@ -459,6 +519,19 @@ class PatchRoutesTest(unittest.TestCase):
             result = PatchRepository().approval_inbox()
         self.assertEqual([item["id"] for item in result], ["valid"])
 
+    def test_completed_diagnosis_lookup_starts_after_verified_apply(self):
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {"id": 77, "result": '{"results": []}'}
+        with patch("services.patch_repository.get_connection", return_value=connection):
+            row = PatchRepository().latest_completed_diagnosis_after("2026-10-01T01:42:13Z")
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("status = 'done'", sql)
+        self.assertIn("requested_by NOT LIKE 'patch:%%'", sql)
+        self.assertEqual(params[0].isoformat(), "2026-10-01T01:42:13")
+        self.assertEqual(row, {"id": 77, "result": {"results": []}})
+
     def test_human_review_route_exposes_binding_only_to_admin(self):
         app.app.config.update(TESTING=True, SECRET_KEY="route-review-test")
         client = app.app.test_client()
@@ -498,6 +571,19 @@ class PatchRoutesTest(unittest.TestCase):
             self.assertEqual(client.post(f"/api/ai-actions/patches/{patch_id}/final-approval",
                                          json={"decision": "approve"}).status_code, 200)
             decide.assert_called_once()
+
+    def test_completed_diagnosis_route_requires_authenticated_reader(self):
+        app.app.config.update(TESTING=True, SECRET_KEY="route-rediagnosis-test")
+        client = app.app.test_client()
+        patch_id = "11111111-1111-1111-1111-111111111111"
+        path = f"/api/ai-actions/patches/{patch_id}/rediagnosis/use-latest"
+        service = app.app.extensions["terraform_patches"]
+        self.assertEqual(client.post(path).status_code, 401)
+        with patch.object(service, "use_completed_diagnosis", return_value={"status": "REMEDIATED"}) as use:
+            with client.session_transaction() as session:
+                session.update(authenticated=True, role="관리자", username="operator")
+            self.assertEqual(client.post(path).status_code, 200)
+            use.assert_called_once_with(patch_id, "operator")
 
     def test_download_uses_saved_diff_and_auth(self):
         env = patch.dict(os.environ, {"PATCH_ENCRYPTION_KEY": Fernet.generate_key().decode()})

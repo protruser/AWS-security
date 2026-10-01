@@ -1,6 +1,7 @@
 """Phase 2/3 state transitions around the existing phase-1 patch service."""
 import hashlib
 import json
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -407,23 +408,52 @@ class PatchWorkflow(TerraformPatches):
         return self.repo.get(patch_id)
 
     def _rediagnose(self, patch, actor):
+        stage = "AWS 상태 수집"
         try:
-            result = diagnose_aws_state(collect_aws_state())
-            check_sensitive(json.dumps(result, ensure_ascii=False, default=str))
+            aws_state = collect_aws_state()
+            stage = "AI 진단"
+            result = diagnose_aws_state(aws_state)
+            stage = "진단 결과 저장"
             run_id = self.repo.store_rediagnosis(result, patch["id"])
-            after = {r["rule_id"]: r for r in result["results"]}
-            comparisons = []
-            for finding in patch["payload"]["findings"]:
-                current = after.get(finding["rule_id"], {})
-                comparisons.append({"rule_id": finding["rule_id"], "before": finding["status"],
-                    "after": current.get("status", "REVIEW"),
-                    "current_value": current.get("current_value"),
-                    "expected_value": current.get("expected_value"),
-                    "verified": current.get("status") == "PASS"})
-            patch["payload"]["rediagnosis"] = {"run_id": run_id, "results": comparisons}
-            patch["status"] = "REMEDIATED" if all(r["verified"] for r in comparisons) else "NOT_REMEDIATED"
-        except Exception:
+            stage = "패치 결과 비교"
+            self._record_rediagnosis_result(patch, result, run_id, actor)
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Patch %s rediagnosis failed at %s (%s)",
+                                                patch["id"], stage, type(exc).__name__)
             patch["status"] = "REDIAGNOSIS_FAILED"
-            patch["payload"]["rediagnosis"] = {"error": "재진단에 실패했습니다. 배포 성공과 진단 통과는 별개입니다."}
-        audit(patch["payload"], patch["status"], actor)
+            patch["payload"]["rediagnosis"] = {"error": f"재진단의 {stage} 단계가 실패했습니다.",
+                                                 "failed_stage": stage}
+            audit(patch["payload"], patch["status"], actor)
         self.repo.save(patch, "REDIAGNOSING")
+
+    @staticmethod
+    def _record_rediagnosis_result(patch, result, run_id, actor):
+        after = {row["rule_id"]: row for row in result["results"]}
+        comparisons = []
+        for finding in patch["payload"]["findings"]:
+            current = after.get(finding["rule_id"], {})
+            comparisons.append({"rule_id": finding["rule_id"], "before": finding["status"],
+                "after": current.get("status", "REVIEW"),
+                "current_value": current.get("current_value"),
+                "expected_value": current.get("expected_value"),
+                "verified": current.get("status") == "PASS"})
+        patch["payload"]["rediagnosis"] = {"run_id": run_id, "results": comparisons}
+        if (patch["payload"].get("error") or {}).get("code") == "WORKER_INTERRUPTED":
+            patch["payload"].pop("error")
+        patch["status"] = "REMEDIATED" if all(row["verified"] for row in comparisons) else "NOT_REMEDIATED"
+        audit(patch["payload"], patch["status"], actor, diagnosis_run_id=run_id)
+
+    def use_completed_diagnosis(self, patch_id, actor):
+        """Resolve a failed post-deploy check with a full AI diagnosis run after apply."""
+        patch = self.repo.get(patch_id)
+        if patch["status"] != "REDIAGNOSIS_FAILED":
+            raise PatchError("INVALID_STATE", "재진단이 실패한 패치만 다시 확인할 수 있습니다.", 409)
+        deployment = patch["payload"].get("deployment") or {}
+        if deployment.get("status") != "SUCCESS" or not deployment.get("completed_at"):
+            raise PatchError("DEPLOYMENT_NOT_VERIFIED", "성공한 배포 기록이 필요합니다.", 409)
+        diagnosis = self.repo.latest_completed_diagnosis_after(deployment["completed_at"])
+        if diagnosis is None:
+            raise PatchError("DIAGNOSIS_NOT_FOUND", "배포 후 완료된 AI 진단이 없습니다. AI 진단을 다시 실행하세요.", 409)
+        self._record_rediagnosis_result(patch, diagnosis["result"], diagnosis["id"], actor)
+        self.repo.save(patch, "REDIAGNOSIS_FAILED")
+        return self.repo.get(patch_id)

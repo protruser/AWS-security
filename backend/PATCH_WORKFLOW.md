@@ -74,6 +74,7 @@ an apply failure remains a recorded partial deployment and is never retried.
 | POST | `/patches/<id>/checks/refresh` | Record actual CI results |
 | POST | `/patches/<id>/final-approval` | Separate approver final approval or rejection |
 | POST | `/patches/<id>/deployment/refresh` | Record deployment and rediagnose |
+| POST | `/patches/<id>/rediagnosis/use-latest` | Reconcile a failed rediagnosis with a completed AI diagnosis started after the verified apply; never redeploy |
 | GET | `/patches/<id>/download/{patch,first,final,results}` | Historical artifacts |
 
 There is no public deploy button or deploy API.
